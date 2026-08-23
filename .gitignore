@@ -1,0 +1,34 @@
+# Personal AI System - Gitignore
+# Generated for secure public publication
+
+# Encryption keys (stored in user home)
+.personal_ai_key
+.personal_ai_*_key
+
+# Vault data directory
+.personal_ai_vault/
+~/.personal_ai/bills.db
+
+# Authentication
+.personal_ai_auth
+
+# ChromaDB vector store (RAG)
+.chroma/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables (never commit these)
+.env
+*.env
+
+# Ollama model cache (can be large)
+~/.ollama/
+
+# Test artifacts
+.test_output/
+
+# OS artifacts
+.DS_Store
