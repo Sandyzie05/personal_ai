@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal AI System - Interactive Architecture</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        .explanation {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border-left: 4px solid #00d2ff;
+        }
+
+        .explanation h2 {
+            color: #00d2ff;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+
+        .explanation p {
+            line-height: 1.8;
+            margin-bottom: 15px;
+        }
+
+        .explanation ul {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+
+        .explanation li {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+
+        .diagram-container {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .diagram-container h2 {
+            color: #00d2ff;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+        }
+
+        .mermaid {
+            text-align: center;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .feature-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 10px 30px rgba(0, 210, 255, 0.1);
+        }
+
+        .feature-card h3 {
+            color: #00d2ff;
+            margin-bottom: 12px;
+            font-size: 1.2em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .feature-card p {
+            line-height: 1.6;
+            font-size: 0.95em;
+        }
+
+        .security-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: #1a1a2e;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .status-planning {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+            border: 1px solid #ffc107;
+        }
+
+        .status-implementation {
+            background: rgba(0, 210, 255, 0.2);
+            color: #00d2ff;
+            border: 1px solid #00d2ff;
+        }
+
+        .architecture {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .architecture h2 {
+            color: #00d2ff;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+        }
+
+        .layer {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 15px 20px;
+            margin-bottom: 15px;
+            border-radius: 10px;
+            border-left: 4px solid;
+        }
+
+        .layer.user-layer {
+            border-color: #00d2ff;
+        }
+
+        .layer.security-layer {
+            border-color: #ff6b6b;
+        }
+
+        .layer.ai-layer {
+            border-color: #4ecdc4;
+        }
+
+        .layer.data-layer {
+            border-color: #ffe66d;
+        }
+
+        .layer h3 {
+            color: #fff;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .layer ul {
+            margin-left: 20px;
+            margin-bottom: 0;
+        }
+
+        .layer li {
+            margin-bottom: 6px;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+
+        .key-component {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            margin: 5px 0;
+        }
+
+        .key-component .icon {
+            font-size: 1.2em;
+        }
+
+        .key-component .name {
+            color: #fff;
+            font-weight: 500;
+        }
+
+        .encryption-flow {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .encryption-flow h2 {
+            color: #00d2ff;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            position: relative;
+        }
+
+        .flow-step:last-child {
+            margin-bottom: 0;
+        }
+
+        .step-number {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: #fff;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-content h4 {
+            color: #fff;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+
+        .step-content p {
+            color: #aaa;
+            font-size: 0.9em;
+            margin-bottom: 0;
+            line-height: 1.5;
+        }
+
+        .arrow {
+            color: #00d2ff;
+            font-size: 1.5em;
+            margin: 0 15px;
+        }
+
+        @media (max-width: 768px) {
+            .explanation {
+                padding: 15px;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            header {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+        }
+
+        .legend {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .legend h3 {
+            color: #fff;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .legend-items {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🛡️ Personal AI System</h1>
+            <p class="subtitle">
+                A secure, private AI assistant that processes your sensitive data entirely locally 
+                using open-source models — your data never leaves your machine.
+            </p>
+            <div style="margin-top: 20px;">
+                <span class="status-badge status-planning">
+                    <span style="width: 10px; height: 10px; background: #ffc107; border-radius: 50%; display: inline-block;"></span>
+                    Planning Phase Complete
+                </span>
+            </div>
+        </header>
+
+        <div class="explanation">
+            <h2>What is Personal AI?</h2>
+            <p>
+                Personal AI is a privacy-first personal assistant framework designed to help you 
+                with your most sensitive data — health records, financial information, emails, 
+                and personal documents — while maintaining maximum security and privacy.
+            </p>
+            <p>
+                <strong>Core Principle:</strong> Your sensitive data never leaves your device. 
+                All AI processing happens locally on your machine using open-source models.
+            </p>
+            <p>
+                This project is currently in the <strong>planning phase</strong> and ready for 
+                implementation. It includes a working proof-of-concept with encrypted data vault, 
+                authentication system, and encryption utilities.
+            </p>
+        </div>
+
+        <div class="diagram-container">
+            <h2>System Architecture</h2>
+            <div class="mermaid">
+                graph TB
+                    User[User] -->|Query/Command| UI[Web UI / CLI / API]
+                    UI -->|Encrypted Data| Vault[(Encrypted Data Vault)]
+                    
+                    Vault -->|Decrypt Data| Auth[Authentication Layer]
+                    Auth -->|Verify Access| Vault
+                    
+                    Vault -->|Encrypted Data| AI[AI Processing Layer]
+                    
+                    subgraph "AI Processing Layer"
+                        Ollama[Ollama Local LLMs]
+                        RAG[(LlamaIndex + ChromaDB)]
+                    end
+                    
+                    Ollama -->|Process & Generate| RAG
+                    RAG -->|Return Results| AI
+                    
+                    AI -->|Encrypt Results| Vault
+                    
+                    Vault -->|Encrypted Output| UI
+                    UI -->|Display Results| User
+                    
+                    style User fill:#00d2ff,stroke:#fff,stroke-width:2px,color:#fff
+                    style Vault fill:#1e3c72,stroke:#00d2ff,stroke-width:2px,color:#fff
+                    style Auth fill:#ff6b6b,stroke:#fff,stroke-width:2px,color:#fff
+                    style Ollama fill:#4ecdc4,stroke:#fff,stroke-width:2px,color:#fff
+                    style RAG fill:#ffe66d,stroke:#fff,stroke-width:2px,color:#fff
+            </div>
+        </div>
+
+        <div class="legend">
+            <h3>Diagram Legend</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00d2ff;"></div>
+                    <span>User & Interface</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #1e3c72; border: 2px solid #00d2ff;"></div>
+                    <span>Encrypted Data Storage</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff6b6b;"></div>
+                    <span>Security Layer</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4ecdc4;"></div>
+                    <span>AI Processing</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ffe66d;"></div>
+                    <span>RAG & Knowledge</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="architecture">
+            <h2>Architecture Layers</h2>
+            
+            <div class="layer user-layer">
+                <h3>👤 User Layer</h3>
+                <ul>
+                    <li><strong>Web UI:</strong> Streamlit-based chat interface</li>
+                    <li><strong>CLI:</strong> Command-line interface for automation</li>
+                    <li><strong>API:</strong> REST API for third-party integrations</li>
+                </ul>
+            </div>
+
+            <div class="layer security-layer">
+                <h3>🔒 Security Layer</h3>
+                <div class="key-component">
+                    <span class="icon">🔐</span>
+                    <span class="name">AES-256-GCM Encryption</span>
+                </div>
+                <div class="key-component">
+                    <span class="icon">🔑</span>
+                    <span class="name">Key Management</span>
+                </div>
+                <div class="key-component">
+                    <span class="icon">✅</span>
+                    <span class="name">Authentication (Password + Biometric)</span>
+                </div>
+            </div>
+
+            <div class="layer ai-layer">
+                <h3>🤖 AI Processing Layer</h3>
+                <ul>
+                    <li><strong>Ollama:</strong> Local LLM hosts (Llama-3.2, Phi-3)</li>
+                    <li><strong>Embeddings:</strong> Local vector embeddings (nomic-embed-text)</li>
+                    <li><strong>RAG:</strong> Retrieval-Augmented Generation engine</li>
+                </ul>
+            </div>
+
+            <div class="layer data-layer">
+                <h3>📊 Data Ingestion Layer</h3>
+                <ul>
+                    <li><strong>File Importer:</strong> CSV, PDF, DOCX parser</li>
+                    <li><strong>Email Parser:</strong> Gmail/IMAP integration</li>
+                    <li><strong>Health Data:</strong> Apple Health XML parser</li>
+                    <li><strong>Financial Data:</strong> CSV/Excel import</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="encryption-flow">
+            <h2>Data Protection Flow</h2>
+            
+            <div class="flow-step">
+                <div class="step-number">1</div>
+                <div class="arrow">⬇</div>
+                <div class="step-content">
+                    <h4>Data Ingestion</h4>
+                    <p>User Input/Import → Validation → <strong>ENCRYPTION</strong> → Encrypted Database</p>
+                </div>
+            </div>
+
+            <div class="flow-step">
+                <div class="step-number">2</div>
+                <div class="arrow">⬇</div>
+                <div class="step-content">
+                    <h4>Storage</h4>
+                    <p><strong>AES-256-GCM Encrypted Database</strong> with encrypted file system</p>
+                </div>
+            </div>
+
+            <div class="flow-step">
+                <div class="step-number">3</div>
+                <div class="arrow">⬇</div>
+                <div class="step-content">
+                    <h4>Processing</h4>
+                    <p>Data Decrypted (in-memory only) → AI Processing → Results</p>
+                </div>
+            </div>
+
+            <div class="flow-step">
+                <div class="step-number">4</div>
+                <div class="arrow">⬇</div>
+                <div class="step-content">
+                    <h4>Output</h4>
+                    <p>Responses scrubbed, sensitive data redacted, encrypted output</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <h3>
+                    <span class="security-badge">Security First</span>
+                </h3>
+                <p><strong>AES-256 encryption</strong> for all data at rest and in transit. Keys stored in macOS Keychain with fallback to password-based derivation.</p>
+            </div>
+
+            <div class="feature-card">
+                <h3>
+                    <span class="security-badge">Privacy</span>
+                </h3>
+                <p><strong>Local processing only.</strong> No data leaves your machine. All AI models run locally on Ollama.</p>
+            </div>
+
+            <div class="feature-card">
+                <h3>
+                    <span class="security-badge">Open Source</span>
+                </h3>
+                <p><strong>Llama-3.2, Phi-3, LlamaIndex, ChromaDB</strong> — transparent, auditable, community-driven tools.</p>
+            </div>
+
+            <div class="feature-card">
+                <h3>
+                    <span class="security-badge">Versatile</span>
+                </h3>
+                <p><strong>Data Connectors:</strong> Import health data, financial records, emails, and documents with automatic encryption.</p>
+            </div>
+
+            <div class="feature-card">
+                <h3>
+                    <span class="security-badge">User-Friendly</span>
+                </h3>
+                <p><strong>Multiple interfaces:</strong> Web UI for everyday use, CLI for automation, and API for integration.</p>
+            </div>
+
+            <div class="feature-card">
+                <h3>
+                    <span class="security-badge">Future-Ready</span>
+                </h3>
+                <p><strong>Extensible architecture:</strong> Easy to add new AI models, data connectors, and features.</p>
+            </div>
+        </div>
+
+        <div style="background: rgba(255, 255, 255, 0.05); padding: 25px; border-radius: 15px; margin-top: 30px; text-align: center;">
+            <h2 style="color: #00d2ff; margin-bottom: 15px;">Technology Stack</h2>
+            <div style="display: flex; flex-wrap: wrap; gap: 15px; justify-content: center;">
+                <div style="background: rgba(0, 210, 255, 0.1); padding: 10px 20px; border-radius: 8px; border: 1px solid #00d2ff;">
+                    <strong>AI/ML:</strong> Ollama, Llama-3.2, Phi-3, LlamaIndex
+                </div>
+                <div style="background: rgba(255, 107, 107, 0.1); padding: 10px 20px; border-radius: 8px; border: 1px solid #ff6b6b;">
+                    <strong>Backend:</strong> Python (FastAPI/Streamlit)
+                </div>
+                <div style="background: rgba(78, 205, 196, 0.1); padding: 10px 20px; border-radius: 8px; border: 1px solid #4ecdc4;">
+                    <strong>Encryption:</strong> Python cryptography
+                </div>
+                <div style="background: rgba(255, 230, 109, 0.1); padding: 10px 20px; border-radius: 8px; border: 1px solid #ffe66d;">
+                    <strong>Database:</strong> SQLite + SQLCipher
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'dark',
+            securityLevel: 'loose',
+            flowchart: {
+                useMaxWidth: false,
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+    </script>
+</body>
+</html>
