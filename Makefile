@@ -3,6 +3,7 @@
 VENV_BIN := $(shell [ -x venv/bin/python3 ] && echo venv/bin)
 PYTHON := $(if $(VENV_BIN),$(VENV_BIN)/python3,python3)
 STREAMLIT := $(if $(VENV_BIN),$(VENV_BIN)/streamlit,streamlit)
+PYTEST := $(if $(VENV_BIN),$(VENV_BIN)/pytest,pytest)
 
 help:
 	@echo "Personal AI System - available targets:"
@@ -27,4 +28,4 @@ check-context:
 	PYTHONPATH=. $(PYTHON) scripts/check_context_overflow.py $(if $(FILE),--file $(FILE)) $(if $(MODEL),--model $(MODEL))
 
 test:
-	PYTHONPATH=. $(PYTHON) test_metadata_fix.py
+	PYTHONPATH=. $(PYTEST) tests/ -v

@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, Any
+from typing import Iterator, Optional, List, Dict, Any
 
 from .ollama_client import OllamaClient, OllamaClientError
 from .rag_engine import RAGEngine
@@ -20,6 +20,23 @@ class ChatEngineError(Exception):
     """Custom exception for chat engine operations."""
 
     pass
+
+
+class StreamingChatResponse:
+    """Iterable wrapper around a token stream that also exposes `.sources`.
+
+    RAG context is retrieved synchronously before the LLM call starts, so
+    `.sources` is populated immediately - callers don't have to wait for the
+    stream to finish (or reconstruct it from a generator's return value) to
+    show citations alongside the streamed answer.
+    """
+
+    def __init__(self, chunks: Iterator[str], sources: List[str]):
+        self.sources = sources
+        self._chunks = chunks
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._chunks)
 
 
 class ChatEngine:
@@ -121,11 +138,19 @@ class ChatEngine:
             + "\n\n[...context truncated to fit model context window...]"
         )
 
-    def query_vault(self, query: str, use_rag: bool = True) -> Dict[str, Any]:
-        """Query the encrypted vault using chat model."""
-        if not self.ollama_client.model_exists(self.DEFAULT_MODEL):
-            raise ChatEngineError(f"Model '{self.DEFAULT_MODEL}' not available.")
+    SYSTEM_PROMPT = (
+        "You are a helpful personal assistant with access to your local "
+        "encrypted data. Answer based on the provided context."
+    )
 
+    def _build_prompt(self, query: str, use_rag: bool = True) -> Dict[str, Any]:
+        """Build the chat messages and gather RAG context for a query.
+
+        Split out from query_vault/query_vault_stream so both the
+        synchronous and streaming call paths - and unit tests - share one
+        place that decides what gets sent to the model.
+        """
+        context = None
         if use_rag:
             if self.rag_engine is None:
                 self.initialize_rag()
@@ -149,24 +174,59 @@ class ChatEngine:
         else:
             prompt = query
 
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        return {"messages": messages, "context_used": context}
+
+    def query_vault(self, query: str, use_rag: bool = True) -> Dict[str, Any]:
+        """Query the encrypted vault using chat model."""
+        if not self.ollama_client.model_exists(self.DEFAULT_MODEL):
+            raise ChatEngineError(f"Model '{self.DEFAULT_MODEL}' not available.")
+
+        built = self._build_prompt(query, use_rag)
+
         try:
-            response = self.ollama_client.chat(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a helpful personal assistant with access to your local encrypted data. Answer based on the provided context.",
-                    },
-                    {"role": "user", "content": prompt},
-                ]
-            )
+            response = self.ollama_client.chat(messages=built["messages"])
 
             return {
                 "query": query,
                 "response": response.get("message", {}).get("content", ""),
-                "context_used": context if use_rag else None,
+                "context_used": built["context_used"],
             }
         except OllamaClientError as e:
             raise ChatEngineError(f"Chat generation failed: {str(e)}")
+
+    def query_vault_stream(
+        self, query: str, use_rag: bool = True
+    ) -> StreamingChatResponse:
+        """Stream a chat response chunk by chunk.
+
+        RAG retrieval and the model-availability check happen eagerly
+        (before returning) so callers see a `ChatEngineError` immediately
+        instead of partway through rendering a partial answer. `.sources` on
+        the returned object is available right away; iterating it yields
+        text deltas as they arrive from Ollama.
+        """
+        if not self.ollama_client.model_exists(self.DEFAULT_MODEL):
+            raise ChatEngineError(f"Model '{self.DEFAULT_MODEL}' not available.")
+
+        built = self._build_prompt(query, use_rag)
+        sources = [built["context_used"]] if built["context_used"] else []
+
+        def _generate() -> Iterator[str]:
+            try:
+                for chunk in self.ollama_client.chat(
+                    messages=built["messages"], stream=True
+                ):
+                    content = chunk.get("message", {}).get("content", "")
+                    if content:
+                        yield content
+            except OllamaClientError as e:
+                raise ChatEngineError(f"Chat generation failed: {str(e)}") from e
+
+        return StreamingChatResponse(_generate(), sources)
 
     def add_data_to_vault(self, key: str, data: Dict[str, Any]) -> bool:
         """Add data to encrypted vault."""

@@ -14,10 +14,38 @@ from typing import Dict, Any, Optional, List
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from src.ai_engine.chat_engine import ChatEngineError
 from src.data_vault import DataVault, DataVaultError, create_vault
-from src.interface.chat import ChatHistory, display_chat_history
+from src.interface.chat import (
+    ASSISTANT_AVATAR,
+    USER_AVATAR,
+    ChatHistory,
+    render_chat_history,
+    render_sources,
+)
 from src.security.auth import AuthManager, AuthenticationError
 from src.config import DEFAULT_OLLAMA_HOST, DEFAULT_CHAT_MODEL, DEFAULT_EMBED_MODEL
+
+
+@st.dialog("Clear chat history?")
+def _clear_chat_dialog(chat_history: ChatHistory) -> None:
+    """Confirm before permanently deleting chat history.
+
+    Replaces a prior call to `st.confirm(...)`, which is not a real
+    Streamlit API and would have raised AttributeError the first time
+    anyone clicked Clear.
+    """
+    st.write(
+        "This permanently deletes all messages in this chat. This cannot be undone."
+    )
+    confirm_col, cancel_col = st.columns(2)
+    with confirm_col:
+        if st.button("Clear", type="primary", use_container_width=True):
+            chat_history.clear()
+            st.rerun()
+    with cancel_col:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
 
 
 class PersonalAIInterface:
@@ -115,31 +143,46 @@ class PersonalAIInterface:
         except Exception as e:
             st.warning(f"Could not initialize RAG: {str(e)}")
 
-    def _get_ai_response(self, user_query: str) -> tuple[str, list[str]]:
-        """Get AI response from Ollama with source citations."""
+    def _respond(self, user_query: str) -> tuple[str, list[str]]:
+        """Render the assistant's answer inside the caller's st.chat_message block.
+
+        Streams token-by-token through the RAG chat engine when available
+        (so the reply appears incrementally instead of after a multi-second
+        blocking wait); falls back to a single non-streaming Ollama call
+        with no vault-grounded retrieval if the chat engine couldn't be
+        initialized (e.g. Ollama was unreachable at startup).
+        """
+        if self.chat_engine:
+            try:
+                stream = self.chat_engine.query_vault_stream(user_query, use_rag=True)
+                response_text = st.write_stream(stream)
+                return response_text, stream.sources
+            except ChatEngineError as e:
+                error_text = f"⚠️ {e}"
+                st.error(error_text)
+                return error_text, []
+
+        with st.spinner("Thinking..."):
+            response_text, sources = self._get_fallback_response(user_query)
+        st.markdown(response_text)
+        return response_text, sources
+
+    def _get_fallback_response(self, user_query: str) -> tuple[str, list[str]]:
+        """Non-streaming fallback used only when the RAG chat engine is unavailable."""
         if not self.ollama_config:
             self._load_ollama_config()
 
         try:
-            if self.chat_engine:
-                result = self.chat_engine.query_vault(user_query, use_rag=True)
-                return result["response"], result.get("context_used", [])
+            import ollama
+        except ImportError:
+            return (
+                "⚠️ Ollama is not installed. Please install it to enable AI chat.\n\n"
+                "Install: https://ollama.com/download\n\n"
+                "Or run: pip install ollama",
+                [],
+            )
 
-            try:
-                import ollama
-
-                ollama_available = True
-            except ImportError:
-                ollama_available = False
-
-            if not ollama_available:
-                return (
-                    "⚠️ Ollama is not installed. Please install it to enable AI chat.\n\n"
-                    "Install: https://ollama.com/download\n\n"
-                    "Or run: pip install ollama",
-                    [],
-                )
-
+        try:
             host = self.ollama_config.get("ollama_host", DEFAULT_OLLAMA_HOST)
             model = self.ollama_config.get("ollama_model", DEFAULT_CHAT_MODEL)
 
@@ -320,49 +363,43 @@ class PersonalAIInterface:
 
     def render_chat_page(self) -> None:
         """Render chat interface."""
-        st.header("💬 Chat with Your Data")
-        st.caption("All interactions are encrypted and stored locally")
-
         self._ensure_vault_and_rag()
 
         if not self.chat_history:
             self.chat_history = ChatHistory(self.vault)
 
-        display_chat_history(self.chat_history)
+        title_col, clear_col = st.columns([5, 1])
+        with title_col:
+            st.header("💬 Chat with Your Data")
+            st.caption("All interactions are encrypted and stored locally")
+        with clear_col:
+            has_messages = bool(self.chat_history.get_messages())
+            if st.button(
+                "🗑️ Clear", use_container_width=True, disabled=not has_messages
+            ):
+                _clear_chat_dialog(self.chat_history)
 
-        st.divider()
+        with st.expander("⚙️ Advanced"):
+            if st.button("🔄 Rebuild RAG Index"):
+                with st.spinner("Rebuilding RAG index from vault data..."):
+                    self._init_vault()
+                    self._initialize_rag()
+                st.success("✅ RAG index rebuilt!")
+                st.rerun()
 
-        if st.button("🔄 Rebuild RAG Index"):
-            with st.spinner("Rebuilding RAG index from vault data..."):
-                self._init_vault()
-                self._initialize_rag()
-            st.success("✅ RAG index rebuilt!")
+        render_chat_history(self.chat_history)
+
+        user_input = st.chat_input("Ask a question about your data...")
+        if user_input:
+            with st.chat_message("user", avatar=USER_AVATAR):
+                st.markdown(user_input)
+
+            with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+                response_text, sources = self._respond(user_input)
+                render_sources(sources)
+
+            self.chat_history.add_exchange(user_input, response_text, sources)
             st.rerun()
-
-        user_input = st.text_input(
-            "Ask a question...",
-            placeholder="What would you like to know?",
-            label_visibility="collapsed",
-        )
-
-        col1, col2 = st.columns([9, 1])
-
-        with col1:
-            if st.button("🚀 Send", type="primary", use_container_width=True):
-                if user_input.strip():
-                    with st.spinner("Thinking..."):
-                        response, sources = self._get_ai_response(user_input)
-
-                        self.chat_history.add_message("user", user_input)
-                        self.chat_history.add_message("assistant", response, sources)
-
-                        st.rerun()
-
-        with col2:
-            if st.button("🗑️ Clear", use_container_width=True):
-                if st.confirm("Clear all chat history?"):
-                    self.chat_history.clear()
-                    st.rerun()
 
     def render_upload_page(self) -> None:
         """Render file upload page for data ingestion."""
@@ -617,8 +654,19 @@ class PersonalAIInterface:
             self.render_config_page()
 
 
-app = PersonalAIInterface()
+def get_app() -> PersonalAIInterface:
+    """Get (or create) the PersonalAIInterface for this browser session.
+
+    Streamlit reruns this whole module on every interaction. Without
+    caching the instance in session_state, a brand-new PersonalAIInterface
+    was constructed on every rerun - re-initializing the vault and chat
+    engine, and re-decrypting the full chat history from disk, on every
+    single button press or chat message instead of once per session.
+    """
+    if "app" not in st.session_state:
+        st.session_state["app"] = PersonalAIInterface()
+    return st.session_state["app"]
 
 
 if __name__ == "__main__":
-    app.run()
+    get_app().run()
