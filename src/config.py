@@ -13,7 +13,7 @@ import os
 DEFAULT_OLLAMA_HOST = os.environ.get(
     "PERSONAL_AI_OLLAMA_HOST", "http://localhost:11434"
 )
-DEFAULT_CHAT_MODEL = os.environ.get("PERSONAL_AI_CHAT_MODEL", "qwen3:8b")
+DEFAULT_CHAT_MODEL = os.environ.get("PERSONAL_AI_CHAT_MODEL", "llama3.2:latest")
 DEFAULT_EMBED_MODEL = os.environ.get("PERSONAL_AI_EMBED_MODEL", "nomic-embed-text")
 
 # Rough context-window budget (characters, ~4 chars/token) used to guard
@@ -23,3 +23,14 @@ DEFAULT_CONTEXT_WINDOW_TOKENS = int(
     os.environ.get("PERSONAL_AI_CONTEXT_WINDOW_TOKENS", "8192")
 )
 CHARS_PER_TOKEN_ESTIMATE = 4
+
+# Per-chunk budget (tokens) when splitting documents before embedding.
+#
+# Embedding models have a fixed context window (nomic-embed-text is 8192
+# tokens). A single vault document larger than that makes Ollama return HTTP
+# 500 ("input length exceeds the context length"), which aborts the whole RAG
+# index build. Documents are split to this budget well under any embedding
+# model's window so a large bill/PDF can no longer crash chat.
+DEFAULT_EMBED_CHUNK_TOKENS = int(
+    os.environ.get("PERSONAL_AI_EMBED_CHUNK_TOKENS", "1000")
+)
