@@ -14,9 +14,15 @@ Build a personal AI assistant that helps you with your data and answers question
 
 ## 📋 Current Status
 
-**Status**: 🟡 Planning Phase Complete
+**Status**: 🟢 Working prototype - security-reviewed 2026-08-23
 
-The project is currently in the planning phase. This document outlines the complete architecture, implementation plan, and technical specifications.
+Core pieces are implemented and working end-to-end: password-gated encrypted
+vault, local RAG over Ollama, and a Streamlit chat UI. See
+`docs/security_design.md` for the real (as-built) security architecture and
+`AGENTS.md` before making further changes - both were written after a
+security pass that fixed several gaps between this document's original plan
+and what the code actually did (most notably: the app had no login screen at
+all before that pass).
 
 ---
 
@@ -105,11 +111,17 @@ The project is currently in the planning phase. This document outlines the compl
 ### Security Best Practices
 
 - ✅ **No data leaves the device** - All AI processing local
-- ✅ **AES-256 encryption** for data at rest
-- ✅ **Key rotation** system for encryption keys
-- ✅ **Zero-trust architecture** - Even admin can't access unencrypted data
-- ✅ **Audit logging** of all data access
-- ✅ **Air-gapped backup** option for maximum security
+- ✅ **AES-256-GCM encryption** for data at rest, keyed by a password-derived
+  key (PBKDF2-HMAC-SHA256, 600k iterations) - see `docs/security_design.md`
+- ✅ **Login gate** in the Streamlit app; the encryption key is never written
+  to disk in plaintext
+- ✅ **Persistent lockout** after 5 failed password attempts
+- ⚠️ **Known residual risk**: the RAG search index (ChromaDB) stores
+  document text in plaintext at `~/.personal_ai_vault/.chroma` (0700
+  permissions) for local semantic search - not yet encrypted at rest. See
+  `docs/security_design.md` for why and what mitigates it today.
+- ❌ Key rotation, audit logging, and air-gapped backup below are aspirational
+  and not yet implemented - don't assume they exist.
 
 ---
 
@@ -276,14 +288,27 @@ python -m venv venv
 source venv/bin/activate
 
 # 3. Install dependencies
-pip install -r requirements.txt
+make install   # or: pip install -r requirements.txt
 
-# 4. Set up encryption keys
-python src/setup_keys.py
+# 4. Pull the required Ollama models (chat model is configurable, see below)
+ollama pull qwen3:8b
+ollama pull nomic-embed-text
 
-# 5. Start the application
-python src/interface/streamlit_app.py
+# 5. Start the application - first run will ask you to set a vault password
+make run       # or: PYTHONPATH=. streamlit run src/interface/main.py
 ```
+
+Override the default chat/embedding models or Ollama host via environment
+variables instead of editing code - see `src/config.py`:
+
+```bash
+export PERSONAL_AI_CHAT_MODEL=qwen3:8b
+export PERSONAL_AI_EMBED_MODEL=nomic-embed-text
+```
+
+Before shipping a change to the chat/RAG path, run `make check-context` to
+confirm the app's context-window assumptions still match the model you're
+using.
 
 ---
 

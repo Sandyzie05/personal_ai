@@ -1,0 +1,13 @@
+# This app holds real personal data behind a local login gate (see
+# docs/security_design.md). The login gate is a single-user local
+# convenience, not network-facing auth - so the server must never bind to
+# anything but localhost. Streamlit's own default binds to all interfaces,
+# which would expose the vault's login page to the LAN (or further, if the
+# firewall allows it). Do not remove server.address without adding real
+# network authentication in front of this app first.
+[server]
+address = "localhost"
+headless = true
+
+[browser]
+gatherUsageStats = false

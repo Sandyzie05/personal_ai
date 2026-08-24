@@ -1,7 +1,6 @@
 """Encrypted SQLite database module for Personal AI System."""
 
 import sqlite3
-import os
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 import json
@@ -12,35 +11,36 @@ from ..security.encryption import AEADEncryption
 
 class DatabaseError(Exception):
     """Custom exception for database operations."""
+
     pass
 
 
 class EncryptedSQLiteDB:
     """SQLite database with encrypted BLOB columns."""
-    
+
     def __init__(self, db_path: str, encryption_key: Optional[bytes] = None):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.encryption_key = encryption_key
         self._encryption: Optional[AEADEncryption] = None
-        
+
         if self.encryption_key:
             self._encryption = AEADEncryption(key=self.encryption_key)
-        
+
         self.conn = self._create_connection()
         self._initialize_schema()
-    
+
     def _create_connection(self) -> sqlite3.Connection:
         """Create database connection."""
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
-    
+
     def _initialize_schema(self) -> None:
         """Initialize database schema."""
         cursor = self.conn.cursor()
-        
+
         # Data entries table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS data_entries (
@@ -53,7 +53,7 @@ class EncryptedSQLiteDB:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
         # Vault metadata table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vault_metadata (
@@ -62,62 +62,72 @@ class EncryptedSQLiteDB:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
         self.conn.commit()
-    
+
     def store_data(self, key: str, data: Dict[str, Any], encrypt: bool = True) -> bool:
         """Store data in the database."""
         try:
             cursor = self.conn.cursor()
-            
-            if encrypt and self._encryption:
+
+            if encrypt and not self._encryption:
+                raise DatabaseError(
+                    "Refusing to store data: encrypt=True was requested but no "
+                    "encryption key is loaded. Pass encrypt=False explicitly if "
+                    "unencrypted storage is really intended."
+                )
+
+            if encrypt:
                 encrypted_data = self._encryption.encrypt_string(json.dumps(data))
                 is_encrypted = 1
             else:
                 encrypted_data = json.dumps(data)
                 is_encrypted = 0
-            
-            cursor.execute("""
+
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO data_entries (key, encrypted_data, is_encrypted, metadata)
                 VALUES (?, ?, ?, ?)
-            """, (
-                key,
-                encrypted_data,
-                is_encrypted,
-                json.dumps({"updated_at": datetime.datetime.now().isoformat()})
-            ))
-            
+            """,
+                (
+                    key,
+                    encrypted_data,
+                    is_encrypted,
+                    json.dumps({"updated_at": datetime.datetime.now().isoformat()}),
+                ),
+            )
+
             self.conn.commit()
             return True
-            
+
         except Exception as e:
             raise DatabaseError(f"Failed to store data: {str(e)}")
-    
+
     def retrieve_data(self, key: str) -> Optional[Dict[str, Any]]:
         """Retrieve data from the database."""
         try:
             cursor = self.conn.cursor()
             cursor.execute(
                 "SELECT encrypted_data, is_encrypted FROM data_entries WHERE key = ?",
-                (key,)
+                (key,),
             )
             row = cursor.fetchone()
-            
+
             if not row:
                 return None
-            
+
             encrypted_data = row["encrypted_data"]
             is_encrypted = row["is_encrypted"]
-            
+
             if is_encrypted and self._encryption:
                 decrypted = self._encryption.decrypt_string(encrypted_data)
                 return json.loads(decrypted)
             else:
                 return json.loads(encrypted_data)
-                
+
         except Exception as e:
             raise DatabaseError(f"Failed to retrieve data: {str(e)}")
-    
+
     def list_keys(self) -> List[str]:
         """List all keys in the database."""
         try:
@@ -126,7 +136,7 @@ class EncryptedSQLiteDB:
             return [row["key"] for row in cursor.fetchall()]
         except Exception as e:
             raise DatabaseError(f"Failed to list keys: {str(e)}")
-    
+
     def delete_data(self, key: str) -> bool:
         """Delete data from the database."""
         try:
@@ -136,7 +146,7 @@ class EncryptedSQLiteDB:
             return cursor.rowcount > 0
         except Exception as e:
             raise DatabaseError(f"Failed to delete data: {str(e)}")
-    
+
     def clear(self) -> bool:
         """Clear all data from the database."""
         try:
@@ -146,13 +156,15 @@ class EncryptedSQLiteDB:
             return True
         except Exception as e:
             raise DatabaseError(f"Failed to clear database: {str(e)}")
-    
+
     def close(self) -> None:
         """Close database connection."""
         if self.conn:
             self.conn.close()
 
 
-def create_database(db_path: str, encryption_key: Optional[bytes] = None) -> EncryptedSQLiteDB:
+def create_database(
+    db_path: str, encryption_key: Optional[bytes] = None
+) -> EncryptedSQLiteDB:
     """Factory function to create a database instance."""
     return EncryptedSQLiteDB(db_path=db_path, encryption_key=encryption_key)
