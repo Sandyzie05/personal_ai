@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, List
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.data_vault import DataVault, create_vault
+from src.data_vault import DataVault, DataVaultError, create_vault
 from src.interface.chat import ChatHistory, display_chat_history
 from src.security.auth import AuthManager, AuthenticationError
 from src.config import DEFAULT_OLLAMA_HOST, DEFAULT_CHAT_MODEL, DEFAULT_EMBED_MODEL
@@ -188,8 +188,18 @@ class PersonalAIInterface:
         return sources
 
     def _load_ollama_config(self) -> None:
-        """Load Ollama configuration from vault or use defaults."""
-        config_data = self.vault.retrieve_data("ollama_config") if self.vault else None
+        """Load Ollama configuration from vault or use defaults.
+
+        Falls back to defaults on DataVaultError (e.g. this entry was
+        encrypted under a different vault key than the one unlocked now)
+        instead of crashing the whole page.
+        """
+        config_data = None
+        if self.vault:
+            try:
+                config_data = self.vault.retrieve_data("ollama_config")
+            except DataVaultError as e:
+                st.warning(f"⚠️ Could not load saved settings ({e}). Using defaults.")
 
         if config_data:
             self.ollama_config = config_data
@@ -261,7 +271,11 @@ class PersonalAIInterface:
                     if keys:
                         st.write("### Uploaded Files")
                         for key in keys:
-                            data = self.vault.retrieve_data(key)
+                            try:
+                                data = self.vault.retrieve_data(key)
+                            except DataVaultError as e:
+                                st.caption(f"⚠️ {key}: could not decrypt ({e})")
+                                continue
                             if data and isinstance(data, dict):
                                 metadata = data.get("metadata", {})
                                 if metadata:

@@ -164,3 +164,31 @@ and an AI coding agent can sanity-check before running the full app. See
 - `make check-context` tested both in the pass case (default config vs. the
   real `qwen3:8b` window) and the fail case (a 100k-char file, correctly
   flagged as truncated, non-zero exit code).
+
+## Known limitation: no migration path across a vault key change
+
+There is no tool to re-encrypt existing vault entries after the DEK
+changes - whether from a genuine password change (`change_password()`
+re-wraps the DEK but doesn't touch already-stored ciphertext, which is fine
+since the DEK itself is unchanged) or, more sharply, from **any vault
+created before the 2026-08-23 auth overhaul**, where `~/.personal_ai_vault`
+already contained entries encrypted under the old raw key file
+(`~/.personal_ai_key`). Registering a new password now generates a brand
+new random DEK unrelated to that old key, so old entries (commonly
+`chat_history`, `ollama_config`, or previously uploaded files) fail to
+decrypt with `DataVaultError: Decryption failed`.
+
+This is expected, not a bug in the crypto - but it used to crash the app
+outright, because `ChatHistory._load_history()`, `_load_ollama_config()`,
+and the sidebar "Vault Status" listing called `vault.retrieve_data()`
+without catching `DataVaultError`. Fixed: all three now catch it, show a
+`st.warning`, and degrade (empty history / default config / "could not
+decrypt" label per file) instead of crashing the page. The Files page loop
+already had this pattern; it was just inconsistently applied.
+
+**If you hit `Decryption failed` errors after setting a new vault
+password**, it means `~/.personal_ai_vault/vault.db` predates your current
+password and its old entries are unrecoverable without the old key. There is
+no recovery tool - back up the directory if you want to keep it, then
+delete `~/.personal_ai_vault` to start clean under the new password.
+
