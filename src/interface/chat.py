@@ -2,9 +2,12 @@
 
 import streamlit as st
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from src.data_vault import DataVaultError
+
+USER_AVATAR = "🧑"
+ASSISTANT_AVATAR = "🤖"
 
 
 class ChatMessage:
@@ -83,9 +86,21 @@ class ChatHistory:
         self.vault.store_data(self.history_key, data)
 
     def add_message(self, role: str, content: str, sources: List[str] = None) -> None:
-        """Add a new message to history."""
-        message = ChatMessage(role, content, sources)
-        self.messages.append(message)
+        """Add a single message to history and persist immediately."""
+        self.messages.append(ChatMessage(role, content, sources))
+        self._save_history()
+
+    def add_exchange(
+        self, user_content: str, assistant_content: str, sources: List[str] = None
+    ) -> None:
+        """Append a user message and the assistant's reply in one vault write.
+
+        Avoids re-encrypting and re-writing the whole history twice per turn
+        (once per add_message call), which doubles vault I/O for no benefit
+        since both messages always land in the same turn.
+        """
+        self.messages.append(ChatMessage("user", user_content))
+        self.messages.append(ChatMessage("assistant", assistant_content, sources))
         self._save_history()
 
     def get_messages(self) -> List[ChatMessage]:
@@ -102,30 +117,35 @@ class ChatHistory:
         return self.messages[-n:] if self.messages else []
 
 
-def display_message(message: ChatMessage, expanded: bool = True) -> None:
-    """Display a single chat message in Streamlit."""
-    role = "👤 You" if message.role == "user" else "🤖 Assistant"
-    with st.expander(
-        f"{role} ({message.timestamp.strftime('%Y-%m-%d %H:%M')})", expanded=expanded
-    ):
-        st.write(message.content)
-
-        if message.sources:
-            with st.expander("📊 Sources", expanded=False):
-                for i, source in enumerate(message.sources, 1):
-                    st.text(f"{i}. {source}")
+def render_message(message: ChatMessage) -> None:
+    """Render a single message as a native Streamlit chat bubble."""
+    avatar = USER_AVATAR if message.role == "user" else ASSISTANT_AVATAR
+    with st.chat_message(message.role, avatar=avatar):
+        st.markdown(message.content)
+        st.caption(message.timestamp.strftime("%b %d, %I:%M %p"))
+        render_sources(message.sources)
 
 
-def display_chat_history(history: ChatHistory, max_display: int = 20) -> None:
-    """Display recent chat history (limit to avoid performance issues)."""
+def render_sources(sources: Optional[List[str]]) -> None:
+    """Render source citations under a message, if any."""
+    if not sources:
+        return
+    with st.expander(f"📎 {len(sources)} source(s) used", expanded=False):
+        for i, source in enumerate(sources, 1):
+            preview = source if len(source) <= 500 else source[:500] + "…"
+            st.caption(f"**{i}.** {preview}")
+
+
+def render_chat_history(history: ChatHistory, max_display: int = 50) -> None:
+    """Render chat history oldest-to-newest, as chat bubbles.
+
+    Only the most recent `max_display` messages are rendered per rerun -
+    encrypted history can grow unbounded, and re-rendering all of it on
+    every keystroke-triggered rerun would get slower the longer a vault has
+    been used.
+    """
     messages = history.get_messages()
-    # Show most recent messages first, limit display
-    recent_messages = list(reversed(messages[-max_display:]))
-
     if len(messages) > max_display:
-        st.info(
-            f" Showing {max_display} of {len(messages)} messages. Use Search to find older messages."
-        )
-
-    for message in recent_messages:
-        display_message(message)
+        st.caption(f"Showing the last {max_display} of {len(messages)} messages.")
+    for message in messages[-max_display:]:
+        render_message(message)

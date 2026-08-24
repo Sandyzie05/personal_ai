@@ -78,9 +78,12 @@ re-derive that context by re-reading every file - it's already written down.
   model, and optionally that a given file (`FILE=path`) fits the RAG context
   budget. Run this whenever you change models, context-window config, or
   prompt-assembly logic in `chat_engine.py`.
-- `make test` - runs `test_metadata_fix.py` (the only test file that exists;
-  there is no real test suite yet - adding one would be a good next step,
-  not an assumption you should make already exists)
+- `make test` - runs `pytest tests/`. Covers `ChatHistory`/`ChatMessage`
+  (`tests/test_chat.py`), `ChatEngine` prompt-building and streaming
+  (`tests/test_chat_engine.py`, via fake Ollama/RAG doubles - no real Ollama
+  needed), and `ChromaStore` metadata handling (`tests/test_chroma_store.py`,
+  runs fully offline via ChromaDB's local default embedding function). Add
+  new core-logic tests here rather than one-off scripts at the repo root.
 
 ## Token economy - things the coding agent should not do on this repo
 
