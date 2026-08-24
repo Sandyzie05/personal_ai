@@ -72,8 +72,10 @@ class RAGEngine:
         except _ChromaStoreError as e:
             raise RAGEngineError(f"Failed to add documents: {str(e)}")
 
-    def retrieve_relevant(self, query: str, k: int = None) -> List[Dict[str, Any]]:
-        """Retrieve documents relevant to a query."""
+    def retrieve_relevant(
+        self, query: str, k: int = None, where: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve documents relevant to a query, optionally scoped by metadata."""
         if k is None:
             k = self.top_k
 
@@ -81,7 +83,7 @@ class RAGEngine:
             return []
 
         try:
-            results = self._get_chroma_store().retrieve_relevant(query, k)
+            results = self._get_chroma_store().retrieve_relevant(query, k, where=where)
             return results
         except _ChromaStoreError:
             return []
@@ -101,9 +103,11 @@ class RAGEngine:
         except _ChromaStoreError:
             return False
 
-    def get_context_for_query(self, query: str) -> str:
-        """Get context text for a query."""
-        docs = self.retrieve_relevant(query, k=3)
+    def get_context_for_query(
+        self, query: str, where: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Get context text for a query, optionally scoped by metadata."""
+        docs = self.retrieve_relevant(query, k=3, where=where)
         if docs:
             return "\n\n".join([doc["content"] for doc in docs])
         return ""

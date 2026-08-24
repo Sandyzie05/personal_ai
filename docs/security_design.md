@@ -100,6 +100,23 @@ that data exists in plaintext on disk at `~/.personal_ai_vault/.chroma/`.
 Back it up only if your backup destination is itself encrypted, and don't
 sync it to cloud storage unencrypted.
 
+**Document-category pipeline (2026-08-24):** uploaded documents can now
+carry a `category` (electricity, gas, credit_card, checking, brokerage,
+...) and, when LLM-based structured extraction succeeds, an `extraction`
+field (provider, statement period, total, line items) - see
+`src/data_extraction/`. Both live inside the same encrypted vault record as
+the rest of the document (`src/data_ingestion/handlers.py`,
+`ChatEngine.get_structured_records()`), so this doesn't create a new
+plaintext-at-rest location. The one addition to the existing residual risk
+above: each RAG chunk's `category` string (e.g. `"electricity"`) is now
+also written into the plaintext `.chroma` metadata, to let retrieval scope
+queries to a category via ChromaDB's `where` filter. This replaces an
+earlier, disconnected prototype (`bill_extractor.py`/`bill_storage.py`,
+deleted) that stored extracted bill data - account numbers included - in a
+**fully unencrypted** SQLite DB at `~/.personal_ai/bills.db`, outside the
+vault entirely and never actually wired into the chat flow. If you ran an
+older version of this app, check for and manually delete that file.
+
 ## Model configuration
 
 Chat/embedding model names and the Ollama host were previously hardcoded to

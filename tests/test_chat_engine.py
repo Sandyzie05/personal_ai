@@ -21,7 +21,7 @@ class FakeOllamaClient:
     def model_exists(self, model_name):
         return self._model_exists
 
-    def chat(self, messages, stream=False):
+    def chat(self, messages, stream=False, format=None):
         self.last_messages = messages
         if self.raise_on_chat:
             raise self.raise_on_chat
@@ -39,8 +39,10 @@ class FakeOllamaClient:
 class FakeRagEngine:
     def __init__(self, context=""):
         self.context = context
+        self.last_where = None
 
-    def get_context_for_query(self, query):
+    def get_context_for_query(self, query, where=None):
+        self.last_where = where
         return self.context
 
 
@@ -180,3 +182,123 @@ def test_query_vault_stream_raises_during_iteration_on_ollama_error(engine):
 
     with pytest.raises(ChatEngineError):
         list(stream)
+
+
+def _store_electricity_bill(
+    engine, key, provider, period_start, period_end, line_items
+):
+    engine.vault.store_data(
+        key,
+        {
+            "metadata": {"category": "electricity", "provider": provider},
+            "text_content": f"{provider} electricity bill",
+            "extraction": {
+                "provider": provider,
+                "period_start": period_start,
+                "period_end": period_end,
+                "total": sum(item["amount"] for item in line_items),
+                "line_items": line_items,
+            },
+        },
+    )
+
+
+def test_get_structured_records_filters_by_category(engine):
+    _store_electricity_bill(
+        engine,
+        "bill1",
+        "PG&E",
+        "2026-05-01",
+        "2026-05-31",
+        [{"label": "Usage", "amount": 100.0}],
+    )
+    engine.vault.store_data("note1", {"metadata": {}, "text_content": "unrelated note"})
+
+    records = engine.get_structured_records(category="electricity")
+
+    assert len(records) == 1
+    assert records[0]["metadata"]["provider"] == "PG&E"
+
+
+def test_get_structured_records_filters_by_date_range(engine):
+    _store_electricity_bill(
+        engine,
+        "bill_in",
+        "PG&E",
+        "2026-05-01",
+        "2026-05-31",
+        [{"label": "Usage", "amount": 100.0}],
+    )
+    _store_electricity_bill(
+        engine,
+        "bill_out",
+        "PG&E",
+        "2026-01-01",
+        "2026-01-31",
+        [{"label": "Usage", "amount": 90.0}],
+    )
+
+    records = engine.get_structured_records(
+        category="electricity", start_date="2026-04-01", end_date="2026-06-01"
+    )
+
+    assert [r["storage_key"] for r in records] == ["bill_in"]
+
+
+def test_get_structured_records_excludes_undated_records_when_range_given(engine):
+    engine.vault.store_data(
+        "undated",
+        {
+            "metadata": {"category": "electricity", "provider": "PG&E"},
+            "extraction": {
+                "total": 50.0,
+                "line_items": [{"label": "Usage", "amount": 50.0}],
+            },
+        },
+    )
+
+    records = engine.get_structured_records(
+        category="electricity", start_date="2026-01-01", end_date="2026-12-31"
+    )
+
+    assert records == []
+
+
+def test_build_prompt_uses_structured_records_for_aggregation_query(engine):
+    _store_electricity_bill(
+        engine,
+        "bill1",
+        "PG&E",
+        "2026-06-01",
+        "2026-06-30",
+        [
+            {"label": "Usage", "amount": 129.52},
+            {"label": "Solar credit", "amount": -42.10},
+        ],
+    )
+
+    built = engine._build_prompt("how much solar credit did I get?", use_rag=True)
+
+    assert "Solar credit: -42.1" in built["context_used"]
+    assert built["sources"] == ["PG&E (2026-06-01 to 2026-06-30): total=87.42"]
+    assert "how much solar credit did I get?" in built["messages"][-1]["content"]
+
+
+def test_build_prompt_falls_back_to_category_scoped_rag_when_no_structured_records(
+    engine,
+):
+    engine.rag_engine = FakeRagEngine(context="some electricity text")
+
+    built = engine._build_prompt("how much solar credit did I get?", use_rag=True)
+
+    assert engine.rag_engine.last_where == {"category": "electricity"}
+    assert built["context_used"] == "some electricity text"
+
+
+def test_build_prompt_no_category_uses_unscoped_rag(engine):
+    engine.rag_engine = FakeRagEngine(context="general context")
+
+    built = engine._build_prompt("what's in my note?", use_rag=True)
+
+    assert engine.rag_engine.last_where is None
+    assert built["context_used"] == "general context"

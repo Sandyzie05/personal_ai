@@ -1,9 +1,10 @@
-from typing import Iterator, Optional, List, Dict, Any
+from typing import Iterator, Optional, List, Dict, Any, Tuple
 
 from .ollama_client import OllamaClient, OllamaClientError
+from .query_analysis import detect_category_from_query, parse_relative_date_range
 from .rag_engine import RAGEngine
 
-from src.data_vault import DataVault, DataVaultError
+from src.data_vault import DataVault, DataVaultError, is_internal_vault_key
 from src.config import (
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONTEXT_WINDOW_TOKENS,
@@ -76,18 +77,35 @@ class ChatEngine:
                     ) from e
         self._model_loaded = True
 
-    def _load_vault_data_for_rag(self) -> List[str]:
-        """Load and prepare all vault data for RAG indexing."""
-        texts = []
+    def _load_vault_data_for_rag(self) -> List[Tuple[str, Dict[str, Any]]]:
+        """Load uploaded documents (not internal keys) as (text, metadata) pairs.
+
+        Skips chat_history/ollama_config/vault_metadata - those aren't
+        user documents and previously got embedded and indexed as if they
+        were, wasting embedding calls and diluting retrieval quality.
+        """
+        items = []
         for key in self.vault.list_keys():
+            if is_internal_vault_key(key):
+                continue
             try:
                 data = self.vault.retrieve_data(key)
                 if data:
                     text = self._data_to_text(data)
-                    texts.append(text)
+                    items.append((text, self._rag_metadata_for(key, data)))
             except Exception:
                 continue
-        return texts
+        return items
+
+    def _rag_metadata_for(self, key: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Metadata attached to a document's RAG chunks - enables category-
+        scoped retrieval (see query_analysis.py + ChromaStore's `where`)."""
+        metadata = data.get("metadata", {}) or {}
+        rag_metadata: Dict[str, Any] = {"storage_key": key}
+        category = metadata.get("category")
+        if category:
+            rag_metadata["category"] = category
+        return rag_metadata
 
     def _data_to_text(self, data: Dict[str, Any]) -> str:
         """Convert data dictionary to text for RAG."""
@@ -118,9 +136,64 @@ class ChatEngine:
             chroma_dir = str(self.vault.vault_path / ".chroma")
             self.rag_engine = RAGEngine(persist_directory=chroma_dir)
             self.rag_engine._initialized = True  # Skip lazy init checks
-            texts = self._load_vault_data_for_rag()
-            if texts:
-                self.rag_engine.add_documents(texts)
+            items = self._load_vault_data_for_rag()
+            if items:
+                texts = [text for text, _ in items]
+                metadatas = [metadata for _, metadata in items]
+                self.rag_engine.add_documents(texts, metadatas)
+
+    def get_structured_records(
+        self,
+        category: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Decrypt-and-filter uploaded documents by category and/or date range.
+
+        The vault has no native query engine (values are opaque encrypted
+        blobs keyed by storage key), so this scans every key and filters in
+        Python. That's an explicit, accepted tradeoff at personal-data scale
+        (hundreds, not millions, of documents) rather than adding a second,
+        separately-secured index.
+
+        When a date range is given, records missing period_start/period_end
+        are excluded rather than guessed into range - better to under-match
+        (and let the caller fall back to RAG/say "not found") than silently
+        include a document that might be outside the requested window.
+        """
+        records = []
+        for key in self.vault.list_keys():
+            if is_internal_vault_key(key):
+                continue
+            try:
+                data = self.vault.retrieve_data(key)
+            except DataVaultError:
+                continue
+            if not data or not isinstance(data, dict):
+                continue
+
+            metadata = data.get("metadata", {}) or {}
+            if category and metadata.get("category") != category:
+                continue
+
+            extraction = data.get("extraction")
+            if not extraction:
+                continue
+
+            period_start = extraction.get("period_start")
+            period_end = extraction.get("period_end")
+            if (start_date or end_date) and not (period_start and period_end):
+                continue
+            if start_date and period_end and period_end < start_date:
+                continue
+            if end_date and period_start and period_start > end_date:
+                continue
+
+            records.append(
+                {"storage_key": key, "metadata": metadata, "extraction": extraction}
+            )
+
+        return records
 
     def _fit_context_to_budget(self, context: str, query: str) -> str:
         """Truncate RAG context so it fits the model's context window.
@@ -144,41 +217,92 @@ class ChatEngine:
     )
 
     def _build_prompt(self, query: str, use_rag: bool = True) -> Dict[str, Any]:
-        """Build the chat messages and gather RAG context for a query.
+        """Build the chat messages, context, and sources for a query.
 
         Split out from query_vault/query_vault_stream so both the
         synchronous and streaming call paths - and unit tests - share one
-        place that decides what gets sent to the model.
+        place that decides what gets sent to the model. Three paths, tried
+        in order:
+
+        1. Structured aggregation: the query unambiguously names a document
+           category (see query_analysis.py) - pull the actual extracted
+           numbers for matching documents and have the model compute from
+           those, instead of summarizing fuzzy retrieved text.
+        2. Category-scoped RAG: a category was named but no structured
+           records matched (or none exist yet) - fall back to vector search
+           scoped to that category via ChromaDB's `where` filter.
+        3. Plain RAG / no-RAG: no category detected, or use_rag=False.
         """
-        context = None
-        if use_rag:
-            if self.rag_engine is None:
-                self.initialize_rag()
+        if not use_rag:
+            return self._finalize_prompt(query, context=None, sources=[])
 
-            context = self.rag_engine.get_context_for_query(query)
-            context = self._fit_context_to_budget(context, query)
+        category = detect_category_from_query(query)
+        if category:
+            date_range = parse_relative_date_range(query)
+            start_date, end_date = date_range or (None, None)
+            records = self.get_structured_records(
+                category=category, start_date=start_date, end_date=end_date
+            )
+            if records:
+                return self._build_structured_prompt(query, records)
 
-            if context:
-                prompt = (
-                    f"Context from your data:\n{context}\n\n"
-                    f"Question: {query}\n\n"
-                    f"Answer based on the context above. "
-                    f"If the answer is not in the context, say 'I cannot find this information in your vault.'"
-                )
-            else:
-                prompt = (
-                    f"No data found in vault matching your query.\n\n"
-                    f"Question: {query}\n\n"
-                    f"Please provide a general response or ask for data to be added to your vault."
-                )
-        else:
+        if self.rag_engine is None:
+            self.initialize_rag()
+
+        where = {"category": category} if category else None
+        context = self.rag_engine.get_context_for_query(query, where=where)
+        context = self._fit_context_to_budget(context, query)
+        sources = [context] if context else []
+        return self._finalize_prompt(query, context=context, sources=sources)
+
+    def _finalize_prompt(
+        self, query: str, context: Optional[str], sources: List[str]
+    ) -> Dict[str, Any]:
+        """Shared tail of _build_prompt: turn context (or its absence) into messages."""
+        if context is None:
             prompt = query
+        elif context:
+            prompt = (
+                f"Context from your data:\n{context}\n\n"
+                f"Question: {query}\n\n"
+                f"Answer based on the context above. "
+                f"If the answer is not in the context, say 'I cannot find this information in your vault.'"
+            )
+        else:
+            prompt = (
+                f"No data found in vault matching your query.\n\n"
+                f"Question: {query}\n\n"
+                f"Please provide a general response or ask for data to be added to your vault."
+            )
 
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
-        return {"messages": messages, "context_used": context}
+        return {"messages": messages, "context_used": context, "sources": sources}
+
+    def _build_structured_prompt(
+        self, query: str, records: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Build a prompt that hands the model exact extracted numbers to compute from."""
+        summary = _format_structured_records(records)
+        prompt = (
+            "The following is structured data extracted from the user's own "
+            "uploaded documents that matches this question. Use ONLY these "
+            "numbers to answer - do not estimate.\n\n"
+            f"{summary}\n\n"
+            f"Question: {query}\n\n"
+            "Compute the answer from the data above, state the total, and "
+            "briefly list which document(s)/period(s) it came from. If the "
+            "data above doesn't fully answer the question, say what's "
+            "missing rather than guessing."
+        )
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        sources = [_record_label(record) for record in records]
+        return {"messages": messages, "context_used": summary, "sources": sources}
 
     def query_vault(self, query: str, use_rag: bool = True) -> Dict[str, Any]:
         """Query the encrypted vault using chat model."""
@@ -213,7 +337,7 @@ class ChatEngine:
             raise ChatEngineError(f"Model '{self.DEFAULT_MODEL}' not available.")
 
         built = self._build_prompt(query, use_rag)
-        sources = [built["context_used"]] if built["context_used"] else []
+        sources = built["sources"]
 
         def _generate() -> Iterator[str]:
             try:
@@ -235,11 +359,30 @@ class ChatEngine:
 
             if self.rag_engine:
                 text = self._data_to_text(data)
-                self.rag_engine.add_document(text)
+                metadata = self._rag_metadata_for(key, data)
+                self.rag_engine.add_document(text, metadata=metadata)
 
             return True
         except DataVaultError as e:
             raise ChatEngineError(f"Failed to store data: {str(e)}")
+
+    def index_document(self, key: str, data: Dict[str, Any]) -> None:
+        """Add an already-stored document to the RAG index without re-storing it.
+
+        Used by the Upload page after FileUploadHandler writes a new document
+        directly to the vault, so it's searchable immediately. initialize_rag()
+        no-ops once already initialized, so a plain re-call after upload
+        would silently skip indexing the new document - this handles both
+        the not-yet-initialized case (defers to initialize_rag(), which will
+        pick up this document along with everything else) and the
+        already-initialized case (incremental add).
+        """
+        if self.rag_engine is None:
+            self.initialize_rag()
+            return
+        text = self._data_to_text(data)
+        metadata = self._rag_metadata_for(key, data)
+        self.rag_engine.add_document(text, metadata=metadata)
 
     def clear_vault(self) -> bool:
         """Clear all data from vault and RAG index."""
@@ -250,3 +393,27 @@ class ChatEngine:
             return True
         except Exception as e:
             raise ChatEngineError(f"Failed to clear vault: {str(e)}")
+
+
+def _format_structured_records(records: List[Dict[str, Any]]) -> str:
+    """Render structured records as plain text for the model to compute from."""
+    lines = []
+    for record in records:
+        lines.append(f"- {_record_label(record)}")
+        for item in record["extraction"].get("line_items", []):
+            lines.append(f"    - {item.get('label')}: {item.get('amount')}")
+    return "\n".join(lines)
+
+
+def _record_label(record: Dict[str, Any]) -> str:
+    """Short human-readable label for one structured record (provider + period + total)."""
+    metadata = record["metadata"]
+    extraction = record["extraction"]
+    provider = (
+        metadata.get("provider") or extraction.get("provider") or "Unknown provider"
+    )
+    period_start = extraction.get("period_start", "?")
+    period_end = extraction.get("period_end", "?")
+    total = extraction.get("total")
+    total_str = f"{total:.2f}" if isinstance(total, (int, float)) else str(total)
+    return f"{provider} ({period_start} to {period_end}): total={total_str}"

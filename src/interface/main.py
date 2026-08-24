@@ -10,12 +10,19 @@ import streamlit as st
 import sys
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.ai_engine.chat_engine import ChatEngineError
-from src.data_vault import DataVault, DataVaultError, create_vault
+from src.data_extraction import get_category
+from src.data_vault import (
+    DataVault,
+    DataVaultError,
+    create_vault,
+    is_internal_vault_key,
+)
+from src.interface import upload
 from src.interface.chat import (
     ASSISTANT_AVATAR,
     USER_AVATAR,
@@ -56,8 +63,6 @@ class PersonalAIInterface:
         self.encryption_key: Optional[bytes] = None
         self.chat_history: Optional[ChatHistory] = None
         self.ollama_config: Dict[str, Any] = {}
-        self.ai_client: Optional[Any] = None
-        self.uploaded_files: List[str] = []
         self.chat_engine: Optional[Any] = None
         self._initialized: bool = False
         # Don't initialize heavy components on startup
@@ -290,14 +295,7 @@ class PersonalAIInterface:
             # Show uploaded files count
             if self.vault:
                 keys = self.vault.list_keys()
-                # Filter out internal keys
-                file_keys = [
-                    k
-                    for k in keys
-                    if not k.startswith("vault_")
-                    and k != "chat_history"
-                    and k != "ollama_config"
-                ]
+                file_keys = [k for k in keys if not is_internal_vault_key(k)]
                 st.caption("📁 Uploaded Files")
                 st.text(f"Total: {len(file_keys)} documents")
 
@@ -402,65 +400,21 @@ class PersonalAIInterface:
             st.rerun()
 
     def render_upload_page(self) -> None:
-        """Render file upload page for data ingestion."""
-        st.header("📂 Upload Data")
-        st.caption("Encrypted file upload - data will be processed locally")
-
-        uploaded_file = st.file_uploader(
-            "Choose a file",
-            type=["txt", "pdf", "csv", "json", "md"],
-            label_visibility="collapsed",
+        """Render file upload page: category detection + structured extraction."""
+        self._ensure_vault_and_rag()
+        ollama_client = self.chat_engine.ollama_client if self.chat_engine else None
+        upload.render_upload_page(
+            vault=self.vault,
+            encryption_key=self.encryption_key,
+            ollama_client=ollama_client,
+            on_uploaded=self._on_document_uploaded,
         )
 
-        if uploaded_file is not None:
-            import tempfile
-            import os
-
-            file_info = {
-                "filename": uploaded_file.name,
-                "size": uploaded_file.size,
-                "type": uploaded_file.type,
-            }
-
-            st.success(
-                f"📄 {uploaded_file.name} ({uploaded_file.size} bytes) ready for upload"
-            )
-            st.info("Data will be encrypted and stored in your local vault")
-
-            if st.button("🔒 Upload & Encrypt"):
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=f"_{uploaded_file.name}"
-                ) as tmp_file:
-                    tmp_file.write(uploaded_file.getvalue())
-                    tmp_path = tmp_file.name
-
-                try:
-                    from src.data_ingestion.handlers import FileUploadHandler
-
-                    handler = FileUploadHandler(self.vault, self.encryption_key)
-                    result = handler.handle_upload(tmp_path)
-
-                    if result["success"]:
-                        st.success("✅ File uploaded successfully!")
-                        st.json(
-                            {
-                                "Storage Key": result["storage_key"],
-                                "File Type": result["file_type"],
-                                "Text Length": result["text_length"],
-                            }
-                        )
-
-                        self.uploaded_files = handler.list_uploaded_files()
-
-                        if self.chat_engine:
-                            self.chat_engine.initialize_rag()
-                            st.success("✅ RAG index updated with new file!")
-                    else:
-                        st.error("❌ Upload failed")
-                except Exception as e:
-                    st.error(f"❌ Upload failed: {str(e)}")
-                finally:
-                    os.unlink(tmp_path)
+    def _on_document_uploaded(self, storage_key: str, data: Dict[str, Any]) -> None:
+        """Index a newly-uploaded document into RAG so it's searchable immediately."""
+        if self.chat_engine:
+            self.chat_engine.index_document(storage_key, data)
+            st.success("✅ RAG index updated with new file!")
 
     def render_config_page(self) -> None:
         """Render configuration page."""
@@ -490,15 +444,7 @@ class PersonalAIInterface:
             return
 
         keys = self.vault.list_keys()
-
-        # Filter out internal keys
-        file_keys = [
-            k
-            for k in keys
-            if not k.startswith("vault_")
-            and k != "chat_history"
-            and k != "ollama_config"
-        ]
+        file_keys = [k for k in keys if not is_internal_vault_key(k)]
 
         if not file_keys:
             st.info("No files uploaded yet. Go to the Upload page to add documents.")
@@ -541,6 +487,23 @@ class PersonalAIInterface:
                             if "T" in upload_timestamp
                             else upload_timestamp,
                         )
+
+                    category_key = metadata.get("category")
+                    if category_key:
+                        st.caption(f"Category: {get_category(category_key).label}")
+
+                    extraction = data.get("extraction")
+                    if extraction:
+                        total = extraction.get("total")
+                        period = f"{extraction.get('period_start', '?')} to {extraction.get('period_end', '?')}"
+                        st.success(f"💰 Total: {total} ({period})")
+                        line_items = extraction.get("line_items", [])
+                        if line_items:
+                            with st.expander(f"📋 {len(line_items)} line item(s)"):
+                                for item in line_items:
+                                    st.caption(
+                                        f"{item.get('label')}: {item.get('amount')}"
+                                    )
 
                     st.divider()
 

@@ -1,7 +1,7 @@
 """Ollama API client for local LLM interactions."""
 
 import ollama
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Union
 
 from src.config import DEFAULT_OLLAMA_HOST, DEFAULT_CHAT_MODEL, DEFAULT_EMBED_MODEL
 
@@ -31,13 +31,22 @@ class OllamaClient:
         self.client = ollama.Client(host=host)
 
     def chat(
-        self, messages: List[Dict[str, str]], stream: bool = False
+        self,
+        messages: List[Dict[str, str]],
+        stream: bool = False,
+        format: Optional[Union[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Send a chat message to Ollama."""
+        """Send a chat message to Ollama.
+
+        `format` accepts "json" or a JSON schema dict (e.g.
+        `SomePydanticModel.model_json_schema()`) to constrain the model to
+        structured output - used by src/data_extraction/extractor.py.
+        """
         response = self.client.chat(
             model=self.model,
             messages=messages,
             stream=stream,
+            format=format,
             options={"temperature": self.temperature, "num_predict": self.max_tokens},
         )
         return response
