@@ -1,6 +1,12 @@
 # Personal AI System - Gitignore
 # Generated for secure public publication
 
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
 # Encryption keys (stored in user home)
 .personal_ai_key
 .personal_ai_*_key
@@ -19,6 +25,10 @@
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+.eggs/
+build/
+dist/
 
 # Environment variables (never commit these)
 .env
@@ -29,6 +39,15 @@ __pycache__/
 
 # Test artifacts
 .test_output/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
 
 # OS artifacts
 .DS_Store
