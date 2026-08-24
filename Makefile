@@ -10,7 +10,7 @@ help:
 	@echo "  make test           Run the test suite"
 
 install:
-	pip install -r requirements.txt
+	PIP_CONFIG_FILE=pip.conf pip install -r requirements.txt
 
 run:
 	PYTHONPATH=. streamlit run src/interface/main.py

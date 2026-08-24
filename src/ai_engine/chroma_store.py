@@ -141,25 +141,24 @@ class ChromaStore:
             chunk_chars = min(
                 DEFAULT_EMBED_CHUNK_TOKENS * CHARS_PER_TOKEN_ESTIMATE,
                 HARD_CHUNK_CHAR_CAP,
-             )
+            )
 
-            if metadatas is None:
+            if not metadatas:
                 metadatas = [{} for _ in documents]
 
-             # Split every document into embeddable chunks, repeating its
-             # metadata for each chunk so retrieval still points back to it.
+            # Split every document into embeddable chunks, repeating its
+            # metadata for each chunk so retrieval still points back to it.
             chunked_docs: List[str] = []
             chunked_metas: List[Dict[str, Any]] = []
             for doc, meta in zip(documents, metadatas):
                 for i, chunk in enumerate(_chunk_text(doc, chunk_chars)):
                     chunked_docs.append(chunk)
+                    # `chunk` key also guarantees ChromaDB never sees the
+                    # zero-key metadata dict it rejects on add().
                     chunked_metas.append(dict(meta or {}, chunk=str(i + 1)))
 
             if not chunked_docs:
                 return []
-
-            # ChromaDB rejects metadata with zero keys.
-            chunked_metas = [m if m else {"_empty": True} for m in chunked_metas]
 
             if self.embedding_generator:
                 embeddings = [

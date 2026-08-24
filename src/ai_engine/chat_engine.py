@@ -73,11 +73,11 @@ class ChatEngine:
         return texts
 
     def _data_to_text(self, data: Dict[str, Any]) -> str:
-          """Convert data dictionary to text for RAG."""
+        """Convert data dictionary to text for RAG."""
         text_parts = []
         for key, value in data.items():
-             # Skip binary payloads (base64 of raw file bytes) - useless for
-             # semantic retrieval and a token bomb for embedding models.
+            # Skip binary payloads (base64 of raw file bytes) - useless for
+            # semantic retrieval and a token bomb for embedding models.
             if key == "raw_content_b64":
                 continue
             if key == "text_content" and isinstance(value, str):
