@@ -12,13 +12,21 @@ vault for everything you give it.
 
 - 🔒 Password-gated encrypted vault (AES-256-GCM, key derived from your
   password via PBKDF2 - see `docs/security_design.md`)
-- 💬 Local chat over your vault data (RAG) using any Ollama chat model
+- 💬 Local chat over your vault data using any Ollama chat model, with real
+  multi-turn conversation memory, a live context-window usage meter, and
+  multiple named/switchable/deletable chat sessions (`src/interface/chat_sessions.py`)
 - 📂 File ingestion: PDF, DOCX, CSV, Apple Health XML, plus a category-driven
-  document pipeline (electricity, gas, credit card, checking, brokerage, ...)
-  with auto-detected categorization and LLM-based structured extraction
-  (`src/data_extraction/`) so questions like "how much solar credit did I
-  get last quarter" can be answered from real extracted numbers
-- 🖥️ Streamlit web UI with chat, upload, file browser, and settings pages
+  document pipeline (electricity, gas, credit card, checking, brokerage,
+  mobile/phone, ...) with auto-detected categorization and LLM-based
+  structured extraction (`src/data_extraction/`) so questions like "how much
+  did I pay T-Mobile last month" can be answered from real extracted numbers
+  instead of fuzzy retrieval
+- 🗂️ Files page grouped into per-category folders (e.g. "Mobile / Phone"),
+  with a re-categorize control for anything misclassified
+- 📊 Dashboard page with configurable widgets - document counts, spend by
+  category, spend over time, recent uploads - built from the same structured
+  extraction data, not a RAG summary
+- 🖥️ Streamlit web UI: chat, upload, files, dashboard, and settings pages
 
 ## Project structure
 
@@ -26,14 +34,17 @@ vault for everything you give it.
 src/
 ├── security/        # Auth (password -> vault key), AES-256-GCM encryption
 ├── data_vault/       # Encrypted SQLite storage
-├── ai_engine/        # Ollama client, RAG engine, ChromaDB vector store
+├── ai_engine/        # Ollama client, RAG engine, ChromaDB vector store,
+│                       chat history/context budgeting (chat_engine.py)
 ├── data_ingestion/    # File upload handling + per-format parsers
-├── data_extraction/   # Structured bill extraction (pattern-based)
-├── interface/         # Streamlit UI
+├── data_extraction/   # Category registry, classifier, LLM structured
+│                       extraction (categories.py, classifier.py, extractor.py)
+├── interface/         # Streamlit UI: chat, chat_sessions, upload, files
+│                       (file_grouping.py), dashboard, settings
 └── config.py           # Central model/host/context-window configuration
 
-scripts/               # Standalone tools (e.g. context-overflow checker)
-docs/                  # Security design, roadmap/history
+scripts/               # Standalone tools (setup, context-overflow checker)
+docs/                  # Security design, system design notes, roadmap/history
 examples/              # CLI usage examples
 ```
 
@@ -44,6 +55,24 @@ examples/              # CLI usage examples
 - [Ollama](https://ollama.com/download), installed and running (`ollama serve`)
 
 ## Setup
+
+Quickest path - one command does everything below (creates `./venv`,
+installs dependencies, checks Ollama is installed and running, pulls the
+configured chat + embedding models if you don't already have them):
+
+```bash
+git clone <repository-url>
+cd personal_ai
+make setup   # or: python3 scripts/setup.py
+```
+
+It's safe to re-run - every step is skipped if already satisfied. Add
+`--skip-models` (e.g. `python3 scripts/setup.py --skip-models`) to skip the
+`ollama pull` step. If Ollama isn't installed or isn't running, it stops
+with a clear message telling you what to do next rather than guessing.
+
+<details>
+<summary>Manual setup (equivalent, step by step)</summary>
 
 ```bash
 # 1. Clone the repository
@@ -62,6 +91,8 @@ ollama pull qwen3:8b
 ollama pull nomic-embed-text
 ```
 
+</details>
+
 ## Running locally
 
 ```bash
@@ -76,9 +107,10 @@ backdoor, no reset flow yet). Subsequent runs prompt for that same password.
 Other useful entry points:
 
 ```bash
-make demo           # CLI walkthrough: register/login, store data, RAG query
-make check-context  # Sanity-check model context-window assumptions (see below)
-make test           # Run the test suite
+make setup           # One-command bootstrap (see Setup above); safe to re-run
+make demo            # CLI walkthrough: register/login, store data, RAG query
+make check-context   # Sanity-check model context-window assumptions (see below)
+make test            # Run the test suite
 ```
 
 ## Configuration
@@ -112,6 +144,8 @@ Full threat model, what's implemented vs. not, and why: **`docs/security_design.
 ## Documentation
 
 - `docs/security_design.md` - security architecture, threat model, residual risks
+- `docs/design_2026_08.md` - how the document pipeline, RAG vs. structured
+  datastore, chat context management, and dashboard fit together
 - `docs/roadmap.md` - original project plan and feature roadmap (historical; not current state)
 - `AGENTS.md` - checklist and conventions for making further changes to this repo
 - `INTERFACE_README.md` / `INTERFACE_SUMMARY.md` - Streamlit UI notes
