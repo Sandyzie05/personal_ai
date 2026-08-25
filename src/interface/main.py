@@ -10,7 +10,7 @@ import streamlit as st
 import sys
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -24,6 +24,7 @@ from src.data_vault import (
     is_internal_vault_key,
 )
 from src.interface import upload
+from src.interface import chat_sessions
 from src.interface.file_grouping import group_files_by_category
 from src.interface.chat import (
     ASSISTANT_AVATAR,
@@ -57,6 +58,35 @@ def _clear_chat_dialog(chat_history: ChatHistory) -> None:
             st.rerun()
 
 
+@st.dialog("Delete this chat?")
+def _delete_session_dialog(app: "PersonalAIInterface", session_id: str) -> None:
+    """Confirm before permanently deleting a chat session and its messages.
+
+    Mirrors `_clear_chat_dialog`, but also has to pick (or create) a new
+    active session afterwards since the deleted one can no longer be
+    displayed.
+    """
+    st.write(
+        "This permanently deletes this chat and all its messages. This cannot be undone."
+    )
+    confirm_col, cancel_col = st.columns(2)
+    with confirm_col:
+        if st.button("Delete", type="primary", use_container_width=True):
+            chat_sessions.delete_session(app.vault, session_id)
+            remaining = chat_sessions.list_sessions(app.vault)
+            new_active = (
+                remaining[0]["id"]
+                if remaining
+                else chat_sessions.create_session(app.vault)
+            )
+            st.session_state["active_chat_session_id"] = new_active
+            app._load_chat_history_for_session(new_active)
+            st.rerun()
+    with cancel_col:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
+
+
 class PersonalAIInterface:
     """Main interface for the Personal AI System."""
 
@@ -64,6 +94,11 @@ class PersonalAIInterface:
         self.vault: Optional[DataVault] = None
         self.encryption_key: Optional[bytes] = None
         self.chat_history: Optional[ChatHistory] = None
+        # Which chat session `self.chat_history` currently corresponds to -
+        # lets render_chat_page() avoid rebuilding (and re-decrypting) the
+        # ChatHistory on every rerun unless the active session actually
+        # changed.
+        self._chat_history_session_id: Optional[str] = None
         self.ollama_config: Dict[str, Any] = {}
         self.chat_engine: Optional[Any] = None
         self._initialized: bool = False
@@ -119,7 +154,6 @@ class PersonalAIInterface:
             self.chat_engine = self._get_chat_engine_instance(
                 vault_path, self.encryption_key
             )
-            self.chat_history = ChatHistory(self.vault)
         except Exception as e:
             st.warning(f"Could not initialize RAG: {str(e)}")
 
@@ -150,7 +184,90 @@ class PersonalAIInterface:
         except Exception as e:
             st.warning(f"Could not initialize RAG: {str(e)}")
 
-    def _respond(self, user_query: str) -> tuple[str, list[str]]:
+    def _load_chat_history_for_session(self, session_id: str) -> None:
+        """(Re)build `self.chat_history` for `session_id` and remember which
+        session it corresponds to, so callers can skip rebuilding it on
+        reruns where the active session hasn't changed.
+        """
+        history_key = chat_sessions.history_key_for(session_id)
+        for session in chat_sessions.list_sessions(self.vault):
+            if session.get("id") == session_id:
+                history_key = session.get("history_key", history_key)
+                break
+        self.chat_history = ChatHistory(self.vault, history_key=history_key)
+        self._chat_history_session_id = session_id
+
+    def _ensure_active_session_and_history(self) -> str:
+        """Pick (or create) the active chat session and load its history.
+
+        The active session id lives in `st.session_state` (survives reruns
+        within a browser tab, not across app restarts) - the vault-backed
+        session index is the durable state. On first use in a session, runs
+        the one-time legacy-history migration and defaults to the most
+        recently active session (creating a first one if none exist yet).
+        """
+        active_id = st.session_state.get("active_chat_session_id")
+        if not active_id:
+            chat_sessions.migrate_legacy_history(self.vault)
+            sessions = chat_sessions.list_sessions(self.vault)
+            if not sessions:
+                chat_sessions.create_session(self.vault)
+                sessions = chat_sessions.list_sessions(self.vault)
+            active_id = sessions[0]["id"]
+            st.session_state["active_chat_session_id"] = active_id
+
+        if self.chat_history is None or self._chat_history_session_id != active_id:
+            self._load_chat_history_for_session(active_id)
+
+        return active_id
+
+    def _render_session_controls(self, active_id: str) -> None:
+        """Session switcher, new-chat button, and delete-active-session control."""
+        sessions = chat_sessions.list_sessions(self.vault)
+        session_ids = [s["id"] for s in sessions]
+
+        def _label(session: Dict[str, Any]) -> str:
+            title = (session.get("title") or "").strip()
+            if title:
+                return title[:60]
+            return f"Untitled chat ({session.get('id', '')[:8]})"
+
+        labels = {s["id"]: _label(s) for s in sessions}
+
+        select_col, new_col, delete_col = st.columns([4, 1, 1])
+        with select_col:
+            if session_ids:
+                current_index = (
+                    session_ids.index(active_id) if active_id in session_ids else 0
+                )
+                chosen = st.selectbox(
+                    "Chat session",
+                    session_ids,
+                    index=current_index,
+                    format_func=lambda sid: labels.get(sid, sid[:8]),
+                    label_visibility="collapsed",
+                )
+                if chosen != active_id:
+                    st.session_state["active_chat_session_id"] = chosen
+                    self._load_chat_history_for_session(chosen)
+                    st.rerun()
+        with new_col:
+            if st.button("➕ New Chat", use_container_width=True):
+                new_id = chat_sessions.create_session(self.vault)
+                st.session_state["active_chat_session_id"] = new_id
+                self._load_chat_history_for_session(new_id)
+                st.rerun()
+        with delete_col:
+            if st.button(
+                "🗑️ Delete chat",
+                use_container_width=True,
+                disabled=not session_ids,
+            ):
+                _delete_session_dialog(self, active_id)
+
+    def _respond(
+        self, user_query: str, history: Optional[List[Dict[str, str]]] = None
+    ) -> tuple[str, list[str]]:
         """Render the assistant's answer inside the caller's st.chat_message block.
 
         Streams token-by-token through the RAG chat engine when available
@@ -158,10 +275,16 @@ class PersonalAIInterface:
         blocking wait); falls back to a single non-streaming Ollama call
         with no vault-grounded retrieval if the chat engine couldn't be
         initialized (e.g. Ollama was unreachable at startup).
+
+        `history` is the chronological (oldest-first) prior conversation,
+        NOT including `user_query` itself - threaded through so the model
+        sees prior turns instead of treating every question in isolation.
         """
         if self.chat_engine:
             try:
-                stream = self.chat_engine.query_vault_stream(user_query, use_rag=True)
+                stream = self.chat_engine.query_vault_stream(
+                    user_query, use_rag=True, history=history
+                )
                 response_text = st.write_stream(stream)
                 return response_text, stream.sources
             except ChatEngineError as e:
@@ -365,8 +488,7 @@ class PersonalAIInterface:
         """Render chat interface."""
         self._ensure_vault_and_rag()
 
-        if not self.chat_history:
-            self.chat_history = ChatHistory(self.vault)
+        active_id = self._ensure_active_session_and_history()
 
         title_col, clear_col = st.columns([5, 1])
         with title_col:
@@ -378,6 +500,33 @@ class PersonalAIInterface:
                 "🗑️ Clear", use_container_width=True, disabled=not has_messages
             ):
                 _clear_chat_dialog(self.chat_history)
+
+        self._render_session_controls(active_id)
+
+        # Recomputed fresh on every render (not just after sending a
+        # message) so the meter is accurate immediately on page load too.
+        history_for_engine = [
+            {"role": m.role, "content": m.content}
+            for m in self.chat_history.get_messages()
+        ]
+
+        if self.chat_engine is not None:
+            usage = self.chat_engine.estimate_usage(history_for_engine)
+            st.progress(
+                min(usage["ratio"], 1.0),
+                text=(
+                    f"Context used: {usage['ratio'] * 100:.0f}% "
+                    f"({usage['used_tokens']:,} / {usage['budget_tokens']:,} tokens)"
+                ),
+            )
+            if usage["ratio"] >= 0.9:
+                st.error(
+                    "Context window is nearly full — start a new chat to keep responses accurate."
+                )
+            elif usage["ratio"] >= 0.75:
+                st.warning(
+                    "Context window is getting full — consider starting a new chat soon."
+                )
 
         with st.expander("⚙️ Advanced"):
             if st.button("🔄 Rebuild RAG Index"):
@@ -395,10 +544,13 @@ class PersonalAIInterface:
                 st.markdown(user_input)
 
             with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-                response_text, sources = self._respond(user_input)
+                response_text, sources = self._respond(user_input, history_for_engine)
                 render_sources(sources)
 
             self.chat_history.add_exchange(user_input, response_text, sources)
+            chat_sessions.touch_session(
+                self.vault, active_id, title=user_input.strip()[:40]
+            )
             st.rerun()
 
     def render_upload_page(self) -> None:

@@ -108,12 +108,21 @@ class DataVaultError(Exception):
 # than for user-uploaded documents. Centralized here so the "is this an
 # uploaded document" filter can't drift out of sync between call sites (the
 # UI's file listing, the sidebar status view, and structured-record scans).
-INTERNAL_VAULT_KEYS = {"chat_history", "ollama_config"}
+#
+# "chat_history" is kept for backwards compatibility with the legacy
+# single-conversation-per-vault model; per-session histories are stored
+# under "chat_history_<session_id>" keys, matched via the prefix check
+# below. "chat_sessions_index" tracks the list of chat sessions themselves.
+INTERNAL_VAULT_KEYS = {"chat_history", "ollama_config", "chat_sessions_index"}
 
 
 def is_internal_vault_key(key: str) -> bool:
     """True if `key` is app-internal rather than a user-uploaded document."""
-    return key.startswith("vault_") or key in INTERNAL_VAULT_KEYS
+    return (
+        key.startswith("vault_")
+        or key.startswith("chat_history")
+        or key in INTERNAL_VAULT_KEYS
+    )
 
 
 def create_vault(
