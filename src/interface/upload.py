@@ -190,43 +190,60 @@ def _upload_all(
     ollama_client: Optional[Any],
     on_uploaded: Optional[Callable[[str, Dict[str, Any]], None]],
 ) -> None:
-    """Encrypt + store every pending file, best-effort per file."""
+    """Encrypt + store every pending file, best-effort per file.
+
+    Runs inside a `st.status` block so each file's outcome renders live as
+    it's processed - Streamlit streams UI updates as the script executes,
+    so this doubles as progress feedback without needing a background
+    thread. Replaces the old per-file `st.success("RAG index updated...")`
+    spam (one message per file) with a single running log.
+    """
     handler = FileUploadHandler(vault, encryption_key)
     succeeded, failed = 0, 0
+    total = len(pending)
 
-    for entry in pending:
-        try:
-            selected_category = entry["selected_category"]
-            metadata = {
-                "category": selected_category,
-                **{k: v for k, v in entry["field_values"].items() if v},
-            }
-            result = handler.handle_upload(entry["tmp_path"], metadata=metadata)
-            if not result["success"]:
+    with st.status(f"Uploading {total} file(s)...", expanded=True) as status:
+        for i, entry in enumerate(pending, start=1):
+            filename = entry["filename"]
+            status.update(label=f"Uploading {filename} ({i}/{total})")
+            try:
+                selected_category = entry["selected_category"]
+                metadata = {
+                    "category": selected_category,
+                    **{k: v for k, v in entry["field_values"].items() if v},
+                }
+                result = handler.handle_upload(entry["tmp_path"], metadata=metadata)
+                if not result["success"]:
+                    failed += 1
+                    st.write(f"❌ {filename}: upload failed")
+                    continue
+
+                _try_structured_extraction(
+                    vault,
+                    result["storage_key"],
+                    entry["text_preview"],
+                    selected_category,
+                    ollama_client,
+                )
+
+                if on_uploaded:
+                    final_data = vault.retrieve_data(result["storage_key"])
+                    on_uploaded(result["storage_key"], final_data)
+
+                succeeded += 1
+                st.write(f"✅ {filename}")
+            except IngestionError as e:
                 failed += 1
-                continue
+                st.write(f"❌ {filename}: {e}")
 
-            _try_structured_extraction(
-                vault,
-                result["storage_key"],
-                entry["text_preview"],
-                selected_category,
-                ollama_client,
-            )
-
-            if on_uploaded:
-                final_data = vault.retrieve_data(result["storage_key"])
-                on_uploaded(result["storage_key"], final_data)
-
-            succeeded += 1
-        except IngestionError as e:
-            failed += 1
-            st.error(f"❌ Upload failed for {entry['filename']}: {e}")
-
-    if succeeded:
-        st.success(f"✅ Uploaded {succeeded} file(s) successfully!")
-    if failed:
-        st.error(f"❌ {failed} file(s) failed to upload - see errors above.")
+        final_label = f"Uploaded {succeeded}/{total} file(s)"
+        if failed:
+            final_label += f" - {failed} failed"
+        status.update(
+            label=final_label,
+            state="error" if failed else "complete",
+            expanded=bool(failed),
+        )
 
 
 def _try_structured_extraction(
