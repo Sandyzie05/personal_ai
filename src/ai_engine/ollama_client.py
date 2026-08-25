@@ -3,7 +3,12 @@
 import ollama
 from typing import List, Dict, Any, Optional, Union
 
-from src.config import DEFAULT_OLLAMA_HOST, DEFAULT_CHAT_MODEL, DEFAULT_EMBED_MODEL
+from src.config import (
+    DEFAULT_OLLAMA_HOST,
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_EMBED_MODEL,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+)
 
 
 class OllamaClientError(Exception):
@@ -22,12 +27,17 @@ class OllamaClient:
         embed_model: str = DEFAULT_EMBED_MODEL,
         temperature: float = 0.7,
         max_tokens: int = 2048,
+        context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
     ):
         self.host = host
         self.model = model
         self.embed_model = embed_model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        # The context window this client tells Ollama to actually use
+        # (via `num_ctx` below). ChatEngine reads this back so its own
+        # budget math can never drift from what's really sent to Ollama.
+        self.context_window_tokens = context_window_tokens
         self.client = ollama.Client(host=host)
 
     def chat(
@@ -47,7 +57,11 @@ class OllamaClient:
             messages=messages,
             stream=stream,
             format=format,
-            options={"temperature": self.temperature, "num_predict": self.max_tokens},
+            options={
+                "temperature": self.temperature,
+                "num_predict": self.max_tokens,
+                "num_ctx": self.context_window_tokens,
+            },
         )
         return response
 
