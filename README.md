@@ -13,8 +13,11 @@ vault for everything you give it.
 - 🔒 Password-gated encrypted vault (AES-256-GCM, key derived from your
   password via PBKDF2 - see `docs/security_design.md`)
 - 💬 Local chat over your vault data (RAG) using any Ollama chat model
-- 📂 File ingestion: PDF, DOCX, CSV, Apple Health XML, plus a T-Mobile bill
-  extractor (`src/data_extraction/`, see `BILL_EXTRACTION_README.md`)
+- 📂 File ingestion: PDF, DOCX, CSV, Apple Health XML, plus a category-driven
+  document pipeline (electricity, gas, credit card, checking, brokerage, ...)
+  with auto-detected categorization and LLM-based structured extraction
+  (`src/data_extraction/`) so questions like "how much solar credit did I
+  get last quarter" can be answered from real extracted numbers
 - 🖥️ Streamlit web UI with chat, upload, file browser, and settings pages
 
 ## Project structure
@@ -112,7 +115,6 @@ Full threat model, what's implemented vs. not, and why: **`docs/security_design.
 - `docs/roadmap.md` - original project plan and feature roadmap (historical; not current state)
 - `AGENTS.md` - checklist and conventions for making further changes to this repo
 - `INTERFACE_README.md` / `INTERFACE_SUMMARY.md` - Streamlit UI notes
-- `BILL_EXTRACTION_README.md` - T-Mobile bill extraction feature notes
 
 ## Contributing & Maintenance
 

@@ -1,23 +1,24 @@
-"""
-T-Mobile Bill Data Extraction System
+"""Document category detection and structured extraction.
 
-This package provides fast PDF bill extraction using pattern matching
-instead of embeddings, avoiding the 10-30 second embedding delay.
-
-Key components:
-- BillDataExtractor: Pattern-based extraction (sub-second)
-- BillStorage: SQLite storage with indexed queries
-- BillData: Pydantic model for structured data
+Generic, schema-driven pipeline for turning uploaded bills/statements into
+queryable structured data - see categories.py, classifier.py,
+schemas.py, and extractor.py.
 """
 
-from .models import BillData, Charge, PaymentRecord
-from .bill_extractor import BillDataExtractor
-from .bill_storage import BillStorage
+from .categories import CATEGORIES, Category, CategoryField, get_category, category_keys
+from .classifier import classify_document
+from .extractor import ExtractionError, extract_structured_data
+from .schemas import ExtractedDocument, LineItem
 
 __all__ = [
-    'BillData',
-    'Charge', 
-    'PaymentRecord',
-    'BillDataExtractor',
-    'BillStorage'
+    "CATEGORIES",
+    "Category",
+    "CategoryField",
+    "get_category",
+    "category_keys",
+    "classify_document",
+    "ExtractedDocument",
+    "ExtractionError",
+    "extract_structured_data",
+    "LineItem",
 ]

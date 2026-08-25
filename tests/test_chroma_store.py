@@ -80,3 +80,17 @@ def test_clear_removes_all_documents(store):
     store.clear()
 
     assert store.get_all() == []
+
+
+def test_retrieve_relevant_where_filter_scopes_results(store):
+    store.add_documents(
+        ["electric bill text", "gas bill text"],
+        [{"category": "electricity"}, {"category": "gas"}],
+    )
+
+    results = store.retrieve_relevant(
+        "bill text", k=5, where={"category": "electricity"}
+    )
+
+    assert len(results) == 1
+    assert results[0]["content"] == "electric bill text"

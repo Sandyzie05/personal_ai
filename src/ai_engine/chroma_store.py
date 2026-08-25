@@ -182,17 +182,28 @@ class ChromaStore:
         except Exception as e:
             raise ChromaStoreError(f"Failed to add documents: {str(e)}")
 
-    def retrieve_relevant(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        """Retrieve relevant documents for a query."""
+    def retrieve_relevant(
+        self, query: str, k: int = 5, where: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve relevant documents for a query, optionally scoped by metadata.
+
+        `where` is a ChromaDB metadata filter (e.g. {"category": "electricity"})
+        - used to scope retrieval to a document category instead of searching
+        blindly across everything in the vault.
+        """
         self._ensure_initialized()
         try:
+            query_kwargs: Dict[str, Any] = {"n_results": k}
+            if where:
+                query_kwargs["where"] = where
+
             if self.embedding_generator:
                 query_embedding = self.embedding_generator.generate_embedding(query)
                 results = self.collection.query(
-                    query_embeddings=[query_embedding], n_results=k
+                    query_embeddings=[query_embedding], **query_kwargs
                 )
             else:
-                results = self.collection.query(query_texts=[query], n_results=k)
+                results = self.collection.query(query_texts=[query], **query_kwargs)
 
             docs = []
             for i, doc in enumerate(results["documents"][0]):
