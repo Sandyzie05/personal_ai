@@ -25,6 +25,7 @@ from src.data_vault import (
 )
 from src.interface import upload
 from src.interface import chat_sessions
+from src.interface import dashboard
 from src.interface.file_grouping import group_files_by_category
 from src.interface.chat import (
     ASSISTANT_AVATAR,
@@ -395,7 +396,7 @@ class PersonalAIInterface:
 
             page = st.radio(
                 "Navigation",
-                ["💬 Chat", "📂 Upload", "📄 Files", "⚙️ Settings"],
+                ["💬 Chat", "📂 Upload", "📄 Files", "📊 Dashboard", "⚙️ Settings"],
                 label_visibility="collapsed",
             )
 
@@ -631,6 +632,16 @@ class PersonalAIInterface:
                 self._render_file_card(key, records[key], metadata)
             st.divider()
 
+    def render_dashboard_page(self) -> None:
+        """Render the Dashboard page: customizable at-a-glance widgets."""
+        self._init_vault()  # Initialize vault but not RAG
+
+        if not self.vault:
+            st.warning("Vault not initialized. Please reload the page.")
+            return
+
+        dashboard.render_dashboard_page(self.vault)
+
     def _render_file_card(
         self, key: str, data: Dict[str, Any], metadata: Dict[str, Any]
     ) -> None:
@@ -807,6 +818,8 @@ class PersonalAIInterface:
             self.render_upload_page()
         elif page == "📄 Files":
             self.render_files_page()
+        elif page == "📊 Dashboard":
+            self.render_dashboard_page()
         elif page == "⚙️ Settings":
             self.render_config_page()
 

@@ -113,7 +113,12 @@ class DataVaultError(Exception):
 # single-conversation-per-vault model; per-session histories are stored
 # under "chat_history_<session_id>" keys, matched via the prefix check
 # below. "chat_sessions_index" tracks the list of chat sessions themselves.
-INTERNAL_VAULT_KEYS = {"chat_history", "ollama_config", "chat_sessions_index"}
+INTERNAL_VAULT_KEYS = {
+    "chat_history",
+    "ollama_config",
+    "chat_sessions_index",
+    "dashboard_config",
+}
 
 
 def is_internal_vault_key(key: str) -> bool:
