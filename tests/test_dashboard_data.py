@@ -4,6 +4,7 @@ from src.data_extraction.categories import CATEGORIES, DEFAULT_CATEGORY_KEY
 from src.interface.dashboard_data import (
     BILL_LIKE_CATEGORY_KEYS,
     count_by_category,
+    month_over_month_change,
     recent_uploads,
     spend_by_category,
     spend_over_time,
@@ -188,6 +189,62 @@ def test_spend_over_time_skips_records_without_period_start_or_total():
         _record("d", category="brokerage", total=100.0, period_start="2026-02-01"),
     ]
     assert spend_over_time(records) == []
+
+
+# --- month_over_month_change ---------------------------------------------------
+
+
+def test_month_over_month_change_empty_input_is_none():
+    assert month_over_month_change([]) is None
+
+
+def test_month_over_month_change_single_month_is_none():
+    records = [
+        _record("a", category="electricity", total=100.0, period_start="2026-01-05"),
+    ]
+    assert month_over_month_change(records) is None
+
+
+def test_month_over_month_change_computes_percent_increase():
+    records = [
+        _record("a", category="electricity", total=100.0, period_start="2026-01-05"),
+        _record("b", category="electricity", total=150.0, period_start="2026-02-05"),
+    ]
+    assert month_over_month_change(records) == 50.0
+
+
+def test_month_over_month_change_computes_percent_decrease():
+    records = [
+        _record("a", category="electricity", total=200.0, period_start="2026-01-05"),
+        _record("b", category="electricity", total=50.0, period_start="2026-02-05"),
+    ]
+    assert month_over_month_change(records) == -75.0
+
+
+def test_month_over_month_change_uses_latest_two_months_when_more_exist():
+    records = [
+        _record("a", category="electricity", total=999.0, period_start="2026-01-05"),
+        _record("b", category="electricity", total=100.0, period_start="2026-02-05"),
+        _record("c", category="electricity", total=150.0, period_start="2026-03-05"),
+    ]
+    # Only Feb->Mar (100 -> 150) should count; the much larger Jan value is ignored.
+    assert month_over_month_change(records) == 50.0
+
+
+def test_month_over_month_change_none_when_previous_month_total_is_zero():
+    records = [
+        _record("a", category="electricity", total=0.0, period_start="2026-01-05"),
+        _record("b", category="electricity", total=50.0, period_start="2026-02-05"),
+    ]
+    assert month_over_month_change(records) is None
+
+
+def test_month_over_month_change_respects_custom_category_keys():
+    records = [
+        _record("a", category="brokerage", total=1000.0, period_start="2026-01-05"),
+        _record("b", category="brokerage", total=1100.0, period_start="2026-02-05"),
+    ]
+    assert month_over_month_change(records, category_keys={"brokerage"}) == 10.0
 
 
 # --- recent_uploads -------------------------------------------------------------

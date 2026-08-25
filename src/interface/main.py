@@ -611,11 +611,18 @@ class PersonalAIInterface:
         # the metadata for grouping.
         records: Dict[str, Dict[str, Any]] = {}
         file_entries = []
+        unreadable: List[tuple] = []
         for key in file_keys:
             try:
                 data = self.vault.retrieve_data(key)
             except Exception as e:
-                st.error(f"Error loading file {key}: {str(e)}")
+                # Most commonly a vault entry encrypted under a password/key
+                # that's no longer the one unlocked (see docs/security_design.md's
+                # "Known limitation: no migration path across a vault key
+                # change") - permanently undecryptable, not a transient
+                # error. Surface it separately with a way to delete it,
+                # rather than a bare error the user can't act on.
+                unreadable.append((key, str(e)))
                 continue
 
             if not data or not isinstance(data, dict):
@@ -631,6 +638,21 @@ class PersonalAIInterface:
             for key, metadata in entries:
                 self._render_file_card(key, records[key], metadata)
             st.divider()
+
+        if unreadable:
+            with st.expander(
+                f"⚠️ {len(unreadable)} file(s) could not be decrypted", expanded=False
+            ):
+                st.caption(
+                    "Usually means these were encrypted under a previous vault "
+                    "password/key. They can't be recovered without that old key - "
+                    "delete them to clean up the vault."
+                )
+                for key, error in unreadable:
+                    st.text(f"{key}: {error}")
+                    if st.button("🗑️ Delete", key=f"delete_unreadable_{key}"):
+                        self.vault.delete_data(key)
+                        st.rerun()
 
     def render_dashboard_page(self) -> None:
         """Render the Dashboard page: customizable at-a-glance widgets."""

@@ -55,7 +55,11 @@ class DataVault:
             self._db.store_data(key, data, encrypt=encrypt)
             return True
         except DatabaseError as e:
-            raise DataVaultError(f"Failed to store data: {str(e)}")
+            # `str(e)` already carries a "Failed to ..." prefix from
+            # EncryptedSQLiteDB - re-wrapping it with another one produced
+            # confusing doubled messages like "Failed to retrieve data:
+            # Failed to retrieve data: Decryption failed: ...".
+            raise DataVaultError(str(e)) from e
 
     def retrieve_data(self, key: str) -> Optional[Dict[str, Any]]:
         """Retrieve data from the vault."""
@@ -65,7 +69,7 @@ class DataVault:
 
             return self._db.retrieve_data(key)
         except DatabaseError as e:
-            raise DataVaultError(f"Failed to retrieve data: {str(e)}")
+            raise DataVaultError(str(e)) from e
 
     def list_keys(self) -> List[str]:
         """List all keys in the vault."""
@@ -75,7 +79,7 @@ class DataVault:
 
             return self._db.list_keys()
         except DatabaseError as e:
-            raise DataVaultError(f"Failed to list keys: {str(e)}")
+            raise DataVaultError(str(e)) from e
 
     def delete_data(self, key: str) -> bool:
         """Delete data from the vault."""
@@ -85,7 +89,7 @@ class DataVault:
 
             return self._db.delete_data(key)
         except DatabaseError as e:
-            raise DataVaultError(f"Failed to delete data: {str(e)}")
+            raise DataVaultError(str(e)) from e
 
     def clear(self) -> bool:
         """Clear all data from the vault."""
@@ -95,7 +99,7 @@ class DataVault:
 
             return self._db.clear()
         except DatabaseError as e:
-            raise DataVaultError(f"Failed to clear vault: {str(e)}")
+            raise DataVaultError(str(e)) from e
 
 
 class DataVaultError(Exception):

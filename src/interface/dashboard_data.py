@@ -122,6 +122,25 @@ def spend_over_time(
     return sorted(buckets.items(), key=lambda item: item[0])
 
 
+def month_over_month_change(
+    records: List[Dict[str, Any]], category_keys: Optional[set] = None
+) -> Optional[float]:
+    """Percent change in spend between the latest two months with data, for
+    `category_keys` (default bill-like). `None` when there are fewer than two
+    dated months to compare, or the earlier month totals to $0 (undefined
+    percent change)."""
+    series = spend_over_time(records, category_keys)
+    if len(series) < 2:
+        return None
+
+    _prev_month, previous_total = series[-2]
+    _latest_month, latest_total = series[-1]
+    if previous_total == 0:
+        return None
+
+    return ((latest_total - previous_total) / previous_total) * 100.0
+
+
 def recent_uploads(records: List[Dict[str, Any]], n: int = 5) -> List[Dict[str, Any]]:
     """The `n` records with the most recent `metadata.upload_timestamp`,
     descending; records missing a timestamp sort last."""
