@@ -133,17 +133,33 @@ The module handles several error conditions:
 ### ChatEngine
 
 - `initialize_rag()` - Build RAG index from vault data
-- `query_vault(query, use_rag=True)` - Query vault with context
+- `query_vault(query, use_rag=True, history=None)` - Query vault with
+  context; `history` is an optional list of `{"role": ..., "content": ...}`
+  dicts (oldest first, not including `query` itself) giving prior
+  conversation turns - it's budget-fitted (oldest dropped first) alongside
+  RAG/structured context so the combined prompt still fits the model's
+  context window
+- `query_vault_stream(query, use_rag=True, history=None)` - Same as
+  `query_vault`, but returns a `StreamingChatResponse` (iterate for text
+  deltas; `.sources` is available immediately)
+- `estimate_usage(history, pending_context="")` - Pure token-budget estimate
+  (no vault/RAG/Ollama calls) used to drive a context-window usage meter in
+  the UI; returns `{"used_tokens", "budget_tokens", "ratio"}`
 - `add_data_to_vault(key, data)` - Store encrypted data
 - `clear_vault()` - Remove all data
 
 ### OllamaClient
 
+- `OllamaClient(host=..., model=..., embed_model=..., temperature=..., max_tokens=..., context_window_tokens=...)` -
+  `context_window_tokens` (defaults from `PERSONAL_AI_CONTEXT_WINDOW_TOKENS`
+  in `src/config.py`) is passed as `num_ctx` on every `chat()` call, so the
+  app's own context-budget assumptions and what Ollama is actually told to
+  use can't drift apart
 - `list_models()` - Get available models
 - `model_exists(name)` - Check model availability
-- `generate(model, prompt)` - Text generation
-- `chat(model, messages)` - Chat completion
-- `embeddings(model, prompt)` - Generate embeddings
+- `chat(messages, stream=False, format=None)` - Chat completion (sends
+  `temperature`/`num_predict`/`num_ctx` as Ollama options)
+- `generate_embedding(text)` - Generate an embedding for a text string
 
 ## Security Notes
 

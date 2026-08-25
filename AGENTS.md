@@ -26,6 +26,13 @@ re-derive that context by re-reading every file - it's already written down.
    it might already exist (e.g. this repo once had two different
    `KeyManager` classes in two files - only one was ever imported, the other
    silently rotted).
+4. Adding support for a new document provider/category (e.g. a new utility
+   or card issuer)? Add one entry to `CATEGORIES` in
+   `src/data_extraction/categories.py` - that alone gets you keyword-based
+   classification, an Upload-page metadata form, and inclusion in
+   structured-record filtering (`ChatEngine.get_structured_records`) and the
+   Dashboard/Files-page groupings. Don't hand-roll a separate
+   classifier/extractor path for a new category.
 
 ## Security checklist for any change touching security/ or data_vault/
 
@@ -82,8 +89,15 @@ re-derive that context by re-reading every file - it's already written down.
   (`tests/test_chat.py`), `ChatEngine` prompt-building and streaming
   (`tests/test_chat_engine.py`, via fake Ollama/RAG doubles - no real Ollama
   needed), and `ChromaStore` metadata handling (`tests/test_chroma_store.py`,
-  runs fully offline via ChromaDB's local default embedding function). Add
-  new core-logic tests here rather than one-off scripts at the repo root.
+  runs fully offline via ChromaDB's local default embedding function).
+  Coverage has since grown well beyond those three files -
+  `tests/test_categories.py`, `test_classifier.py`, `test_extractor.py`, and
+  `test_query_analysis.py` cover the document-category pipeline;
+  `test_data_vault.py`, `test_file_grouping.py`, `test_chat_sessions.py`,
+  `test_dashboard_data.py`, and `test_ollama_client.py` cover the vault's
+  internal-key handling, Files-page category grouping, multi-session chat
+  management, and Dashboard aggregation respectively. Add new core-logic
+  tests here rather than one-off scripts at the repo root.
 
 ## Token economy - things the coding agent should not do on this repo
 
