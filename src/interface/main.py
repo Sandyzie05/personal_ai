@@ -566,10 +566,13 @@ class PersonalAIInterface:
         )
 
     def _on_document_uploaded(self, storage_key: str, data: Dict[str, Any]) -> None:
-        """Index a newly-uploaded document into RAG so it's searchable immediately."""
+        """Index a newly-uploaded document into RAG so it's searchable immediately.
+
+        No UI feedback here - the upload page's `st.status` block already
+        reports per-file progress and a final summary.
+        """
         if self.chat_engine:
             self.chat_engine.index_document(storage_key, data)
-            st.success("✅ RAG index updated with new file!")
 
     def render_config_page(self) -> None:
         """Render configuration page."""

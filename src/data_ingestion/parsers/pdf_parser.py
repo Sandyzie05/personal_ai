@@ -52,13 +52,20 @@ class PDFParser:
             raise Exception(f"PDF parsing failed: {str(e)}")
 
     def _clean_text(self, text_parts: List[str]) -> str:
-        """Clean and normalize extracted text."""
+        """Clean and normalize extracted text.
+
+        Only collapses horizontal whitespace (spaces/tabs) - newlines are
+        preserved so line/paragraph boundaries survive for the RAG chunker
+        (chroma_store._chunk_text splits on "\n"). Collapsing everything
+        into one run-on string previously destroyed those boundaries,
+        degrading chunk quality for multi-column bill layouts.
+        """
         full_text = "\n\n".join(text_parts)
 
-        # Normalize whitespace
-        full_text = re.sub(r"\s+", " ", full_text)
+        # Normalize horizontal whitespace, keep newlines.
+        full_text = re.sub(r"[ \t]+", " ", full_text)
 
-        # Remove excessive newlines
+        # Remove excessive blank lines.
         full_text = re.sub(r"\n{3,}", "\n\n", full_text)
 
         # Strip leading/trailing whitespace
