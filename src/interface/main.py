@@ -15,7 +15,8 @@ from typing import Dict, Any, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.ai_engine.chat_engine import ChatEngineError
-from src.data_extraction import get_category
+from src.data_extraction import category_keys, get_category
+from src.data_extraction.categories import DEFAULT_CATEGORY_KEY
 from src.data_vault import (
     DataVault,
     DataVaultError,
@@ -23,6 +24,7 @@ from src.data_vault import (
     is_internal_vault_key,
 )
 from src.interface import upload
+from src.interface.file_grouping import group_files_by_category
 from src.interface.chat import (
     ASSISTANT_AVATAR,
     USER_AVATAR,
@@ -433,7 +435,7 @@ class PersonalAIInterface:
                 st.success("✅ Configuration saved to encrypted vault")
 
     def render_files_page(self) -> None:
-        """Render a page showing all uploaded files from the vault."""
+        """Render uploaded files grouped into folder-like sections by category."""
         st.header("📄 Your Uploaded Files")
         st.caption("All files are encrypted and stored locally in your vault")
 
@@ -452,80 +454,120 @@ class PersonalAIInterface:
 
         st.success(f"Found {len(file_keys)} uploaded file(s)")
 
-        # Display each file
+        # Load each file once, keeping the full record for rendering and just
+        # the metadata for grouping.
+        records: Dict[str, Dict[str, Any]] = {}
+        file_entries = []
         for key in file_keys:
             try:
                 data = self.vault.retrieve_data(key)
-
-                if not data or not isinstance(data, dict):
-                    continue
-
-                metadata = data.get("metadata", {})
-                original_filename = metadata.get("original_filename", key)
-                file_type = metadata.get("file_type", "unknown")
-                file_size = metadata.get("file_size", 0)
-                upload_timestamp = metadata.get("upload_timestamp", "unknown")
-
-                # Calculate human-readable file size
-                if file_size > 1024 * 1024:
-                    size_str = f"{file_size / (1024 * 1024):.2f} MB"
-                elif file_size > 1024:
-                    size_str = f"{file_size / 1024:.2f} KB"
-                else:
-                    size_str = f"{file_size} bytes"
-
-                with st.expander(f"📄 {original_filename}", expanded=False):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Type", file_type.upper())
-                    with col2:
-                        st.metric("Size", size_str)
-                    with col3:
-                        st.metric(
-                            "Uploaded",
-                            upload_timestamp.split("T")[0]
-                            if "T" in upload_timestamp
-                            else upload_timestamp,
-                        )
-
-                    category_key = metadata.get("category")
-                    if category_key:
-                        st.caption(f"Category: {get_category(category_key).label}")
-
-                    extraction = data.get("extraction")
-                    if extraction:
-                        total = extraction.get("total")
-                        period = f"{extraction.get('period_start', '?')} to {extraction.get('period_end', '?')}"
-                        st.success(f"💰 Total: {total} ({period})")
-                        line_items = extraction.get("line_items", [])
-                        if line_items:
-                            with st.expander(f"📋 {len(line_items)} line item(s)"):
-                                for item in line_items:
-                                    st.caption(
-                                        f"{item.get('label')}: {item.get('amount')}"
-                                    )
-
-                    st.divider()
-
-                    if data.get("text_content"):
-                        text_length = len(data["text_content"])
-                        st.info(f"📄 Text content: {text_length} characters")
-
-                        # Show preview if not too long
-                        if text_length <= 2000:
-                            with st.expander("👁️ View Text Preview"):
-                                st.text(data["text_content"][:2000])
-                                if text_length > 2000:
-                                    st.text(
-                                        f"... ({text_length - 2000} more characters)"
-                                    )
-
-                    if st.button("🗑️ Delete", key=f"delete_{key}"):
-                        self.vault.delete_data(key)
-                        st.rerun()
-
             except Exception as e:
                 st.error(f"Error loading file {key}: {str(e)}")
+                continue
+
+            if not data or not isinstance(data, dict):
+                continue
+
+            records[key] = data
+            file_entries.append((key, data.get("metadata", {})))
+
+        groups = group_files_by_category(file_entries)
+
+        for category_key, category_label, entries in groups:
+            st.subheader(f"{category_label} ({len(entries)} file(s))")
+            for key, metadata in entries:
+                self._render_file_card(key, records[key], metadata)
+            st.divider()
+
+    def _render_file_card(
+        self, key: str, data: Dict[str, Any], metadata: Dict[str, Any]
+    ) -> None:
+        """Render one file's metrics, extraction summary, preview, and controls."""
+        try:
+            original_filename = metadata.get("original_filename", key)
+            file_type = metadata.get("file_type", "unknown")
+            file_size = metadata.get("file_size", 0)
+            upload_timestamp = metadata.get("upload_timestamp", "unknown")
+
+            # Calculate human-readable file size
+            if file_size > 1024 * 1024:
+                size_str = f"{file_size / (1024 * 1024):.2f} MB"
+            elif file_size > 1024:
+                size_str = f"{file_size / 1024:.2f} KB"
+            else:
+                size_str = f"{file_size} bytes"
+
+            with st.expander(f"📄 {original_filename}", expanded=False):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Type", file_type.upper())
+                with col2:
+                    st.metric("Size", size_str)
+                with col3:
+                    st.metric(
+                        "Uploaded",
+                        upload_timestamp.split("T")[0]
+                        if "T" in upload_timestamp
+                        else upload_timestamp,
+                    )
+
+                category_key = metadata.get("category")
+                if category_key:
+                    st.caption(f"Category: {get_category(category_key).label}")
+
+                extraction = data.get("extraction")
+                if extraction:
+                    total = extraction.get("total")
+                    period = f"{extraction.get('period_start', '?')} to {extraction.get('period_end', '?')}"
+                    st.success(f"💰 Total: {total} ({period})")
+                    line_items = extraction.get("line_items", [])
+                    if line_items:
+                        with st.expander(f"📋 {len(line_items)} line item(s)"):
+                            for item in line_items:
+                                st.caption(f"{item.get('label')}: {item.get('amount')}")
+
+                st.divider()
+
+                if data.get("text_content"):
+                    text_length = len(data["text_content"])
+                    st.info(f"📄 Text content: {text_length} characters")
+
+                    # Show preview if not too long
+                    if text_length <= 2000:
+                        with st.expander("👁️ View Text Preview"):
+                            st.text(data["text_content"][:2000])
+                            if text_length > 2000:
+                                st.text(f"... ({text_length - 2000} more characters)")
+
+                st.divider()
+
+                all_category_keys = category_keys()
+                current_category = category_key or DEFAULT_CATEGORY_KEY
+                if current_category not in all_category_keys:
+                    current_category = DEFAULT_CATEGORY_KEY
+                recat_col, save_col = st.columns([3, 1])
+                with recat_col:
+                    new_category = st.selectbox(
+                        "Re-categorize",
+                        all_category_keys,
+                        index=all_category_keys.index(current_category),
+                        format_func=lambda k: get_category(k).label,
+                        key=f"recat_select_{key}",
+                    )
+                with save_col:
+                    st.write("")
+                    if st.button("💾 Save category", key=f"recat_{key}"):
+                        data.setdefault("metadata", {})["category"] = new_category
+                        self.vault.store_data(key, data)
+                        st.success(f"Moved to {get_category(new_category).label}")
+                        st.rerun()
+
+                if st.button("🗑️ Delete", key=f"delete_{key}"):
+                    self.vault.delete_data(key)
+                    st.rerun()
+
+        except Exception as e:
+            st.error(f"Error loading file {key}: {str(e)}")
 
     def _setup_page(self) -> None:
         """Configure page settings (must be called first)."""
