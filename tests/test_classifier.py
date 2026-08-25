@@ -37,6 +37,15 @@ def test_classify_by_keywords_credit_card():
     assert classify_by_keywords(text) == "credit_card"
 
 
+def test_classify_by_keywords_mobile():
+    text = (
+        "Your T-Mobile wireless bill includes your unlimited plan, data plan usage, "
+        "and a monthly recurring charge."
+    )
+
+    assert classify_by_keywords(text) == "mobile"
+
+
 def test_classify_by_keywords_no_signal_returns_none():
     assert classify_by_keywords("Just a random note about lunch plans.") is None
 

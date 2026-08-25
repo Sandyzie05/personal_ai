@@ -27,6 +27,13 @@ def test_get_category_unknown_key_falls_back_to_other():
     assert category.key == DEFAULT_CATEGORY_KEY
 
 
+def test_get_category_mobile():
+    category = get_category("mobile")
+
+    assert category.key == "mobile"
+    assert any(f.key == "provider" for f in category.fields)
+
+
 def test_every_category_except_other_has_a_provider_field():
     for category in CATEGORIES:
         if category.key == "other":

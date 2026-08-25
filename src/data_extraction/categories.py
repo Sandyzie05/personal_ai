@@ -111,6 +111,29 @@ CATEGORIES: List[Category] = [
         ],
     ),
     Category(
+        key="mobile",
+        label="📱 Mobile / Phone",
+        keywords=[
+            "t-mobile",
+            "verizon",
+            "at&t",
+            "wireless",
+            "data plan",
+            "monthly recurring charge",
+            "talk, text",
+            "sim card",
+            "unlimited plan",
+        ],
+        fields=[
+            CategoryField(
+                "provider", "Carrier (e.g. T-Mobile, Verizon, AT&T)", required=True
+            ),
+            CategoryField("account_label", "Phone number or account nickname"),
+            CategoryField("period_start", "Statement period start (YYYY-MM-DD)"),
+            CategoryField("period_end", "Statement period end (YYYY-MM-DD)"),
+        ],
+    ),
+    Category(
         key="other",
         label="📄 Other",
         keywords=[],
