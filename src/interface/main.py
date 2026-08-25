@@ -10,12 +10,13 @@ import streamlit as st
 import sys
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.ai_engine.chat_engine import ChatEngineError
-from src.data_extraction import get_category
+from src.data_extraction import category_keys, get_category
+from src.data_extraction.categories import DEFAULT_CATEGORY_KEY
 from src.data_vault import (
     DataVault,
     DataVaultError,
@@ -23,6 +24,9 @@ from src.data_vault import (
     is_internal_vault_key,
 )
 from src.interface import upload
+from src.interface import chat_sessions
+from src.interface import dashboard
+from src.interface.file_grouping import group_files_by_category
 from src.interface.chat import (
     ASSISTANT_AVATAR,
     USER_AVATAR,
@@ -55,6 +59,35 @@ def _clear_chat_dialog(chat_history: ChatHistory) -> None:
             st.rerun()
 
 
+@st.dialog("Delete this chat?")
+def _delete_session_dialog(app: "PersonalAIInterface", session_id: str) -> None:
+    """Confirm before permanently deleting a chat session and its messages.
+
+    Mirrors `_clear_chat_dialog`, but also has to pick (or create) a new
+    active session afterwards since the deleted one can no longer be
+    displayed.
+    """
+    st.write(
+        "This permanently deletes this chat and all its messages. This cannot be undone."
+    )
+    confirm_col, cancel_col = st.columns(2)
+    with confirm_col:
+        if st.button("Delete", type="primary", use_container_width=True):
+            chat_sessions.delete_session(app.vault, session_id)
+            remaining = chat_sessions.list_sessions(app.vault)
+            new_active = (
+                remaining[0]["id"]
+                if remaining
+                else chat_sessions.create_session(app.vault)
+            )
+            st.session_state["active_chat_session_id"] = new_active
+            app._load_chat_history_for_session(new_active)
+            st.rerun()
+    with cancel_col:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
+
+
 class PersonalAIInterface:
     """Main interface for the Personal AI System."""
 
@@ -62,6 +95,11 @@ class PersonalAIInterface:
         self.vault: Optional[DataVault] = None
         self.encryption_key: Optional[bytes] = None
         self.chat_history: Optional[ChatHistory] = None
+        # Which chat session `self.chat_history` currently corresponds to -
+        # lets render_chat_page() avoid rebuilding (and re-decrypting) the
+        # ChatHistory on every rerun unless the active session actually
+        # changed.
+        self._chat_history_session_id: Optional[str] = None
         self.ollama_config: Dict[str, Any] = {}
         self.chat_engine: Optional[Any] = None
         self._initialized: bool = False
@@ -117,7 +155,6 @@ class PersonalAIInterface:
             self.chat_engine = self._get_chat_engine_instance(
                 vault_path, self.encryption_key
             )
-            self.chat_history = ChatHistory(self.vault)
         except Exception as e:
             st.warning(f"Could not initialize RAG: {str(e)}")
 
@@ -148,7 +185,90 @@ class PersonalAIInterface:
         except Exception as e:
             st.warning(f"Could not initialize RAG: {str(e)}")
 
-    def _respond(self, user_query: str) -> tuple[str, list[str]]:
+    def _load_chat_history_for_session(self, session_id: str) -> None:
+        """(Re)build `self.chat_history` for `session_id` and remember which
+        session it corresponds to, so callers can skip rebuilding it on
+        reruns where the active session hasn't changed.
+        """
+        history_key = chat_sessions.history_key_for(session_id)
+        for session in chat_sessions.list_sessions(self.vault):
+            if session.get("id") == session_id:
+                history_key = session.get("history_key", history_key)
+                break
+        self.chat_history = ChatHistory(self.vault, history_key=history_key)
+        self._chat_history_session_id = session_id
+
+    def _ensure_active_session_and_history(self) -> str:
+        """Pick (or create) the active chat session and load its history.
+
+        The active session id lives in `st.session_state` (survives reruns
+        within a browser tab, not across app restarts) - the vault-backed
+        session index is the durable state. On first use in a session, runs
+        the one-time legacy-history migration and defaults to the most
+        recently active session (creating a first one if none exist yet).
+        """
+        active_id = st.session_state.get("active_chat_session_id")
+        if not active_id:
+            chat_sessions.migrate_legacy_history(self.vault)
+            sessions = chat_sessions.list_sessions(self.vault)
+            if not sessions:
+                chat_sessions.create_session(self.vault)
+                sessions = chat_sessions.list_sessions(self.vault)
+            active_id = sessions[0]["id"]
+            st.session_state["active_chat_session_id"] = active_id
+
+        if self.chat_history is None or self._chat_history_session_id != active_id:
+            self._load_chat_history_for_session(active_id)
+
+        return active_id
+
+    def _render_session_controls(self, active_id: str) -> None:
+        """Session switcher, new-chat button, and delete-active-session control."""
+        sessions = chat_sessions.list_sessions(self.vault)
+        session_ids = [s["id"] for s in sessions]
+
+        def _label(session: Dict[str, Any]) -> str:
+            title = (session.get("title") or "").strip()
+            if title:
+                return title[:60]
+            return f"Untitled chat ({session.get('id', '')[:8]})"
+
+        labels = {s["id"]: _label(s) for s in sessions}
+
+        select_col, new_col, delete_col = st.columns([4, 1, 1])
+        with select_col:
+            if session_ids:
+                current_index = (
+                    session_ids.index(active_id) if active_id in session_ids else 0
+                )
+                chosen = st.selectbox(
+                    "Chat session",
+                    session_ids,
+                    index=current_index,
+                    format_func=lambda sid: labels.get(sid, sid[:8]),
+                    label_visibility="collapsed",
+                )
+                if chosen != active_id:
+                    st.session_state["active_chat_session_id"] = chosen
+                    self._load_chat_history_for_session(chosen)
+                    st.rerun()
+        with new_col:
+            if st.button("➕ New Chat", use_container_width=True):
+                new_id = chat_sessions.create_session(self.vault)
+                st.session_state["active_chat_session_id"] = new_id
+                self._load_chat_history_for_session(new_id)
+                st.rerun()
+        with delete_col:
+            if st.button(
+                "🗑️ Delete chat",
+                use_container_width=True,
+                disabled=not session_ids,
+            ):
+                _delete_session_dialog(self, active_id)
+
+    def _respond(
+        self, user_query: str, history: Optional[List[Dict[str, str]]] = None
+    ) -> tuple[str, list[str]]:
         """Render the assistant's answer inside the caller's st.chat_message block.
 
         Streams token-by-token through the RAG chat engine when available
@@ -156,10 +276,16 @@ class PersonalAIInterface:
         blocking wait); falls back to a single non-streaming Ollama call
         with no vault-grounded retrieval if the chat engine couldn't be
         initialized (e.g. Ollama was unreachable at startup).
+
+        `history` is the chronological (oldest-first) prior conversation,
+        NOT including `user_query` itself - threaded through so the model
+        sees prior turns instead of treating every question in isolation.
         """
         if self.chat_engine:
             try:
-                stream = self.chat_engine.query_vault_stream(user_query, use_rag=True)
+                stream = self.chat_engine.query_vault_stream(
+                    user_query, use_rag=True, history=history
+                )
                 response_text = st.write_stream(stream)
                 return response_text, stream.sources
             except ChatEngineError as e:
@@ -270,7 +396,7 @@ class PersonalAIInterface:
 
             page = st.radio(
                 "Navigation",
-                ["💬 Chat", "📂 Upload", "📄 Files", "⚙️ Settings"],
+                ["💬 Chat", "📂 Upload", "📄 Files", "📊 Dashboard", "⚙️ Settings"],
                 label_visibility="collapsed",
             )
 
@@ -363,8 +489,7 @@ class PersonalAIInterface:
         """Render chat interface."""
         self._ensure_vault_and_rag()
 
-        if not self.chat_history:
-            self.chat_history = ChatHistory(self.vault)
+        active_id = self._ensure_active_session_and_history()
 
         title_col, clear_col = st.columns([5, 1])
         with title_col:
@@ -376,6 +501,33 @@ class PersonalAIInterface:
                 "🗑️ Clear", use_container_width=True, disabled=not has_messages
             ):
                 _clear_chat_dialog(self.chat_history)
+
+        self._render_session_controls(active_id)
+
+        # Recomputed fresh on every render (not just after sending a
+        # message) so the meter is accurate immediately on page load too.
+        history_for_engine = [
+            {"role": m.role, "content": m.content}
+            for m in self.chat_history.get_messages()
+        ]
+
+        if self.chat_engine is not None:
+            usage = self.chat_engine.estimate_usage(history_for_engine)
+            st.progress(
+                min(usage["ratio"], 1.0),
+                text=(
+                    f"Context used: {usage['ratio'] * 100:.0f}% "
+                    f"({usage['used_tokens']:,} / {usage['budget_tokens']:,} tokens)"
+                ),
+            )
+            if usage["ratio"] >= 0.9:
+                st.error(
+                    "Context window is nearly full — start a new chat to keep responses accurate."
+                )
+            elif usage["ratio"] >= 0.75:
+                st.warning(
+                    "Context window is getting full — consider starting a new chat soon."
+                )
 
         with st.expander("⚙️ Advanced"):
             if st.button("🔄 Rebuild RAG Index"):
@@ -393,10 +545,13 @@ class PersonalAIInterface:
                 st.markdown(user_input)
 
             with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-                response_text, sources = self._respond(user_input)
+                response_text, sources = self._respond(user_input, history_for_engine)
                 render_sources(sources)
 
             self.chat_history.add_exchange(user_input, response_text, sources)
+            chat_sessions.touch_session(
+                self.vault, active_id, title=user_input.strip()[:40]
+            )
             st.rerun()
 
     def render_upload_page(self) -> None:
@@ -433,7 +588,7 @@ class PersonalAIInterface:
                 st.success("✅ Configuration saved to encrypted vault")
 
     def render_files_page(self) -> None:
-        """Render a page showing all uploaded files from the vault."""
+        """Render uploaded files grouped into folder-like sections by category."""
         st.header("📄 Your Uploaded Files")
         st.caption("All files are encrypted and stored locally in your vault")
 
@@ -452,80 +607,152 @@ class PersonalAIInterface:
 
         st.success(f"Found {len(file_keys)} uploaded file(s)")
 
-        # Display each file
+        # Load each file once, keeping the full record for rendering and just
+        # the metadata for grouping.
+        records: Dict[str, Dict[str, Any]] = {}
+        file_entries = []
+        unreadable: List[tuple] = []
         for key in file_keys:
             try:
                 data = self.vault.retrieve_data(key)
+            except Exception as e:
+                # Most commonly a vault entry encrypted under a password/key
+                # that's no longer the one unlocked (see docs/security_design.md's
+                # "Known limitation: no migration path across a vault key
+                # change") - permanently undecryptable, not a transient
+                # error. Surface it separately with a way to delete it,
+                # rather than a bare error the user can't act on.
+                unreadable.append((key, str(e)))
+                continue
 
-                if not data or not isinstance(data, dict):
-                    continue
+            if not data or not isinstance(data, dict):
+                continue
 
-                metadata = data.get("metadata", {})
-                original_filename = metadata.get("original_filename", key)
-                file_type = metadata.get("file_type", "unknown")
-                file_size = metadata.get("file_size", 0)
-                upload_timestamp = metadata.get("upload_timestamp", "unknown")
+            records[key] = data
+            file_entries.append((key, data.get("metadata", {})))
 
-                # Calculate human-readable file size
-                if file_size > 1024 * 1024:
-                    size_str = f"{file_size / (1024 * 1024):.2f} MB"
-                elif file_size > 1024:
-                    size_str = f"{file_size / 1024:.2f} KB"
-                else:
-                    size_str = f"{file_size} bytes"
+        groups = group_files_by_category(file_entries)
 
-                with st.expander(f"📄 {original_filename}", expanded=False):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Type", file_type.upper())
-                    with col2:
-                        st.metric("Size", size_str)
-                    with col3:
-                        st.metric(
-                            "Uploaded",
-                            upload_timestamp.split("T")[0]
-                            if "T" in upload_timestamp
-                            else upload_timestamp,
-                        )
+        for category_key, category_label, entries in groups:
+            st.subheader(f"{category_label} ({len(entries)} file(s))")
+            for key, metadata in entries:
+                self._render_file_card(key, records[key], metadata)
+            st.divider()
 
-                    category_key = metadata.get("category")
-                    if category_key:
-                        st.caption(f"Category: {get_category(category_key).label}")
-
-                    extraction = data.get("extraction")
-                    if extraction:
-                        total = extraction.get("total")
-                        period = f"{extraction.get('period_start', '?')} to {extraction.get('period_end', '?')}"
-                        st.success(f"💰 Total: {total} ({period})")
-                        line_items = extraction.get("line_items", [])
-                        if line_items:
-                            with st.expander(f"📋 {len(line_items)} line item(s)"):
-                                for item in line_items:
-                                    st.caption(
-                                        f"{item.get('label')}: {item.get('amount')}"
-                                    )
-
-                    st.divider()
-
-                    if data.get("text_content"):
-                        text_length = len(data["text_content"])
-                        st.info(f"📄 Text content: {text_length} characters")
-
-                        # Show preview if not too long
-                        if text_length <= 2000:
-                            with st.expander("👁️ View Text Preview"):
-                                st.text(data["text_content"][:2000])
-                                if text_length > 2000:
-                                    st.text(
-                                        f"... ({text_length - 2000} more characters)"
-                                    )
-
-                    if st.button("🗑️ Delete", key=f"delete_{key}"):
+        if unreadable:
+            with st.expander(
+                f"⚠️ {len(unreadable)} file(s) could not be decrypted", expanded=False
+            ):
+                st.caption(
+                    "Usually means these were encrypted under a previous vault "
+                    "password/key. They can't be recovered without that old key - "
+                    "delete them to clean up the vault."
+                )
+                for key, error in unreadable:
+                    st.text(f"{key}: {error}")
+                    if st.button("🗑️ Delete", key=f"delete_unreadable_{key}"):
                         self.vault.delete_data(key)
                         st.rerun()
 
-            except Exception as e:
-                st.error(f"Error loading file {key}: {str(e)}")
+    def render_dashboard_page(self) -> None:
+        """Render the Dashboard page: customizable at-a-glance widgets."""
+        self._init_vault()  # Initialize vault but not RAG
+
+        if not self.vault:
+            st.warning("Vault not initialized. Please reload the page.")
+            return
+
+        dashboard.render_dashboard_page(self.vault)
+
+    def _render_file_card(
+        self, key: str, data: Dict[str, Any], metadata: Dict[str, Any]
+    ) -> None:
+        """Render one file's metrics, extraction summary, preview, and controls."""
+        try:
+            original_filename = metadata.get("original_filename", key)
+            file_type = metadata.get("file_type", "unknown")
+            file_size = metadata.get("file_size", 0)
+            upload_timestamp = metadata.get("upload_timestamp", "unknown")
+
+            # Calculate human-readable file size
+            if file_size > 1024 * 1024:
+                size_str = f"{file_size / (1024 * 1024):.2f} MB"
+            elif file_size > 1024:
+                size_str = f"{file_size / 1024:.2f} KB"
+            else:
+                size_str = f"{file_size} bytes"
+
+            with st.expander(f"📄 {original_filename}", expanded=False):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Type", file_type.upper())
+                with col2:
+                    st.metric("Size", size_str)
+                with col3:
+                    st.metric(
+                        "Uploaded",
+                        upload_timestamp.split("T")[0]
+                        if "T" in upload_timestamp
+                        else upload_timestamp,
+                    )
+
+                category_key = metadata.get("category")
+                if category_key:
+                    st.caption(f"Category: {get_category(category_key).label}")
+
+                extraction = data.get("extraction")
+                if extraction:
+                    total = extraction.get("total")
+                    period = f"{extraction.get('period_start', '?')} to {extraction.get('period_end', '?')}"
+                    st.success(f"💰 Total: {total} ({period})")
+                    line_items = extraction.get("line_items", [])
+                    if line_items:
+                        with st.expander(f"📋 {len(line_items)} line item(s)"):
+                            for item in line_items:
+                                st.caption(f"{item.get('label')}: {item.get('amount')}")
+
+                st.divider()
+
+                if data.get("text_content"):
+                    text_length = len(data["text_content"])
+                    st.info(f"📄 Text content: {text_length} characters")
+
+                    # Show preview if not too long
+                    if text_length <= 2000:
+                        with st.expander("👁️ View Text Preview"):
+                            st.text(data["text_content"][:2000])
+                            if text_length > 2000:
+                                st.text(f"... ({text_length - 2000} more characters)")
+
+                st.divider()
+
+                all_category_keys = category_keys()
+                current_category = category_key or DEFAULT_CATEGORY_KEY
+                if current_category not in all_category_keys:
+                    current_category = DEFAULT_CATEGORY_KEY
+                recat_col, save_col = st.columns([3, 1])
+                with recat_col:
+                    new_category = st.selectbox(
+                        "Re-categorize",
+                        all_category_keys,
+                        index=all_category_keys.index(current_category),
+                        format_func=lambda k: get_category(k).label,
+                        key=f"recat_select_{key}",
+                    )
+                with save_col:
+                    st.write("")
+                    if st.button("💾 Save category", key=f"recat_{key}"):
+                        data.setdefault("metadata", {})["category"] = new_category
+                        self.vault.store_data(key, data)
+                        st.success(f"Moved to {get_category(new_category).label}")
+                        st.rerun()
+
+                if st.button("🗑️ Delete", key=f"delete_{key}"):
+                    self.vault.delete_data(key)
+                    st.rerun()
+
+        except Exception as e:
+            st.error(f"Error loading file {key}: {str(e)}")
 
     def _setup_page(self) -> None:
         """Configure page settings (must be called first)."""
@@ -613,6 +840,8 @@ class PersonalAIInterface:
             self.render_upload_page()
         elif page == "📄 Files":
             self.render_files_page()
+        elif page == "📊 Dashboard":
+            self.render_dashboard_page()
         elif page == "⚙️ Settings":
             self.render_config_page()
 

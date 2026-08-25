@@ -4,19 +4,26 @@ import os
 
 import pytest
 
-from src.ai_engine.chat_engine import ChatEngine, ChatEngineError
+from src.ai_engine.chat_engine import ChatEngine, ChatEngineError, estimate_tokens
 from src.ai_engine.ollama_client import OllamaClientError
+from src.config import DEFAULT_CONTEXT_WINDOW_TOKENS
 
 
 class FakeOllamaClient:
     """Ollama client double - no network/Ollama process involved."""
 
-    def __init__(self, model_exists=True, response_text="hello"):
+    def __init__(
+        self,
+        model_exists=True,
+        response_text="hello",
+        context_window_tokens=DEFAULT_CONTEXT_WINDOW_TOKENS,
+    ):
         self._model_exists = model_exists
         self.response_text = response_text
         self.stream_chunks = []
         self.raise_on_chat = None
         self.last_messages = None
+        self.context_window_tokens = context_window_tokens
 
     def model_exists(self, model_name):
         return self._model_exists
@@ -83,16 +90,56 @@ def test_data_to_text_skips_binary_and_flattens_nested_values(engine):
 def test_fit_context_to_budget_unchanged_when_small(engine):
     context = "short context"
 
-    assert engine._fit_context_to_budget(context, "q") == context
+    assert engine._fit_context_to_budget(context, "q", budget_chars=1000) == context
 
 
 def test_fit_context_to_budget_truncates_when_too_large(engine):
     huge = "x" * 1_000_000
 
-    result = engine._fit_context_to_budget(huge, "q")
+    result = engine._fit_context_to_budget(huge, "q", budget_chars=100)
 
     assert len(result) < len(huge)
     assert result.endswith("[...context truncated to fit model context window...]")
+
+
+def test_estimate_tokens_basic_correctness():
+    assert estimate_tokens("") == 0
+    assert estimate_tokens("x" * 4) == 1
+    assert estimate_tokens("x" * 40) == 10
+    assert estimate_tokens("x" * 41) == 10
+
+
+def test_fit_history_to_budget_keeps_all_when_under_budget(engine):
+    history = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
+
+    fitted = engine._fit_history_to_budget(history, budget_chars=1000)
+
+    assert fitted == history
+
+
+def test_fit_history_to_budget_drops_oldest_first_when_over_budget(engine):
+    history = [
+        {"role": "user", "content": "oldest message here"},
+        {"role": "assistant", "content": "middle message here"},
+        {"role": "user", "content": "newest"},
+    ]
+
+    fitted = engine._fit_history_to_budget(history, budget_chars=len("newest"))
+
+    assert fitted == [{"role": "user", "content": "newest"}]
+
+
+def test_fit_history_to_budget_handles_empty_list(engine):
+    assert engine._fit_history_to_budget([], budget_chars=1000) == []
+
+
+def test_fit_history_to_budget_zero_budget_drops_everything(engine):
+    history = [{"role": "user", "content": "hi"}]
+
+    assert engine._fit_history_to_budget(history, budget_chars=0) == []
 
 
 def test_build_prompt_without_rag_uses_raw_query(engine):
@@ -302,3 +349,104 @@ def test_build_prompt_no_category_uses_unscoped_rag(engine):
 
     assert engine.rag_engine.last_where is None
     assert built["context_used"] == "general context"
+
+
+def test_build_prompt_with_history_no_rag_orders_messages(engine):
+    history = [
+        {"role": "user", "content": "earlier question"},
+        {"role": "assistant", "content": "earlier answer"},
+    ]
+
+    built = engine._build_prompt("what time is it?", use_rag=False, history=history)
+
+    assert built["messages"] == [
+        {"role": "system", "content": engine.SYSTEM_PROMPT},
+        {"role": "user", "content": "earlier question"},
+        {"role": "assistant", "content": "earlier answer"},
+        {"role": "user", "content": "what time is it?"},
+    ]
+
+
+def test_build_prompt_with_history_and_rag_orders_messages(engine):
+    engine.rag_engine = FakeRagEngine(context="my note content")
+    history = [
+        {"role": "user", "content": "earlier question"},
+        {"role": "assistant", "content": "earlier answer"},
+    ]
+
+    built = engine._build_prompt("what's in my note?", use_rag=True, history=history)
+
+    assert built["messages"][0] == {"role": "system", "content": engine.SYSTEM_PROMPT}
+    assert built["messages"][1:3] == history
+    assert built["messages"][-1]["role"] == "user"
+    assert "what's in my note?" in built["messages"][-1]["content"]
+
+
+def test_build_prompt_without_history_arg_matches_default_behavior(engine):
+    engine.rag_engine = FakeRagEngine(context="my note content")
+
+    built_no_history = engine._build_prompt("q", use_rag=True)
+    built_empty_history = engine._build_prompt("q", use_rag=True, history=[])
+
+    assert built_no_history["messages"] == built_empty_history["messages"]
+    assert built_no_history["context_used"] == built_empty_history["context_used"]
+
+
+def test_query_vault_passes_history_through_to_messages(engine):
+    history = [{"role": "user", "content": "earlier"}]
+    engine.rag_engine = FakeRagEngine(context="")
+
+    engine.query_vault("q", use_rag=False, history=history)
+
+    assert engine.ollama_client.last_messages == [
+        {"role": "system", "content": engine.SYSTEM_PROMPT},
+        {"role": "user", "content": "earlier"},
+        {"role": "user", "content": "q"},
+    ]
+
+
+def test_fit_history_to_budget_used_when_history_too_large_for_window(tmp_path):
+    engine = make_engine(tmp_path, context_window_tokens=600)
+    engine.rag_engine = FakeRagEngine(context="")
+    history = [
+        {"role": "user", "content": "a" * 5000},
+        {"role": "assistant", "content": "b" * 5000},
+        {"role": "user", "content": "recent"},
+    ]
+
+    built = engine._build_prompt("q", use_rag=False, history=history)
+
+    # Oldest messages should have been dropped to fit the small window.
+    contents = [m["content"] for m in built["messages"]]
+    assert "recent" in contents
+    assert "a" * 5000 not in contents
+
+
+def test_estimate_usage_more_history_increases_used_tokens_and_ratio(engine):
+    baseline = engine.estimate_usage(history=[])
+    with_history = engine.estimate_usage(
+        history=[
+            {"role": "user", "content": "x" * 400},
+            {"role": "assistant", "content": "y" * 400},
+        ]
+    )
+
+    assert with_history["used_tokens"] > baseline["used_tokens"]
+    assert with_history["ratio"] > baseline["ratio"]
+    assert with_history["budget_tokens"] == engine.ollama_client.context_window_tokens
+
+
+def test_estimate_usage_reflects_ollama_client_context_window(tmp_path):
+    engine = make_engine(tmp_path, context_window_tokens=4096)
+
+    usage = engine.estimate_usage(history=[])
+
+    assert usage["budget_tokens"] == 4096
+    assert usage["ratio"] == usage["used_tokens"] / 4096
+
+
+def test_estimate_usage_accounts_for_pending_context(engine):
+    without_context = engine.estimate_usage(history=[])
+    with_context = engine.estimate_usage(history=[], pending_context="z" * 400)
+
+    assert with_context["used_tokens"] > without_context["used_tokens"]

@@ -117,6 +117,57 @@ deleted) that stored extracted bill data - account numbers included - in a
 vault entirely and never actually wired into the chat flow. If you ran an
 older version of this app, check for and manually delete that file.
 
+## Multi-session chat and dashboard (2026-08-25)
+
+**Chat history is no longer a single fixed vault key.** Previously all chat
+history lived under one `chat_history` key, shared across the whole vault -
+there was no concept of separate conversations, only one growing (or
+destructively cleared) history. It's now N per-session keys
+(`chat_history_<session_id>`, see `src/interface/chat_sessions.py`), tracked
+by an index record at `chat_sessions_index`. All of it - the index and every
+session's messages - still lives inside the same encrypted vault; this does
+not introduce a new plaintext-at-rest location. The first time the chat page
+loads after this upgrade, any pre-existing single-conversation history under
+the legacy `chat_history` key is auto-migrated (in place, without copying
+the messages) into a session titled "Previous Chat"
+(`chat_sessions.migrate_legacy_history`); `is_internal_vault_key()` in
+`src/data_vault/vault.py` was updated to recognize both `chat_history` and
+the `chat_history_<session_id>` prefix as internal (non-document) keys, and
+the new `chat_sessions_index` and `dashboard_config` keys are added to
+`INTERNAL_VAULT_KEYS` for the same reason.
+
+**Conversation history is now actually sent to Ollama.** Every chat turn was
+previously stateless from the model's point of view - only freshly-retrieved
+RAG/structured context was ever sent, never prior turns. `ChatEngine`
+now threads a budgeted, oldest-first-dropped history
+(`_fit_history_to_budget`) into every prompt path
+(`query_vault`/`query_vault_stream`/`_build_prompt`). This doesn't change
+the trust boundary described above under "RAG / ChromaDB" - Ollama already
+received RAG-retrieved vault content on every turn - but it does mean more
+of the user's own prior conversation now leaves the vault and is sent, in
+plaintext, to the local Ollama process's request payload on each subsequent
+turn (still local-only; Ollama is not a network service outside this
+machine per the threat model above).
+
+**`num_ctx` is now explicitly passed to Ollama.** `OllamaClient` gained a
+`context_window_tokens` constructor parameter (sourced from
+`PERSONAL_AI_CONTEXT_WINDOW_TOKENS`, same as before) that is now passed as
+`num_ctx` on every `client.chat(...)` call. Previously
+`DEFAULT_CONTEXT_WINDOW_TOKENS` was only ever used as this app's own
+truncation-guard estimate and had no effect on what Ollama itself was
+actually configured to use as its context window - the two values could
+silently disagree (e.g. the app assuming a smaller window than Ollama would
+actually accept, or vice versa, either wasting headroom or overflowing).
+`ChatEngine`'s own budget math (`_total_budget_chars`, `estimate_usage`) now
+reads `self.ollama_client.context_window_tokens` directly rather than the
+module-level default, so it can't drift from what's really sent to Ollama.
+
+**Dashboard widget preferences are a new internal vault key.** The Dashboard
+page (`src/interface/dashboard.py`) persists which widgets a user has
+enabled to `dashboard_config` - just `{"enabled_widgets": [...]}`, a list of
+widget-registry keys. No sensitive data, but noted here for completeness
+since it's a new entry in `INTERNAL_VAULT_KEYS`.
+
 ## Model configuration
 
 Chat/embedding model names and the Ollama host were previously hardcoded to
@@ -133,7 +184,7 @@ Now centralized in `src/config.py`, overridable via environment variables:
 | `PERSONAL_AI_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `PERSONAL_AI_CHAT_MODEL` | `qwen3:8b` | Chat model |
 | `PERSONAL_AI_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
-| `PERSONAL_AI_CONTEXT_WINDOW_TOKENS` | `8192` | Assumed context window for the RAG truncation guard - see below |
+| `PERSONAL_AI_CONTEXT_WINDOW_TOKENS` | `8192` | Context window size: both the RAG/history truncation guard's budget assumption *and* the literal `num_ctx` value passed to Ollama on every `chat()` call (see "Multi-session chat and dashboard" above) - the two can no longer silently disagree |
 
 `nomic-embed-text` was pulled via `ollama pull nomic-embed-text` as part of
 this fix; it's required regardless of which chat model you use, since

@@ -4,6 +4,95 @@ Commit history for `personal_ai`, newest first, with what actually changed
 and why - kept for future reference so you don't have to reconstruct intent
 from `git log` alone. Update this file whenever you commit.
 
+## 83539b1 - 2026-08-25 - feat: add Dashboard page with configurable widgets
+
+There was no single view aggregating what's in the vault - only a flat Files
+list. Adds a Dashboard page (`src/interface/dashboard.py`) with an ordered
+`WIDGETS` registry (overview metrics, documents-by-category and
+spend-by-category/spend-over-time bar charts, recent uploads), built on
+pure, independently-tested aggregation helpers in `dashboard_data.py`
+(`count_by_category`, `total_spend`, `spend_by_category`,
+`spend_over_time`, `recent_uploads` - deliberately excluding `brokerage`
+from spend totals, since its `total` is portfolio value, not spend). Which
+widgets are shown is user-configurable via a multiselect, persisted to a
+new `dashboard_config` vault key (`{"enabled_widgets": [...]}`), added to
+`INTERNAL_VAULT_KEYS` in `src/data_vault/vault.py` so it isn't treated as
+an uploaded document.
+
+- `src/data_vault/vault.py`, `src/interface/dashboard.py`,
+  `src/interface/dashboard_data.py`, `src/interface/main.py`,
+  `tests/test_dashboard_data.py`, `tests/test_data_vault.py`
+
+## 756348e - 2026-08-24 - feat: add multi-session chat management and a context-window meter
+
+There was no way to tell how full the model's context window was, and no
+concept of separate chats at all - one growing history per vault, wipeable
+only by a full destructive clear. Adds named, switchable, deletable chat
+sessions: a `chat_sessions_index` vault record tracks sessions, each with
+its own `chat_history_<session_id>` vault key
+(`src/interface/chat_sessions.py`); the pre-existing single-conversation
+history under the legacy `chat_history` key is auto-migrated (in place,
+without copying messages) into a session titled "Previous Chat" the first
+time the chat page loads. `src/data_vault/vault.py`'s
+`is_internal_vault_key()` now also recognizes the `chat_history_` prefix
+and `chat_sessions_index`. Also adds a live progress-bar meter, driven by
+`ChatEngine.estimate_usage()` (added in the previous commit), that warns as
+the context window fills up.
+
+- `src/data_vault/vault.py`, `src/interface/chat_sessions.py`,
+  `src/interface/main.py`, `tests/test_chat_sessions.py`
+
+## daecbab - 2026-08-24 - feat: give chat real conversation memory and wire num_ctx to Ollama
+
+Every chat turn was previously stateless from the model's point of view -
+only freshly-retrieved RAG context was ever sent, never prior turns - and
+the app's own context-window budget assumption
+(`DEFAULT_CONTEXT_WINDOW_TOKENS`) was never actually passed to Ollama via
+`num_ctx`, so the two could silently disagree. `ChatEngine` now threads a
+budgeted, oldest-first-dropped `history` list into every prompt path
+(`query_vault`, `query_vault_stream`, `_build_prompt`,
+`_build_structured_prompt`, via new `_fit_history_to_budget`), and derives
+all of its own budget math (`_total_budget_chars`) from
+`OllamaClient.context_window_tokens` rather than the module-level default.
+`OllamaClient` gained a `context_window_tokens` constructor parameter,
+passed as `num_ctx` on every `chat()` call. Also adds
+`ChatEngine.estimate_usage(history, pending_context="")`, a pure
+token-budget calculation (no vault/RAG/Ollama calls) for a future UI
+context-window meter.
+
+- `src/ai_engine/chat_engine.py`, `src/ai_engine/ollama_client.py`,
+  `tests/test_chat_engine.py`, `tests/test_ollama_client.py`
+
+## 502222c - 2026-08-24 - feat: group uploaded files by category on Files page
+
+Files were a single flat list with no way to tell "T-Mobile bills" apart
+from everything else, and a misclassified upload had no way to be fixed
+short of deleting and re-uploading. New pure helper
+`group_files_by_category()` (`src/interface/file_grouping.py`, kept free of
+Streamlit/vault imports for unit testing) buckets `(key, metadata)` file
+entries by their `category` metadata, ordered to match
+`categories.CATEGORIES` with "other"/uncategorized last and empty
+categories omitted. `src/interface/main.py`'s Files page renders these as
+per-category sections and adds a re-categorize control per file.
+
+- `src/interface/file_grouping.py`, `src/interface/main.py`,
+  `tests/test_file_grouping.py`
+
+## 05e6158 - 2026-08-24 - feat: add mobile/phone bill category to document classifier
+
+T-Mobile and other wireless bills previously fell through to the generic
+"other" category (or worse, an unrelated one) since no category recognized
+carrier/wireless keywords, so uploads got a useless "What is this
+document?" field instead of carrier/account/billing-period fields. Adds a
+`mobile` entry to `CATEGORIES` in `src/data_extraction/categories.py`
+(keywords: t-mobile, verizon, at&t, wireless, data plan, etc.; fields:
+carrier, phone number/account nickname, statement period) - the keyword-first
+classifier and Upload-page form pick it up automatically since both are
+driven by that one list.
+
+- `src/data_extraction/categories.py`, `tests/test_categories.py`,
+  `tests/test_classifier.py`
+
 ## a3d32ca - 2026-08-23 - fix: don't crash on vault entries encrypted under a stale key
 
 `ChatHistory._load_history()`, `_load_ollama_config()`, and the sidebar

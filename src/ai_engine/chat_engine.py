@@ -5,16 +5,20 @@ from .query_analysis import detect_category_from_query, parse_relative_date_rang
 from .rag_engine import RAGEngine
 
 from src.data_vault import DataVault, DataVaultError, is_internal_vault_key
-from src.config import (
-    DEFAULT_CHAT_MODEL,
-    DEFAULT_CONTEXT_WINDOW_TOKENS,
-    CHARS_PER_TOKEN_ESTIMATE,
-)
+from src.config import DEFAULT_CHAT_MODEL, CHARS_PER_TOKEN_ESTIMATE
 
 # Reserve headroom for the system prompt, the user's question, and the
 # model's own reply so RAG context alone can't push the request over the
 # model's context window.
 RESERVED_TOKENS = 1024
+
+
+def estimate_tokens(text: str) -> int:
+    """Coarse chars-per-token estimate - good enough to budget against
+    without adding a real tokenizer dependency. Shared by every place in
+    this module (and the future UI context meter) that needs to turn text
+    length into a token count."""
+    return len(text) // CHARS_PER_TOKEN_ESTIMATE
 
 
 class ChatEngineError(Exception):
@@ -195,15 +199,33 @@ class ChatEngine:
 
         return records
 
-    def _fit_context_to_budget(self, context: str, query: str) -> str:
-        """Truncate RAG context so it fits the model's context window.
+    def _total_budget_chars(self, query: str) -> int:
+        """Total character budget left for RAG/structured context + chat
+        history combined, once the system prompt, the current query, and
+        reply headroom are accounted for.
+
+        Derived from `self.ollama_client.context_window_tokens` (not the
+        module-level default) so this can never drift from what's actually
+        sent to Ollama via `num_ctx`.
+        """
+        budget_tokens = max(
+            self.ollama_client.context_window_tokens - RESERVED_TOKENS, 512
+        )
+        return budget_tokens * CHARS_PER_TOKEN_ESTIMATE - len(query)
+
+    def _fit_context_to_budget(
+        self, context: str, query: str, budget_chars: int
+    ) -> str:
+        """Truncate RAG/structured context so it fits within `budget_chars`.
 
         Uses a coarse chars-per-token estimate rather than a real tokenizer -
         good enough to prevent silent overflow without adding a heavy
         dependency. `make check-context` runs the same estimate offline.
+
+        `budget_chars` is decided by the caller (see `_total_budget_chars`),
+        which also has to leave room for chat history - this function no
+        longer computes the whole-window budget itself.
         """
-        budget_tokens = max(DEFAULT_CONTEXT_WINDOW_TOKENS - RESERVED_TOKENS, 512)
-        budget_chars = budget_tokens * CHARS_PER_TOKEN_ESTIMATE - len(query)
         if len(context) <= budget_chars:
             return context
         return (
@@ -211,12 +233,40 @@ class ChatEngine:
             + "\n\n[...context truncated to fit model context window...]"
         )
 
+    def _fit_history_to_budget(
+        self, history: List[Dict[str, str]], budget_chars: int
+    ) -> List[Dict[str, str]]:
+        """Return the longest suffix (most-recent-first fill) of `history`
+        whose combined content length fits within `budget_chars`.
+
+        Oldest messages are dropped first - the most recent turns are the
+        ones most likely to matter for the current question. `history` is
+        chronological (oldest-first); the result is returned in the same
+        chronological order.
+        """
+        budget_chars = max(budget_chars, 0)
+        fitted: List[Dict[str, str]] = []
+        total = 0
+        for message in reversed(history):
+            length = len(message.get("content", ""))
+            if total + length > budget_chars:
+                break
+            fitted.append(message)
+            total += length
+        fitted.reverse()
+        return fitted
+
     SYSTEM_PROMPT = (
         "You are a helpful personal assistant with access to your local "
         "encrypted data. Answer based on the provided context."
     )
 
-    def _build_prompt(self, query: str, use_rag: bool = True) -> Dict[str, Any]:
+    def _build_prompt(
+        self,
+        query: str,
+        use_rag: bool = True,
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
         """Build the chat messages, context, and sources for a query.
 
         Split out from query_vault/query_vault_stream so both the
@@ -232,9 +282,21 @@ class ChatEngine:
            records matched (or none exist yet) - fall back to vector search
            scoped to that category via ChromaDB's `where` filter.
         3. Plain RAG / no-RAG: no category detected, or use_rag=False.
+
+        `history` (chronological, oldest-first, NOT including `query`
+        itself) shares the same overall budget as RAG/structured context:
+        context gets first claim on up to 70% of what's left after the
+        system prompt/query/reply headroom, history gets whatever remains.
         """
+        history = history or []
+
         if not use_rag:
-            return self._finalize_prompt(query, context=None, sources=[])
+            fitted_history = self._fit_history_to_budget(
+                history, self._total_budget_chars(query)
+            )
+            return self._finalize_prompt(
+                query, context=None, sources=[], history=fitted_history
+            )
 
         category = detect_category_from_query(query)
         if category:
@@ -244,21 +306,40 @@ class ChatEngine:
                 category=category, start_date=start_date, end_date=end_date
             )
             if records:
-                return self._build_structured_prompt(query, records)
+                return self._build_structured_prompt(query, records, history=history)
 
         if self.rag_engine is None:
             self.initialize_rag()
 
         where = {"category": category} if category else None
         context = self.rag_engine.get_context_for_query(query, where=where)
-        context = self._fit_context_to_budget(context, query)
+
+        total_budget_chars = self._total_budget_chars(query)
+        context = self._fit_context_to_budget(
+            context, query, budget_chars=int(total_budget_chars * 0.7)
+        )
+        history_budget_chars = total_budget_chars - len(context)
+        fitted_history = self._fit_history_to_budget(history, history_budget_chars)
+
         sources = [context] if context else []
-        return self._finalize_prompt(query, context=context, sources=sources)
+        return self._finalize_prompt(
+            query, context=context, sources=sources, history=fitted_history
+        )
 
     def _finalize_prompt(
-        self, query: str, context: Optional[str], sources: List[str]
+        self,
+        query: str,
+        context: Optional[str],
+        sources: List[str],
+        history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
-        """Shared tail of _build_prompt: turn context (or its absence) into messages."""
+        """Shared tail of _build_prompt: turn context (or its absence) into messages.
+
+        `history` here is assumed already budget-fitted by the caller - this
+        just places it between the system message and the current user turn.
+        """
+        history = history or []
+
         if context is None:
             prompt = query
         elif context:
@@ -275,17 +356,30 @@ class ChatEngine:
                 f"Please provide a general response or ask for data to be added to your vault."
             )
 
-        messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ]
+        messages = (
+            [{"role": "system", "content": self.SYSTEM_PROMPT}]
+            + history
+            + [{"role": "user", "content": prompt}]
+        )
         return {"messages": messages, "context_used": context, "sources": sources}
 
     def _build_structured_prompt(
-        self, query: str, records: List[Dict[str, Any]]
+        self,
+        query: str,
+        records: List[Dict[str, Any]],
+        history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Build a prompt that hands the model exact extracted numbers to compute from."""
+        history = history or []
         summary = _format_structured_records(records)
+
+        total_budget_chars = self._total_budget_chars(query)
+        summary = self._fit_context_to_budget(
+            summary, query, budget_chars=int(total_budget_chars * 0.7)
+        )
+        history_budget_chars = total_budget_chars - len(summary)
+        fitted_history = self._fit_history_to_budget(history, history_budget_chars)
+
         prompt = (
             "The following is structured data extracted from the user's own "
             "uploaded documents that matches this question. Use ONLY these "
@@ -297,19 +391,50 @@ class ChatEngine:
             "data above doesn't fully answer the question, say what's "
             "missing rather than guessing."
         )
-        messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ]
+        messages = (
+            [{"role": "system", "content": self.SYSTEM_PROMPT}]
+            + fitted_history
+            + [{"role": "user", "content": prompt}]
+        )
         sources = [_record_label(record) for record in records]
         return {"messages": messages, "context_used": summary, "sources": sources}
 
-    def query_vault(self, query: str, use_rag: bool = True) -> Dict[str, Any]:
+    def estimate_usage(
+        self, history: List[Dict[str, str]], pending_context: str = ""
+    ) -> Dict[str, Any]:
+        """Estimate how much of the model's context window a chat turn would use.
+
+        Pure computation over its inputs - no vault/RAG/Ollama calls - so a
+        future UI layer can call this to show a "how full is the context
+        window" meter without needing `initialize_rag()` or vault access.
+        """
+        used_tokens = estimate_tokens(self.SYSTEM_PROMPT)
+        used_tokens += sum(
+            estimate_tokens(message.get("content", "")) for message in history
+        )
+        used_tokens += estimate_tokens(pending_context)
+        used_tokens += RESERVED_TOKENS
+
+        budget_tokens = self.ollama_client.context_window_tokens
+        ratio = used_tokens / budget_tokens if budget_tokens else 0.0
+
+        return {
+            "used_tokens": used_tokens,
+            "budget_tokens": budget_tokens,
+            "ratio": ratio,
+        }
+
+    def query_vault(
+        self,
+        query: str,
+        use_rag: bool = True,
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
         """Query the encrypted vault using chat model."""
         if not self.ollama_client.model_exists(self.DEFAULT_MODEL):
             raise ChatEngineError(f"Model '{self.DEFAULT_MODEL}' not available.")
 
-        built = self._build_prompt(query, use_rag)
+        built = self._build_prompt(query, use_rag, history=history)
 
         try:
             response = self.ollama_client.chat(messages=built["messages"])
@@ -323,7 +448,10 @@ class ChatEngine:
             raise ChatEngineError(f"Chat generation failed: {str(e)}")
 
     def query_vault_stream(
-        self, query: str, use_rag: bool = True
+        self,
+        query: str,
+        use_rag: bool = True,
+        history: Optional[List[Dict[str, str]]] = None,
     ) -> StreamingChatResponse:
         """Stream a chat response chunk by chunk.
 
@@ -336,7 +464,7 @@ class ChatEngine:
         if not self.ollama_client.model_exists(self.DEFAULT_MODEL):
             raise ChatEngineError(f"Model '{self.DEFAULT_MODEL}' not available.")
 
-        built = self._build_prompt(query, use_rag)
+        built = self._build_prompt(query, use_rag, history=history)
         sources = built["sources"]
 
         def _generate() -> Iterator[str]:
