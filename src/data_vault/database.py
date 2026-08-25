@@ -31,8 +31,15 @@ class EncryptedSQLiteDB:
         self._initialize_schema()
 
     def _create_connection(self) -> sqlite3.Connection:
-        """Create database connection."""
-        conn = sqlite3.connect(str(self.db_path))
+        """Create database connection.
+
+        `check_same_thread=False`: the caller (Streamlit) caches this
+        connection in `st.session_state` and reuses it across script
+        reruns, each of which runs on its own thread. Streamlit guarantees
+        reruns for a given session run one at a time, never concurrently,
+        so disabling sqlite3's same-thread check is safe here.
+        """
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
