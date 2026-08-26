@@ -407,15 +407,24 @@ class ChatEngine:
         Pure computation over its inputs - no vault/RAG/Ollama calls - so a
         future UI layer can call this to show a "how full is the context
         window" meter without needing `initialize_rag()` or vault access.
+
+        `budget_tokens` is the window minus RESERVED_TOKENS (the same
+        reply/headroom reserve `_total_budget_chars` carves out), not the
+        raw window size - RESERVED_TOKENS is headroom the conversation
+        never gets to fill, not content that's already "used". Folding it
+        into `used_tokens` instead used to put a ~1024-token floor under
+        the meter, so a brand-new chat with zero messages showed ~13%
+        "used" before the user had typed anything.
         """
         used_tokens = estimate_tokens(self.SYSTEM_PROMPT)
         used_tokens += sum(
             estimate_tokens(message.get("content", "")) for message in history
         )
         used_tokens += estimate_tokens(pending_context)
-        used_tokens += RESERVED_TOKENS
 
-        budget_tokens = self.ollama_client.context_window_tokens
+        budget_tokens = max(
+            self.ollama_client.context_window_tokens - RESERVED_TOKENS, 1
+        )
         ratio = used_tokens / budget_tokens if budget_tokens else 0.0
 
         return {
