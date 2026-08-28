@@ -1,5 +1,10 @@
 # AGENTS.md - Personal AI System
 
+This is the **canonical agent-memory file**, read natively by Codex and
+opencode. `CLAUDE.md` is a symlink to it, so Claude Code reads the same thing -
+edit this file, never a divergent copy. (Wiring: `memory-sync.sh` in the
+cross-harness kit.)
+
 Read this before making changes. This is a **local-only personal AI
 assistant that will hold real health/financial/personal data**. Security
 mistakes here have real consequences for the user, not just this codebase.
@@ -73,6 +78,49 @@ re-derive that context by re-reading every file - it's already written down.
   anything it documents - don't let it drift out of date the way the root
   `README.md` architecture diagram already had (it described a design that
   was never actually built this way).
+
+## Interface / UI (Streamlit) conventions
+
+The UI is Streamlit (`src/interface/`). Conventions settled on so far:
+
+- **Theme lives in `.streamlit/config.toml`.** Keep `[theme].primaryColor`
+  aligned with the dashboard's chart palette (`dashboard.py`'s
+  `_SEQUENTIAL_BLUE`, `#2a78d6`) so chrome and charts read as one system. The
+  charts assume a light background - the theme is pinned to light on purpose.
+- **Never touch `[server].address`** in `config.toml`. The localhost binding is
+  a security guardrail (see the comment there and `docs/security_design.md`) -
+  removing it exposes the vault login to the LAN.
+- **Avoid deep `st.expander` nesting.** Streamlit 1.62 renders nested expanders
+  but explicitly discourages them (bad on small screens). Prefer showing one
+  thing at a time - a search box + `st.segmented_control` to pick a category,
+  say - over dumping a long, deep, scrollable list. File cards are already one
+  expander level; don't wrap another expander around them.
+- **Settings/config forms: single source of truth.** Prefill inputs from the
+  saved vault config and use one Save action. Don't render two headers or two
+  Save buttons for one form (a Save button that only returns a dict without
+  persisting is a trap - persist in one place).
+
+## Testing the UI without a browser
+
+Streamlit ships a headless test harness - use it instead of "looks fine to me":
+
+- `from streamlit.testing.v1 import AppTest`; `AppTest.from_file("src/interface/main.py")`,
+  `.run()`, then assert `not at.exception` and inspect `at.header`, `at.radio`,
+  `at.subheader`, `at.session_state`, etc. `at.radio[0].set_value(...).run()`
+  drives navigation.
+- To exercise pages **past the login gate without touching the real vault**:
+  set a throwaway `HOME`, call `AuthManager().register(<pw>)` to mint a DEK,
+  seed `at.session_state["vault_key"] = dek`, then run. This never reads or
+  writes `~/.personal_ai_vault`.
+- `AppTest.from_function` needs real source on disk; use `from_file` (or a temp
+  script) - inline lambdas fail with `OSError: could not get source code`.
+
+## Repo automation to expect
+
+- A **PostToolUse auto-format hook** reformats files right after you edit them.
+  Don't fight it or re-edit to "fix" whitespace it changed. When you add an
+  import, add its usage in the **same** edit so the formatter/linter doesn't
+  strip an apparently-unused import between steps.
 
 ## Makefile targets
 
