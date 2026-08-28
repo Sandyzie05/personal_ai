@@ -21,6 +21,11 @@ from src.data_vault import DataVault
 
 _PENDING_KEY = "upload_pending_files"
 
+# Below this many extracted characters, a PDF almost certainly has no
+# embedded text layer (i.e. it's a scanned image) - there's no OCR fallback
+# yet, so warn the user rather than silently indexing an empty document.
+_SCANNED_PDF_TEXT_THRESHOLD = 50
+
 
 def render_upload_page(
     vault: DataVault,
@@ -170,6 +175,17 @@ def _prepare_one(
         _cleanup_tmp(tmp_path)
         return None
 
+    if (
+        uploaded_file.name.lower().endswith(".pdf")
+        and len(text_preview.strip()) < _SCANNED_PDF_TEXT_THRESHOLD
+    ):
+        st.warning(
+            f"⚠️ **{uploaded_file.name}**: almost no text could be extracted. "
+            "This usually means it's a scanned/image-only PDF with no "
+            "embedded text layer - OCR isn't supported yet, so search and "
+            "chat answers for this file may be empty or unreliable."
+        )
+
     return {
         "signature": (uploaded_file.name, uploaded_file.size),
         "signature_key": f"{uploaded_file.name}_{uploaded_file.size}".replace(" ", "_"),
@@ -218,7 +234,7 @@ def _upload_all(
                     st.write(f"❌ {filename}: upload failed")
                     continue
 
-                _try_structured_extraction(
+                consistency_warning = _try_structured_extraction(
                     vault,
                     result["storage_key"],
                     entry["text_preview"],
@@ -232,6 +248,8 @@ def _upload_all(
 
                 succeeded += 1
                 st.write(f"✅ {filename}")
+                if consistency_warning:
+                    st.write(consistency_warning)
             except IngestionError as e:
                 failed += 1
                 st.write(f"❌ {filename}: {e}")
@@ -252,22 +270,51 @@ def _try_structured_extraction(
     text_preview: str,
     category: str,
     ollama_client: Optional[Any],
-) -> None:
-    """Best-effort structured extraction - failure here doesn't fail the upload."""
+) -> Optional[str]:
+    """Best-effort structured extraction - failure here doesn't fail the upload.
+
+    Returns a warning message if the extraction looks internally
+    inconsistent (see `_extraction_consistency_warning`), or None if
+    extraction was skipped or looked fine.
+    """
     if ollama_client is None or category == "other":
-        return
+        return None
 
     try:
         extraction = extract_structured_data(text_preview, category, ollama_client)
     except ExtractionError:
-        return
+        return None
 
     if extraction is None:
-        return
+        return None
 
     data = vault.retrieve_data(storage_key)
     data["extraction"] = extraction.model_dump()
     vault.store_data(storage_key, data)
+
+    return _extraction_consistency_warning(extraction)
+
+
+def _extraction_consistency_warning(extraction) -> Optional[str]:
+    """Flag when the extracted total doesn't match the sum of line items.
+
+    The schema's own invariant is that credits/discounts are negative
+    amounts, so a plain sum over line_items should equal total (see
+    ExtractedDocument's docstring). A mismatch usually means the LLM
+    missed, duplicated, or misread a line item from the source text - a
+    concrete, cheap accuracy check that doesn't require a second model
+    call.
+    """
+    if extraction.total is None or not extraction.line_items:
+        return None
+    line_item_sum = sum(item.amount for item in extraction.line_items)
+    if abs(line_item_sum - extraction.total) > 0.01:
+        return (
+            f"⚠️ extraction check: total (${extraction.total:.2f}) doesn't "
+            f"match the sum of line items (${line_item_sum:.2f}) - worth "
+            "double-checking this document's extracted data."
+        )
+    return None
 
 
 def _cleanup_tmp(tmp_path: str) -> None:

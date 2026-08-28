@@ -4,7 +4,12 @@ import os
 
 import pytest
 
-from src.ai_engine.chat_engine import ChatEngine, ChatEngineError, estimate_tokens
+from src.ai_engine.chat_engine import (
+    RESERVED_TOKENS,
+    ChatEngine,
+    ChatEngineError,
+    estimate_tokens,
+)
 from src.ai_engine.ollama_client import OllamaClientError
 from src.config import DEFAULT_CONTEXT_WINDOW_TOKENS
 
@@ -433,7 +438,10 @@ def test_estimate_usage_more_history_increases_used_tokens_and_ratio(engine):
 
     assert with_history["used_tokens"] > baseline["used_tokens"]
     assert with_history["ratio"] > baseline["ratio"]
-    assert with_history["budget_tokens"] == engine.ollama_client.context_window_tokens
+    assert (
+        with_history["budget_tokens"]
+        == engine.ollama_client.context_window_tokens - RESERVED_TOKENS
+    )
 
 
 def test_estimate_usage_reflects_ollama_client_context_window(tmp_path):
@@ -441,8 +449,16 @@ def test_estimate_usage_reflects_ollama_client_context_window(tmp_path):
 
     usage = engine.estimate_usage(history=[])
 
-    assert usage["budget_tokens"] == 4096
-    assert usage["ratio"] == usage["used_tokens"] / 4096
+    assert usage["budget_tokens"] == 4096 - RESERVED_TOKENS
+    assert usage["ratio"] == usage["used_tokens"] / (4096 - RESERVED_TOKENS)
+
+
+def test_estimate_usage_empty_history_is_near_zero(engine):
+    """A brand-new chat with no messages should show ~0%, not a fixed
+    floor from the reply/headroom reserve leaking into "used"."""
+    usage = engine.estimate_usage(history=[])
+
+    assert usage["ratio"] < 0.02
 
 
 def test_estimate_usage_accounts_for_pending_context(engine):
