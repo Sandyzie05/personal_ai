@@ -4,6 +4,34 @@ Commit history for `personal_ai`, newest first, with what actually changed
 and why - kept for future reference so you don't have to reconstruct intent
 from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-08-27 - feat: UI/UX revamp across the interface
+
+The interface had grown functional but inconsistent: no app-wide theme
+(the dashboard charts assume a light `#2a78d6` palette, but nothing tied
+the app chrome to it), a cluttered sidebar (an always-100% "privacy"
+progress bar, raw debug buttons, file count as plain text), a Files page
+that dumped every category's files into one long scroll, and a Settings
+page with two stacked headers, two Save buttons (one of which showed a
+success toast but never persisted), and a form that always showed defaults
+instead of saved values.
+
+- `.streamlit/config.toml`: added a light `[theme]` whose `primaryColor`
+  matches the dashboard's categorical blue, so buttons/sliders/links/charts
+  read as one system. `[server]` localhost binding untouched.
+- `src/interface/main.py`: set a `page_icon`, added a small global CSS coat
+  (calmer spacing, rounded controls, metric values as cards); rebuilt the
+  sidebar (brand header, `Documents in vault` metric, one privacy line, and
+  diagnostics moved into a `Status & diagnostics` expander); Files page now
+  has a name search + a per-category segmented control so one category
+  renders at a time instead of a long scroll; Settings page reduced to a
+  single header + single primary Save, and now prefills from saved config.
+- `src/interface/config.py`: `render_config_page(current=...)` prefills from
+  saved values and returns them; dropped the duplicate header and the
+  misleading second Save button (persistence is the caller's single action).
+
+- `.streamlit/config.toml`, `src/interface/main.py`,
+  `src/interface/config.py`, `CHANGELOG.md`
+
 ## 83539b1 - 2026-08-25 - feat: add Dashboard page with configurable widgets
 
 There was no single view aggregating what's in the vault - only a flat Files

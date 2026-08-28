@@ -390,7 +390,8 @@ class PersonalAIInterface:
     def render_sidebar(self) -> None:
         """Render sidebar with navigation and settings."""
         with st.sidebar:
-            st.title("Private AI")
+            st.title("🔒 Private AI")
+            st.caption("Local, encrypted assistant")
 
             st.divider()
 
@@ -402,41 +403,32 @@ class PersonalAIInterface:
 
             st.divider()
 
-            if st.button("🔓 Lock vault"):
-                st.session_state.pop("vault_key", None)
-                self.vault = None
-                self.chat_engine = None
-                self._initialized = False
-                st.rerun()
-
-            st.divider()
-
-            st.caption("🔒 Privacy Features")
-            st.progress(
-                1.0, text="All processing is local - no data leaves your machine"
-            )
-
-            st.divider()
-
-            # Show uploaded files count
+            # At-a-glance vault state: one metric + one privacy line, instead
+            # of the old always-100% progress bar and loose captions.
             if self.vault:
                 keys = self.vault.list_keys()
                 file_keys = [k for k in keys if not is_internal_vault_key(k)]
-                st.caption("📁 Uploaded Files")
-                st.text(f"Total: {len(file_keys)} documents")
+                st.metric("Documents in vault", len(file_keys))
 
-            if st.button("🔑 Encryption Key Status"):
-                if self.encryption_key:
-                    st.success("✅ Vault key unlocked for this session")
-                else:
-                    st.warning("⚠️ No encryption key unlocked")
+            vault_state = "Unlocked" if self.encryption_key else "Locked"
+            st.caption(
+                f"🔐 Vault **{vault_state}** · processed locally — nothing "
+                "leaves your machine"
+            )
 
-            if st.button("📊 Vault Status"):
-                if self.vault:
-                    keys = self.vault.list_keys()
-                    st.info(f"Vault: {len(keys)} encrypted files")
-                    if keys:
-                        st.write("### Uploaded Files")
+            # Diagnostics are tucked into an expander so the sidebar stays
+            # calm; the button bodies are unchanged, just relocated.
+            with st.expander("🩺 Status & diagnostics"):
+                if st.button("🔑 Encryption key status", use_container_width=True):
+                    if self.encryption_key:
+                        st.success("✅ Vault key unlocked for this session")
+                    else:
+                        st.warning("⚠️ No encryption key unlocked")
+
+                if st.button("📊 Vault status", use_container_width=True):
+                    if self.vault:
+                        keys = self.vault.list_keys()
+                        st.info(f"{len(keys)} encrypted entries")
                         for key in keys:
                             try:
                                 data = self.vault.retrieve_data(key)
@@ -446,42 +438,46 @@ class PersonalAIInterface:
                             if data and isinstance(data, dict):
                                 metadata = data.get("metadata", {})
                                 if metadata:
-                                    with st.expander(
+                                    stamp = str(metadata.get("upload_timestamp", ""))[
+                                        :10
+                                    ]
+                                    st.caption(
                                         f"📄 {metadata.get('original_filename', key)}"
-                                    ):
-                                        st.json(
-                                            {
-                                                "File Type": metadata.get("file_type"),
-                                                "Size": metadata.get("file_size"),
-                                                "Uploaded": metadata.get(
-                                                    "upload_timestamp"
-                                                ),
-                                            }
-                                        )
+                                        f" · {metadata.get('file_type', '?')}"
+                                        f" · {stamp or '?'}"
+                                    )
+
+                if st.button("🔄 Check Ollama", use_container_width=True):
+                    try:
+                        try:
+                            import ollama
+
+                            client = ollama.Client(
+                                host=self.ollama_config.get("ollama_host")
+                            )
+                            models = client.list()
+                            st.success(
+                                f"✅ Ollama connected! {len(models.get('models', []))} models available"
+                            )
+                            for model in models.get("models", [])[:5]:
+                                st.caption(f"• {model.get('model', 'unknown')}")
+                        except ImportError:
+                            st.error("❌ Ollama package not installed")
+                            st.info("Install: pip install ollama")
+                    except Exception as e:
+                        st.error(f"❌ Cannot connect to Ollama: {str(e)}")
+                        st.info(
+                            "Make sure Ollama is running: https://ollama.com/download"
+                        )
 
             st.divider()
 
-            st.caption("🤖 AI Status")
-            if st.button("🔄 Check Ollama"):
-                try:
-                    try:
-                        import ollama
-
-                        client = ollama.Client(
-                            host=self.ollama_config.get("ollama_host")
-                        )
-                        models = client.list()
-                        st.success(
-                            f"✅ Ollama connected! {len(models.get('models', []))} models available"
-                        )
-                        for model in models.get("models", [])[:5]:
-                            st.text(f"  • {model.get('model', 'unknown')}")
-                    except ImportError:
-                        st.error("❌ Ollama package not installed")
-                        st.info("Install: pip install ollama")
-                except Exception as e:
-                    st.error(f"❌ Cannot connect to Ollama: {str(e)}")
-                    st.info("Make sure Ollama is running: https://ollama.com/download")
+            if st.button("🔓 Lock vault", use_container_width=True):
+                st.session_state.pop("vault_key", None)
+                self.vault = None
+                self.chat_engine = None
+                self._initialized = False
+                st.rerun()
 
             return page
 
@@ -577,18 +573,24 @@ class PersonalAIInterface:
     def render_config_page(self) -> None:
         """Render configuration page."""
         st.header("⚙️ Settings")
-        st.divider()
+        st.caption(
+            "Connect your local Ollama instance and tune generation. "
+            "Saved to your encrypted vault — never sent anywhere else."
+        )
 
         from src.interface.config import render_config_page
 
         self._init_vault()  # Initialize vault but not RAG
+        self._load_ollama_config()  # Prefill the form with saved values
 
-        self.ollama_config = render_config_page()
+        self.ollama_config = render_config_page(self.ollama_config)
 
-        if st.button("💾 Save to Vault"):
+        if st.button("💾 Save settings", type="primary"):
             if self.vault:
                 self.vault.store_data("ollama_config", self.ollama_config)
-                st.success("✅ Configuration saved to encrypted vault")
+                st.success("✅ Settings saved to your encrypted vault")
+            else:
+                st.error("Vault not available — cannot save settings.")
 
     def render_files_page(self) -> None:
         """Render uploaded files grouped into folder-like sections by category."""
@@ -609,6 +611,16 @@ class PersonalAIInterface:
             return
 
         st.success(f"Found {len(file_keys)} uploaded file(s)")
+
+        query = (
+            st.text_input(
+                "🔍 Search files by name",
+                key="files_search",
+                placeholder="Type to filter…",
+            )
+            .strip()
+            .lower()
+        )
 
         # Load each file once, keeping the full record for rendering and just
         # the metadata for grouping.
@@ -634,13 +646,36 @@ class PersonalAIInterface:
             records[key] = data
             file_entries.append((key, data.get("metadata", {})))
 
+        if query:
+            file_entries = [
+                (key, metadata)
+                for key, metadata in file_entries
+                if query in str(metadata.get("original_filename", key)).lower()
+            ]
+
         groups = group_files_by_category(file_entries)
 
-        for category_key, category_label, entries in groups:
-            st.subheader(f"{category_label} ({len(entries)} file(s))")
-            for key, metadata in entries:
-                self._render_file_card(key, records[key], metadata)
-            st.divider()
+        if not groups:
+            st.info("No files match your search.")
+            return
+
+        # Show one category at a time instead of dumping every file into a
+        # single long scroll. A segmented control lets the user jump between
+        # categories; file cards stay collapsed so the page opens compact and
+        # stays shallow (mobile-friendly - no nested expanders).
+        labels = [f"{label} ({len(entries)})" for _, label, entries in groups]
+        selected = st.segmented_control(
+            "Category",
+            labels,
+            default=labels[0],
+            key="files_category",
+            label_visibility="collapsed",
+        )
+        if selected is None:
+            selected = labels[0]
+        chosen = groups[labels.index(selected)]
+        for key, metadata in chosen[2]:
+            self._render_file_card(key, records[key], metadata)
 
         if unreadable:
             with st.expander(
@@ -767,18 +802,38 @@ class PersonalAIInterface:
 
         st.set_page_config(
             page_title="Private AI Assistant",
-            page_icon=None,
+            page_icon="🔒",
             layout="wide",
             initial_sidebar_state="expanded",
         )
 
-        hide_streamlit_style = """
+        # Hide Streamlit chrome and apply a light, cohesive coat of paint:
+        # calmer spacing, rounded controls, and metric values that read as
+        # cards (matching the dashboard's bordered containers). Purely
+        # cosmetic - no behavior depends on it.
+        custom_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
+            header[data-testid="stHeader"] {background: transparent;}
+            .block-container {padding-top: 2.75rem; padding-bottom: 3rem;}
+            .stButton > button {border-radius: 8px; font-weight: 500;}
+            div[data-testid="stMetric"] {
+                background: #f4f6f9;
+                border: 1px solid #e6e8ec;
+                border-radius: 10px;
+                padding: 12px 16px;
+            }
+            section[data-testid="stSidebar"] div[data-testid="stMetric"] {
+                background: #ffffff;
+            }
+            div[data-testid="stExpander"] details {
+                border-radius: 10px;
+                border-color: #e6e8ec;
+            }
             </style>
         """
-        st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+        st.markdown(custom_style, unsafe_allow_html=True)
 
     def _render_login_gate(self) -> None:
         """Render registration/login screen; unlocks the vault key on success.

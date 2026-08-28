@@ -11,3 +11,16 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+# Cohesive light theme. primaryColor matches the dashboard's categorical
+# blue (dashboard.py's _SEQUENTIAL_BLUE) so accents, buttons, sliders and
+# links read the same as the charts. The charts are designed for a light
+# background (transparent paper over dark gridlines), so the theme is
+# pinned to light rather than following the OS dark preference.
+[theme]
+base = "light"
+primaryColor = "#2a78d6"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f6f9"
+textColor = "#1f2328"
+font = "sans serif"
