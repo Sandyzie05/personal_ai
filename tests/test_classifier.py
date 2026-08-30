@@ -46,6 +46,20 @@ def test_classify_by_keywords_mobile():
     assert classify_by_keywords(text) == "mobile"
 
 
+def test_classify_by_keywords_checking_without_literal_account_type_phrase():
+    # Real bank statements often never say the literal words "checking
+    # account" - just an account summary with opening/closing balances.
+    text = "Account summary: opening balance $1,204.56, closing balance $980.12."
+
+    assert classify_by_keywords(text) == "checking"
+
+
+def test_classify_by_keywords_credit_card_without_literal_statement_phrase():
+    text = "New balance: $412.60. Payment due date: 06/15/2026. Available credit: $4,587.40."
+
+    assert classify_by_keywords(text) == "credit_card"
+
+
 def test_classify_by_keywords_no_signal_returns_none():
     assert classify_by_keywords("Just a random note about lunch plans.") is None
 

@@ -4,6 +4,7 @@ from datetime import date
 
 from src.ai_engine.query_analysis import (
     detect_category_from_query,
+    detect_provider_from_query,
     parse_relative_date_range,
 )
 
@@ -92,3 +93,24 @@ def test_parse_explicit_month_and_year():
 def test_parse_explicit_month_and_year_clamps_to_month_length():
     result = parse_relative_date_range("robinhood summary for February 2024")
     assert result == ("2024-02-01", "2024-02-29")
+
+
+def test_detect_provider_single_match():
+    result = detect_provider_from_query(
+        "what did I pay on my Chase card", ["Chase", "Capital One"]
+    )
+    assert result == "Chase"
+
+
+def test_detect_provider_no_match_returns_none():
+    result = detect_provider_from_query(
+        "what did I spend last month", ["Chase", "Capital One"]
+    )
+    assert result is None
+
+
+def test_detect_provider_ambiguous_mention_of_two_returns_none():
+    result = detect_provider_from_query(
+        "compare my Chase card and Capital One card", ["Chase", "Capital One"]
+    )
+    assert result is None

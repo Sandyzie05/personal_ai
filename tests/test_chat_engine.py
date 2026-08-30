@@ -174,8 +174,8 @@ def test_build_prompt_with_rag_no_context_found(engine):
     built = engine._build_prompt("anything", use_rag=True)
 
     assert built["context_used"] == ""
-     # The refusal path now uses stronger, grounding-first language so a model
-     # can't "answer from its own knowledge" when nothing was retrieved.
+    # The refusal path now uses stronger, grounding-first language so a model
+    # can't "answer from its own knowledge" when nothing was retrieved.
     assert "No data was found in the user's vault" in built["messages"][-1]["content"]
     assert "Do NOT answer from your own knowledge" in built["messages"][-1]["content"]
 
@@ -187,11 +187,11 @@ def test_system_prompt_enforces_grounding_and_politeness():
     this guards against."""
     prompt = ChatEngine.SYSTEM_PROMPT.lower()
 
-     # Forbids confabulation: must name the "don't guess / don't make it up" rule.
+    # Forbids confabulation: must name the "don't guess / don't make it up" rule.
     assert "guess" in prompt or "make anything up" in prompt
-     # Explicit refusal, not a silent confident answer.
+    # Explicit refusal, not a silent confident answer.
     assert "couldn't find" in prompt
-     # Warm + concise, per the user's ask.
+    # Warm + concise, per the user's ask.
     assert "polite" in prompt
     assert "concise" in prompt
 
@@ -373,6 +373,100 @@ def test_build_prompt_no_category_uses_unscoped_rag(engine):
 
     assert engine.rag_engine.last_where is None
     assert built["context_used"] == "general context"
+
+
+def _store_bill(engine, key, category, provider, period_start, period_end, line_items):
+    engine.vault.store_data(
+        key,
+        {
+            "metadata": {"category": category, "provider": provider},
+            "text_content": f"{provider} {category} statement",
+            "extraction": {
+                "provider": provider,
+                "period_start": period_start,
+                "period_end": period_end,
+                "total": sum(item["amount"] for item in line_items),
+                "line_items": line_items,
+            },
+        },
+    )
+
+
+def test_get_structured_records_filters_by_provider(engine):
+    _store_bill(
+        engine,
+        "chase1",
+        "credit_card",
+        "Chase",
+        "2026-06-01",
+        "2026-06-30",
+        [{"label": "Groceries", "amount": 100.0}],
+    )
+    _store_bill(
+        engine,
+        "capone1",
+        "credit_card",
+        "Capital One",
+        "2026-06-01",
+        "2026-06-30",
+        [{"label": "Gas", "amount": 50.0}],
+    )
+
+    records = engine.get_structured_records(category="credit_card", provider="Chase")
+
+    assert [r["storage_key"] for r in records] == ["chase1"]
+
+
+def test_build_prompt_scopes_structured_records_to_named_provider(engine):
+    """Two credit cards, same category - naming one in the question must not
+    mix its numbers with the other's."""
+    _store_bill(
+        engine,
+        "chase1",
+        "credit_card",
+        "Chase",
+        "2026-06-01",
+        "2026-06-30",
+        [{"label": "Groceries", "amount": 100.0}],
+    )
+    _store_bill(
+        engine,
+        "capone1",
+        "credit_card",
+        "Capital One",
+        "2026-06-01",
+        "2026-06-30",
+        [{"label": "Gas", "amount": 50.0}],
+    )
+
+    built = engine._build_prompt(
+        "what did I spend on my Chase credit card?", use_rag=True
+    )
+
+    assert built["sources"] == ["Chase (2026-06-01 to 2026-06-30): total=100.00"]
+
+
+def test_build_prompt_scopes_rag_by_provider_when_no_structured_records(engine):
+    """Provider is known only from metadata (no extraction yet) - the
+    RAG `where` filter should still pick it up, not just structured lookup."""
+    engine.vault.store_data(
+        "chase_no_extraction",
+        {
+            "metadata": {"category": "credit_card", "provider": "Chase"},
+            "text_content": "Chase credit card statement",
+        },
+    )
+    engine.rag_engine = FakeRagEngine(context="chase card text")
+
+    built = engine._build_prompt(
+        "what did I spend on my Chase credit card?", use_rag=True
+    )
+
+    assert engine.rag_engine.last_where == {
+        "category": "credit_card",
+        "provider": "Chase",
+    }
+    assert built["context_used"] == "chase card text"
 
 
 def test_build_prompt_with_history_no_rag_orders_messages(engine):

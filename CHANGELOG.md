@@ -4,6 +4,56 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-08-30 - feat: multi-account disambiguation for credit card/checking uploads + smarter upload form
+
+Ahead of importing multiple credit cards and two checking accounts: the
+existing `category` (credit_card/checking/etc) alone can't tell two accounts
+of the same type apart, and classification leaned on keyword phrases real
+statements don't always spell out literally.
+
+- `schemas.py` / `extractor.py`: `ExtractedDocument` gains
+  `account_identifier` - the LLM now also extracts a last-4-digits/"ending in
+  1234" identifier straight from the statement when printed, instead of
+  relying on the user to type an account nickname on every single upload.
+- `categories.py`: added issuer/bank-agnostic keywords to `credit_card`
+  ("new balance", "payment due date", "available credit") and `checking`
+  ("account summary", "opening/closing balance", "deposits and other
+  credits") - real statements often never say the literal words "credit
+  card statement" or "checking account".
+- `query_analysis.py`: new `detect_provider_from_query(query,
+  known_providers)` - resolves which of the user's *own* accounts (sourced
+  from their actual uploaded documents, not a static brand list) a question
+  names, with the same conservative "exactly one match or None" bar as
+  `detect_category_from_query`.
+- `chat_engine.py`: `get_structured_records` takes an optional `provider`
+  filter; new `_known_providers_for_category` (deliberately independent of
+  whether extraction succeeded - a provider is known from upload-time
+  metadata regardless). `_build_prompt` now resolves category *and*
+  provider, so "what did I spend on my Chase card" with two cards on file
+  scopes both the structured-record lookup and the RAG `where` filter to
+  Chase only, instead of mixing both cards' numbers. `_rag_metadata_for`
+  attaches `provider` to RAG chunks (also fixes an existing gap: chunk
+  citations could never show the institution before, `_source_label` was
+  looking for a `provider` key that was never set). `_record_label` now
+  includes the account identifier so "Chase (...4412)" and "Chase
+  (...9981)" render as distinct sources.
+- `upload.py`: structured extraction now runs once at file-preview time
+  (before the user confirms) instead of only after "Upload All", so its
+  results (provider, account identifier, period) pre-fill the confirmation
+  form's fields - cached and reused at actual upload time unless the user
+  changes the category, to avoid a second LLM call in the common case.
+- Added regression tests: `tests/test_query_analysis.py` (provider
+  detection), `tests/test_chat_engine.py` (provider-scoped structured
+  records and RAG `where`), `tests/test_extractor.py` (account_identifier
+  parsing), `tests/test_classifier.py` (checking/credit_card classification
+  without the literal phrase), and new `tests/test_upload.py` (extraction
+  cache reuse/invalidation).
+
+Deliberately not done: no UI change to *require* an account label, and no
+duplicate-statement detection (e.g. warning on re-uploading the same
+period/account) - flagging as possible future work rather than adding it
+unasked.
+
 ## (pending) - 2026-08-30 - fix: mobile-category query routing and explicit month/year date parsing
 
 Reported bug: "summarize the tmobile bill for the month of August 2026"

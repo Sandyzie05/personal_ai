@@ -1,7 +1,11 @@
 from typing import Iterator, Optional, List, Dict, Any, Tuple
 
 from .ollama_client import OllamaClient, OllamaClientError
-from .query_analysis import detect_category_from_query, parse_relative_date_range
+from .query_analysis import (
+    detect_category_from_query,
+    detect_provider_from_query,
+    parse_relative_date_range,
+)
 from .rag_engine import RAGEngine
 
 from src.data_vault import DataVault, DataVaultError, is_internal_vault_key
@@ -103,12 +107,17 @@ class ChatEngine:
 
     def _rag_metadata_for(self, key: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Metadata attached to a document's RAG chunks - enables category-
-        scoped retrieval (see query_analysis.py + ChromaStore's `where`)."""
+        and provider-scoped retrieval (see query_analysis.py + ChromaStore's
+        `where`), and lets `RAGEngine._source_label` cite the actual
+        institution instead of falling back to the filename."""
         metadata = data.get("metadata", {}) or {}
         rag_metadata: Dict[str, Any] = {"storage_key": key}
         category = metadata.get("category")
         if category:
             rag_metadata["category"] = category
+        provider = metadata.get("provider")
+        if provider:
+            rag_metadata["provider"] = provider
         return rag_metadata
 
     def _data_to_text(self, data: Dict[str, Any]) -> str:
@@ -149,16 +158,22 @@ class ChatEngine:
     def get_structured_records(
         self,
         category: Optional[str] = None,
+        provider: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Decrypt-and-filter uploaded documents by category and/or date range.
+        """Decrypt-and-filter uploaded documents by category/provider/date range.
 
         The vault has no native query engine (values are opaque encrypted
         blobs keyed by storage key), so this scans every key and filters in
         Python. That's an explicit, accepted tradeoff at personal-data scale
         (hundreds, not millions, of documents) rather than adding a second,
         separately-secured index.
+
+        `provider` disambiguates multiple accounts in the same category
+        (two credit cards, two checking accounts) - matched case-
+        insensitively against the manually-entered `metadata.provider` or
+        the LLM-extracted `extraction.provider`, whichever is present.
 
         When a date range is given, records missing period_start/period_end
         are excluded rather than guessed into range - better to under-match
@@ -184,6 +199,11 @@ class ChatEngine:
             if not extraction:
                 continue
 
+            if provider:
+                record_provider = metadata.get("provider") or extraction.get("provider")
+                if not record_provider or provider.lower() != record_provider.lower():
+                    continue
+
             period_start = extraction.get("period_start")
             period_end = extraction.get("period_end")
             if (start_date or end_date) and not (period_start and period_end):
@@ -198,6 +218,35 @@ class ChatEngine:
             )
 
         return records
+
+    def _known_providers_for_category(self, category: str) -> List[str]:
+        """Distinct `metadata.provider` values for vault documents in this
+        category - independent of whether structured extraction succeeded.
+
+        Used to resolve which of the user's own accounts a query names (see
+        `query_analysis.detect_provider_from_query`). Deliberately doesn't
+        reuse `get_structured_records` here: that method requires a
+        completed extraction, but a document's provider is entered at
+        upload time regardless of whether extraction later succeeds - a
+        provider filter should still work for such a document.
+        """
+        providers = set()
+        for key in self.vault.list_keys():
+            if is_internal_vault_key(key):
+                continue
+            try:
+                data = self.vault.retrieve_data(key)
+            except DataVaultError:
+                continue
+            if not data or not isinstance(data, dict):
+                continue
+            metadata = data.get("metadata", {}) or {}
+            if metadata.get("category") != category:
+                continue
+            provider = metadata.get("provider")
+            if isinstance(provider, str) and provider.strip():
+                providers.add(provider.strip())
+        return sorted(providers)
 
     def _total_budget_chars(self, query: str) -> int:
         """Total character budget left for RAG/structured context + chat
@@ -262,7 +311,7 @@ class ChatEngine:
         "polite and friendly, but accuracy comes first: never guess, estimate, "
         "or use your own knowledge to fill a gap in the context. If the "
         "context doesn't contain the answer, say so plainly (for example, "
-        "\"I couldn't find that in your vault\") instead of making something up, "
+        '"I couldn\'t find that in your vault") instead of making something up, '
         "and suggest what document the user could add. When you do answer, keep "
         "it short and cite the source you drew it from."
     )
@@ -283,10 +332,14 @@ class ChatEngine:
         1. Structured aggregation: the query unambiguously names a document
            category (see query_analysis.py) - pull the actual extracted
            numbers for matching documents and have the model compute from
-           those, instead of summarizing fuzzy retrieved text.
+           those, instead of summarizing fuzzy retrieved text. If the query
+           also names one of the user's own known providers for that
+           category (e.g. which of two credit cards), results are further
+           scoped to that provider so two accounts never get mixed together.
         2. Category-scoped RAG: a category was named but no structured
            records matched (or none exist yet) - fall back to vector search
-           scoped to that category via ChromaDB's `where` filter.
+           scoped to that category (and provider, if detected) via
+           ChromaDB's `where` filter.
         3. Plain RAG / no-RAG: no category detected, or use_rag=False.
 
         `history` (chronological, oldest-first, NOT including `query`
@@ -305,11 +358,17 @@ class ChatEngine:
             )
 
         category = detect_category_from_query(query)
+        provider = None
         if category:
+            known_providers = self._known_providers_for_category(category)
+            provider = detect_provider_from_query(query, known_providers)
             date_range = parse_relative_date_range(query)
             start_date, end_date = date_range or (None, None)
             records = self.get_structured_records(
-                category=category, start_date=start_date, end_date=end_date
+                category=category,
+                provider=provider,
+                start_date=start_date,
+                end_date=end_date,
             )
             if records:
                 return self._build_structured_prompt(query, records, history=history)
@@ -317,7 +376,11 @@ class ChatEngine:
         if self.rag_engine is None:
             self.initialize_rag()
 
-        where = {"category": category} if category else None
+        where: Optional[Dict[str, Any]] = None
+        if category and provider:
+            where = {"category": category, "provider": provider}
+        elif category:
+            where = {"category": category}
         context = self.rag_engine.get_context_for_query(query, where=where)
 
         total_budget_chars = self._total_budget_chars(query)
@@ -362,7 +425,7 @@ class ChatEngine:
                 "Instead, kindly tell the user you couldn't find it in their "
                 "vault and suggest what document they could upload to answer it.\n\n"
                 f"Question: {query}"
-             )
+            )
 
         messages = (
             [{"role": "system", "content": self.SYSTEM_PROMPT}]
@@ -551,14 +614,18 @@ def _format_structured_records(records: List[Dict[str, Any]]) -> str:
 
 
 def _record_label(record: Dict[str, Any]) -> str:
-    """Short human-readable label for one structured record (provider + period + total)."""
+    """Short human-readable label for one structured record (provider +
+    account + period + total) - the account piece is what lets the model
+    tell two cards/accounts from the same provider apart in its answer."""
     metadata = record["metadata"]
     extraction = record["extraction"]
     provider = (
         metadata.get("provider") or extraction.get("provider") or "Unknown provider"
     )
+    account = metadata.get("account_label") or extraction.get("account_identifier")
+    provider_label = f"{provider} ({account})" if account else provider
     period_start = extraction.get("period_start", "?")
     period_end = extraction.get("period_end", "?")
     total = extraction.get("total")
     total_str = f"{total:.2f}" if isinstance(total, (int, float)) else str(total)
-    return f"{provider} ({period_start} to {period_end}): total={total_str}"
+    return f"{provider_label} ({period_start} to {period_end}): total={total_str}"

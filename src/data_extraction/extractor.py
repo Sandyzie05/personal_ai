@@ -34,12 +34,14 @@ def extract_structured_data(
     """
     prompt = (
         f"This is a {category} bill or statement. Extract the provider name, "
-        "the statement period (as YYYY-MM-DD dates if determinable), the "
-        "total amount due/balance as printed on the document (a positive "
-        "number - do not compute it yourself from the line items), and "
-        "every individual line item with its label and amount. Represent "
-        "credits and discounts as negative line item amounts (e.g. a "
-        "$42.10 solar credit is a line item of -42.10).\n\n"
+        "an account identifier if printed on the document (e.g. the last 4 "
+        "digits of the account/card number, or 'ending in 1234' - null if "
+        "not present), the statement period (as YYYY-MM-DD dates if "
+        "determinable), the total amount due/balance as printed on the "
+        "document (a positive number - do not compute it yourself from the "
+        "line items), and every individual line item with its label and "
+        "amount. Represent credits and discounts as negative line item "
+        "amounts (e.g. a $42.10 solar credit is a line item of -42.10).\n\n"
         f"Document text:\n{text[:DEFAULT_EXTRACTION_TEXT_CHARS]}"
     )
     try:

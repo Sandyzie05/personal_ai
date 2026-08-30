@@ -10,7 +10,7 @@ number for a financial question.
 
 import re
 from datetime import date, timedelta
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from src.data_extraction.categories import CATEGORIES
 
@@ -51,6 +51,25 @@ def detect_category_from_query(query: str) -> Optional[str]:
 
     if len(matches) == 1:
         return matches.pop()
+    return None
+
+
+def detect_provider_from_query(query: str, known_providers: List[str]) -> Optional[str]:
+    """Return the one known provider name (verbatim) the question clearly names.
+
+    `known_providers` must come from the vault's own already-uploaded
+    documents (e.g. distinct `metadata.provider` values for a category), not
+    a static brand list - the point is disambiguating *which* of the user's
+    own credit cards/checking accounts a question means, and that set is
+    user-specific. Returning the exact stored string (not a normalized
+    version) lets callers use it directly as an exact-match filter. Zero or
+    more than one match returns None - same conservative bar as
+    `detect_category_from_query`.
+    """
+    lowered = query.lower()
+    matches = [p for p in known_providers if p and p.lower() in lowered]
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 
