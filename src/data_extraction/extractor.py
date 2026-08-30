@@ -8,6 +8,7 @@ of writing new pattern-matching code per vendor.
 import logging
 from typing import Optional, Protocol
 
+from ..config import DEFAULT_EXTRACTION_TEXT_CHARS
 from .schemas import ExtractedDocument
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ def extract_structured_data(
         "every individual line item with its label and amount. Represent "
         "credits and discounts as negative line item amounts (e.g. a "
         "$42.10 solar credit is a line item of -42.10).\n\n"
-        f"Document text:\n{text[:6000]}"
+        f"Document text:\n{text[:DEFAULT_EXTRACTION_TEXT_CHARS]}"
     )
     try:
         response = ollama_client.chat(

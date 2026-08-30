@@ -4,6 +4,49 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-08-30 - fix: RAG retrieval quality (embedding prefixes, chunk overlap, per-doc cap, extraction truncation)
+
+Before importing more vendor/carrier bills, audited the actual RAG stack
+(code, not assumptions) for quality gaps that would compound as more
+documents get indexed:
+
+- `chroma_store.py`: embed calls now prefix text with `nomic-embed-text`'s
+  required task instructions (`search_query: ` / `search_document: `) - the
+  model card requires these for queries and documents to land in a
+  comparable embedding space; the repo had neither. Only the text sent for
+  embedding is prefixed, not the stored/returned chunk content.
+- `chroma_store.py` / `config.py`: `max_per_document` default raised 1 → 3
+  (`DEFAULT_MAX_PER_DOCUMENT`) - the old default meant a multi-page bill
+  could only ever contribute its single best-scoring chunk, silently
+  dropping a lower-ranked chunk that held the actual line item.
+- `chroma_store._chunk_text`: carries up to `DEFAULT_CHUNK_OVERLAP_CHARS`
+  (200) from the tail of one chunk into the next when a long paragraph
+  needs word-splitting, so a fact split at the cut point still appears
+  whole in at least one chunk.
+- `extractor.py` / `config.py`: structured-extraction prompt's document-text
+  truncation raised 6000 → `DEFAULT_EXTRACTION_TEXT_CHARS` (20000 chars) -
+  the old cap silently dropped trailing line items from longer multi-page
+  statements (e.g. brokerage transaction history) with no error.
+- `chroma_store.py`: default Chroma collection name bumped
+  `personal_ai_vault` → `personal_ai_vault_v2`. Adding the Nomic prefixes
+  changes what every stored embedding means, so old and new vectors can't
+  share one HNSW index without corrupting similarity scores. The new name
+  forces a clean, automatic re-embed on next `initialize_rag()` (the vault
+  is the source of truth; Chroma is a rebuildable derived index) - the old
+  collection is simply abandoned on disk, safe to delete manually.
+- `config.py`: corrected a stale comment claiming nomic-embed-text has an
+  8192-token context - `ollama show nomic-embed-text` reports the model's
+  real trained context is 2048 tokens (8192 was Ollama's `num_ctx`
+  parameter, not the model's actual window). No functional change - the
+  existing hard chunk cap was already safely under 2048.
+
+Deliberately not changed: PDF parsing (`pymupdf4llm`, already table/layout-
+aware across vendors) and structured extraction (`extractor.py`'s LLM+schema
+approach is already vendor-agnostic by design) were reviewed and found
+solid. Also didn't add hybrid lexical/BM25 search for exact numbers -
+`ChatEngine.get_structured_records` already answers exact-figure questions
+via structured extraction, bypassing dense RAG for that case.
+
 ## (pending) - 2026-08-30 - feat: dashboard filters, drop Recent Activity, modern icons
 
 The dashboard's out-of-the-box view had no way to narrow to one bill type or

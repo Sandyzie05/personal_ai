@@ -8,6 +8,8 @@ from .embeddings import EmbeddingsGenerator
 from ..config import (
     DEFAULT_EMBED_CHUNK_TOKENS,
     DEFAULT_MIN_RELATIVE_SCORE,
+    DEFAULT_MAX_PER_DOCUMENT,
+    DEFAULT_CHUNK_OVERLAP_CHARS,
     CHARS_PER_TOKEN_ESTIMATE,
 )
 
@@ -22,6 +24,14 @@ DEFAULT_CHROMA_DIR = os.path.expanduser("~/.personal_ai_vault/.chroma")
 # safe even for base64 (which tokenizes ~1 char/token) against nomic-embed-text's
 # real 2048-token context.
 HARD_CHUNK_CHAR_CAP = 2000
+
+# nomic-embed-text is trained with task-instruction prefixes and only embeds
+# queries and documents into a comparable space when both sides use them -
+# see the model card at https://docs.nomic.ai/reference/endpoints/nomic-embed-text.
+# Tied to config.DEFAULT_EMBED_MODEL; revisit if that ever changes to a model
+# with a different (or no) prefix convention.
+_NOMIC_QUERY_PREFIX = "search_query: "
+_NOMIC_DOCUMENT_PREFIX = "search_document: "
 
 
 def distance_to_similarity(cosine_distance: float) -> float:
@@ -52,19 +62,27 @@ def document_id(metadata: Optional[Dict[str, Any]]) -> Optional[str]:
     return str(key) if key else None
 
 
-def _chunk_text(text: str, chunk_chars: int) -> List[str]:
+def _chunk_text(
+    text: str, chunk_chars: int, overlap_chars: int = DEFAULT_CHUNK_OVERLAP_CHARS
+) -> List[str]:
     """Split text into pieces no longer than `chunk_chars`.
 
     Splits on paragraph/line/whitespace boundaries when possible so chunks
     don't break mid-word, but never returns a piece longer than `chunk_chars`
     (a pathological run of non-whitespace is hard-split). Empty input yields
     an empty list.
+
+    When a single paragraph/line is long enough to need word-splitting, the
+    tail of each resulting chunk (up to `overlap_chars`) is carried into the
+    start of the next, so a fact split right at the cut point still appears
+    whole in at least one chunk.
     """
     text = (text or "").strip()
     if not text:
         return []
 
     cap = max(chunk_chars, 1)
+    overlap = max(0, min(overlap_chars, cap - 1))
 
     # Prefer paragraph, then line, then word boundaries.
     pieces = text.split("\n")
@@ -86,7 +104,8 @@ def _chunk_text(text: str, chunk_chars: int) -> List[str]:
                 current += " " + word
             else:
                 chunks.append(current)
-                current = word
+                tail = current[-overlap:] if overlap else ""
+                current = f"{tail} {word}".strip() if tail else word
         # A single word/pathological token can still exceed cap; hard-split it.
         if len(current) > cap:
             step = cap
@@ -117,10 +136,18 @@ class ChromaStore:
     def __init__(
         self,
         embedding_generator: Optional[EmbeddingsGenerator] = None,
-        collection_name: str = "personal_ai_vault",
+        # Bumped from "personal_ai_vault": adding Nomic search_query/
+        # search_document prefixes (below) changes what every embedding in
+        # the collection means, so old and new vectors can't share an HNSW
+        # index without corrupting similarity scores. A new collection name
+        # makes ChromaDB start a fresh index automatically - the old
+        # collection is simply abandoned on disk (safe to delete manually to
+        # reclaim space) since the vault, not Chroma, is the source of truth
+        # and initialize_rag() rebuilds the index from it every session.
+        collection_name: str = "personal_ai_vault_v2",
         persist_directory: Optional[str] = None,
         min_relevance: float = DEFAULT_MIN_RELATIVE_SCORE,
-        max_per_document: int = 1,
+        max_per_document: int = DEFAULT_MAX_PER_DOCUMENT,
     ):
         self.embedding_generator = embedding_generator
         self.collection_name = collection_name
@@ -198,8 +225,13 @@ class ChromaStore:
                 return []
 
             if self.embedding_generator:
+                # Prefix only the text sent for embedding, not the stored/
+                # returned `chunked_docs` - the LLM should see the raw chunk,
+                # not the Nomic task instruction.
                 embeddings = [
-                    self.embedding_generator.generate_embedding(doc)
+                    self.embedding_generator.generate_embedding(
+                        _NOMIC_DOCUMENT_PREFIX + doc
+                    )
                     for doc in chunked_docs
                 ]
             else:
@@ -248,14 +280,18 @@ class ChromaStore:
         """
         self._ensure_initialized()
         threshold = self.min_relevance if min_relevance is None else min_relevance
-        per_doc = self.max_per_document if max_per_document is None else max_per_document
+        per_doc = (
+            self.max_per_document if max_per_document is None else max_per_document
+        )
         try:
             query_kwargs: Dict[str, Any] = {"n_results": k}
             if where:
                 query_kwargs["where"] = where
 
             if self.embedding_generator:
-                query_embedding = self.embedding_generator.generate_embedding(query)
+                query_embedding = self.embedding_generator.generate_embedding(
+                    _NOMIC_QUERY_PREFIX + query
+                )
                 results = self.collection.query(
                     query_embeddings=[query_embedding], **query_kwargs
                 )
@@ -367,10 +403,10 @@ class ChromaStore:
 
 def create_chroma_store(
     embedding_generator: Optional[EmbeddingsGenerator] = None,
-    collection_name: str = "personal_ai_vault",
+    collection_name: str = "personal_ai_vault_v2",
     persist_directory: Optional[str] = None,
     min_relevance: float = DEFAULT_MIN_RELATIVE_SCORE,
-    max_per_document: int = 1,
+    max_per_document: int = DEFAULT_MAX_PER_DOCUMENT,
 ) -> ChromaStore:
     """Factory function to create a ChromaDB store."""
     return ChromaStore(

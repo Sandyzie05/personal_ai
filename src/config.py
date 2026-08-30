@@ -42,11 +42,44 @@ CHARS_PER_TOKEN_ESTIMATE = 4
 
 # Per-chunk budget (tokens) when splitting documents before embedding.
 #
-# Embedding models have a fixed context window (nomic-embed-text is 8192
-# tokens). A single vault document larger than that makes Ollama return HTTP
-# 500 ("input length exceeds the context length"), which aborts the whole RAG
-# index build. Documents are split to this budget well under any embedding
-# model's window so a large bill/PDF can no longer crash chat.
+# Embedding models have a fixed context window (nomic-embed-text's real
+# trained context is 2048 tokens per `ollama show nomic-embed-text` - the
+# 8192 figure some docs quote is just Ollama's `num_ctx` parameter, not the
+# model's actual window). A single vault document larger than that makes
+# Ollama return HTTP 500 ("input length exceeds the context length"), which
+# aborts the whole RAG index build. Documents are split to this budget well
+# under any embedding model's window so a large bill/PDF can no longer crash
+# chat.
 DEFAULT_EMBED_CHUNK_TOKENS = int(
     os.environ.get("PERSONAL_AI_EMBED_CHUNK_TOKENS", "1000")
+)
+
+# How many chunks from the *same* source document `ChromaStore.retrieve_relevant`
+# keeps, at most. 1 (the old default) meant a multi-page bill/statement could
+# only ever contribute its single best-scoring chunk - if the actual $ figure
+# or line item lived in a lower-ranked chunk, it was silently dropped even
+# when retrieved. Raised to 3 so a few of a document's best chunks can each
+# still surface.
+DEFAULT_MAX_PER_DOCUMENT = int(
+    os.environ.get("PERSONAL_AI_MAX_CHUNKS_PER_DOCUMENT", "3")
+)
+
+# Overlap (chars) carried from the tail of one chunk into the start of the
+# next when a single paragraph/line is long enough to need word-splitting
+# (see chroma_store._chunk_text). Without this, a fact split right at the
+# cut point (e.g. a label at the end of one chunk, its amount at the start
+# of the next) could land in two chunks that never get retrieved together.
+DEFAULT_CHUNK_OVERLAP_CHARS = int(
+    os.environ.get("PERSONAL_AI_CHUNK_OVERLAP_CHARS", "200")
+)
+
+# Document text (chars) sent to the LLM for structured field extraction
+# (src/data_extraction/extractor.py). Previously hardcoded to 6000 chars
+# (~1500 tokens); long multi-page statements (e.g. a brokerage transaction
+# history) got silently truncated before extraction, dropping trailing line
+# items with no error. Sized to leave headroom in
+# DEFAULT_CONTEXT_WINDOW_TOKENS for the prompt template, JSON schema, and
+# ~2048 output tokens.
+DEFAULT_EXTRACTION_TEXT_CHARS = int(
+    os.environ.get("PERSONAL_AI_EXTRACTION_TEXT_CHARS", "20000")
 )
