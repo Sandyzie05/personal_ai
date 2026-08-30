@@ -27,6 +27,15 @@ def test_detect_category_ambiguous_mention_of_two_returns_none():
     assert detect_category_from_query(query) is None
 
 
+def test_detect_category_tmobile_maps_to_mobile():
+    query = "summarize the tmobile bill for the month of August 2026"
+    assert detect_category_from_query(query) == "mobile"
+
+
+def test_detect_category_verizon_maps_to_mobile():
+    assert detect_category_from_query("what did I pay verizon last month") == "mobile"
+
+
 def test_parse_last_n_months():
     today = date(2026, 8, 24)
 
@@ -71,3 +80,15 @@ def test_parse_last_month_handles_january():
 
 def test_parse_no_recognizable_range_returns_none():
     assert parse_relative_date_range("how much did I ever spend on electricity") is None
+
+
+def test_parse_explicit_month_and_year():
+    result = parse_relative_date_range(
+        "summarize the tmobile bill for the month of August 2026"
+    )
+    assert result == ("2026-08-01", "2026-08-31")
+
+
+def test_parse_explicit_month_and_year_clamps_to_month_length():
+    result = parse_relative_date_range("robinhood summary for February 2024")
+    assert result == ("2024-02-01", "2024-02-29")

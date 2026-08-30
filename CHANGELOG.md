@@ -4,6 +4,35 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-08-30 - fix: mobile-category query routing and explicit month/year date parsing
+
+Reported bug: "summarize the tmobile bill for the month of August 2026"
+returned the wrong bill (February 2026) with the model visibly confusing
+itself trying to reconcile the mismatch. Root cause was in
+`query_analysis.py`, unrelated to the RAG-quality PR merged just before it:
+
+- `detect_category_from_query` had no `CATEGORY_QUERY_ALIASES` entry for the
+  `mobile` category at all - its only fallback alias was the full category
+  label string (`"📱 Mobile / Phone"`), which never appears verbatim in a
+  real question. Every mobile-bill query (T-Mobile, Verizon, AT&T, "phone
+  bill") silently fell through to fully unscoped, whole-vault semantic RAG
+  instead of category-scoped/structured retrieval - confirmed by calling
+  `detect_category_from_query` directly, which returned `None` even for
+  `"t-mobile"`. Added aliases: t-mobile, tmobile, verizon, at&t, wireless
+  bill, phone bill, mobile bill, cell phone.
+- `parse_relative_date_range` only recognized "last N months"/"this
+  month"/"last month" - an explicit `"<Month name> <YYYY>"` (e.g. "August
+  2026") always returned `None`, so even a correctly-detected category
+  pulled *every* record in that category with no date filter. Added a
+  `<Month name> <YYYY>` pattern that resolves to that calendar month's
+  start/end dates.
+- Together these mean a mobile-bill-by-month question now routes through
+  `get_structured_records(category="mobile", start_date=..., end_date=...)`
+  (which already did real period_start/period_end filtering) instead of
+  guessing from raw semantic similarity, which doesn't encode exact
+  dates/months well.
+- Added regression tests in `tests/test_query_analysis.py` for both gaps.
+
 ## (pending) - 2026-08-30 - fix: RAG retrieval quality (embedding prefixes, chunk overlap, per-doc cap, extraction truncation)
 
 Before importing more vendor/carrier bills, audited the actual RAG stack
