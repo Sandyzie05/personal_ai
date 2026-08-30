@@ -24,6 +24,16 @@ CATEGORY_QUERY_ALIASES = {
     "credit_card": ["credit card"],
     "checking": ["checking account", "bank account", "checking"],
     "brokerage": ["robinhood", "e*trade", "etrade", "brokerage", "stock account"],
+    "mobile": [
+        "t-mobile",
+        "tmobile",
+        "verizon",
+        "at&t",
+        "wireless bill",
+        "phone bill",
+        "mobile bill",
+        "cell phone",
+    ],
 }
 
 
@@ -46,6 +56,24 @@ def detect_category_from_query(query: str) -> Optional[str]:
 
 _MONTH_RANGE_RE = re.compile(r"last\s+(\d+)\s+months?", re.IGNORECASE)
 
+_MONTH_NAMES = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+_MONTH_YEAR_RE = re.compile(
+    r"\b(" + "|".join(_MONTH_NAMES) + r")\s+(\d{4})\b", re.IGNORECASE
+)
+
 
 def parse_relative_date_range(
     query: str, today: Optional[date] = None
@@ -53,11 +81,19 @@ def parse_relative_date_range(
     """Parse simple relative date phrases into an (start_iso, end_iso) range.
 
     Only handles common, unambiguous phrasings ("last N months", "this
-    month", "last month") - anything else returns None, meaning "no date
-    filter" rather than a guessed range.
+    month", "last month", an explicit "<Month name> <YYYY>") - anything else
+    returns None, meaning "no date filter" rather than a guessed range.
     """
     today = today or date.today()
     lowered = query.lower()
+
+    month_year_match = _MONTH_YEAR_RE.search(lowered)
+    if month_year_match:
+        month = _MONTH_NAMES[month_year_match.group(1).lower()]
+        year = int(month_year_match.group(2))
+        start = date(year, month, 1)
+        end = date(year, month, _days_in_month(year, month))
+        return start.isoformat(), end.isoformat()
 
     month_match = _MONTH_RANGE_RE.search(lowered)
     if month_match:
