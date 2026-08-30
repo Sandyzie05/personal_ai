@@ -60,6 +60,7 @@ def _surfaces() -> Dict[str, str]:
     surfaces.setdefault("font", "#1f2328")
     return surfaces
 
+
 def _render_overview(records: List[Dict[str, Any]]) -> None:
     total_docs = dashboard_data.total_documents(records)
     counts = dashboard_data.count_by_category(records)
@@ -134,7 +135,13 @@ def _render_by_category(records: List[Dict[str, Any]]) -> None:
     fig.update_layout(
         margin=dict(l=0, r=32, t=8, b=0),
         height=max(220, 44 * len(labels)),
-        xaxis=dict(showgrid=True, gridcolor=surfaces["gridline"], zeroline=False, title=None, tickfont=dict(color=surfaces["font"])),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor=surfaces["gridline"],
+            zeroline=False,
+            title=None,
+            tickfont=dict(color=surfaces["font"]),
+        ),
         yaxis=dict(showgrid=False, title=None, tickfont=dict(color=surfaces["font"])),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -166,7 +173,9 @@ def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
             values=values,
             hole=0.62,
             sort=False,
-            marker=dict(colors=colors, line=dict(color=surfaces["pie_border"], width=2)),
+            marker=dict(
+                colors=colors, line=dict(color=surfaces["pie_border"], width=2)
+            ),
             textinfo="percent",
             textposition="outside",
             hovertemplate="%{label}: $%{value:,.2f} (%{percent})<extra></extra>",
@@ -176,7 +185,7 @@ def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
         text=f"<b>${total_spend:,.0f}</b><br><span style='font-size:12px'>total spend</span>",
         showarrow=False,
         font=dict(size=18, color=surfaces["font"]),
-     )
+    )
     fig.update_layout(
         margin=dict(l=0, r=0, t=8, b=0),
         legend=dict(
@@ -186,9 +195,9 @@ def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
             x=0.5,
             xanchor="center",
             font=dict(color=surfaces["font"]),
-         ),
+        ),
         paper_bgcolor="rgba(0,0,0,0)",
-     )
+    )
     st.plotly_chart(fig)
 
 
@@ -230,7 +239,7 @@ def _render_spend_over_time(records: List[Dict[str, Any]]) -> None:
                 size=8,
                 color=_SEQUENTIAL_BLUE,
                 line=dict(width=2, color=surfaces["pie_border"]),
-             ),
+            ),
             fill="tozeroy",
             fillcolor=surfaces["fill"],
             hovertemplate="%{x}: $%{y:,.2f}<extra></extra>",
@@ -247,7 +256,7 @@ def _render_spend_over_time(records: List[Dict[str, Any]]) -> None:
             title=None,
             tickprefix="$",
             tickfont=dict(color=surfaces["font"]),
-          ),
+        ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         showlegend=False,

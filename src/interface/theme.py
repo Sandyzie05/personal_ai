@@ -114,12 +114,12 @@ def render_theme_toggle() -> None:
     A checkbox so the choice is unambiguous: unchecked = light, checked = dark.
     Persisting to session_state makes it survive navigation between reruns.
     """
-     # The widget itself owns THEME_MODE_KEY in session_state, so Streamlit
-     # auto-persists the user's checked/unchecked value there on the rerun. We
-     # must NOT also write THEME_MODE_KEY from here: that would run *after* the
-     # widget in the same run and raise "cannot be modified after the widget with
-     # key ... is instantiated". Persistence is a side effect of the widget, and
-     # apply_app_shell() (called in run() after this toggle) reads it to paint.
+    # The widget itself owns THEME_MODE_KEY in session_state, so Streamlit
+    # auto-persists the user's checked/unchecked value there on the rerun. We
+    # must NOT also write THEME_MODE_KEY from here: that would run *after* the
+    # widget in the same run and raise "cannot be modified after the widget with
+    # key ... is instantiated". Persistence is a side effect of the widget, and
+    # apply_app_shell() (called in run() after this toggle) reads it to paint.
     st.checkbox(
         "Dark mode",
         value=resolve_mode() == "dark",
@@ -137,89 +137,89 @@ def apply_app_shell() -> None:
         return
     c = APP_SHELL["dark"]
     style = (
-           "<style>\n"
-           # Streamlit components read their surfaces from these CSS vars, not
-           # from inherited color. Chat bubbles (st.chat_message), the chat
-           # input bar, st.container(border=True) on the Upload page, and
-           # bordered alerts all pull from --background-color /
-           # --secondary-background-color / --text-color / --border-color, so
-           # overriding the vars darks every one of them at once - the
-           # per-component paint below was leaving their *backgrounds* light.
-           ":root, [data-testid=\"stApp\"] {\n"
+        "<style>\n"
+        # Streamlit components read their surfaces from these CSS vars, not
+        # from inherited color. Chat bubbles (st.chat_message), the chat
+        # input bar, st.container(border=True) on the Upload page, and
+        # bordered alerts all pull from --background-color /
+        # --secondary-background-color / --text-color / --border-color, so
+        # overriding the vars darks every one of them at once - the
+        # per-component paint below was leaving their *backgrounds* light.
+        ':root, [data-testid="stApp"] {\n'
         f"    --background-color: {c['bg']};\n"
         f"    --secondary-background-color: {c['card_bg']};\n"
         f"    --text-color: {c['text']};\n"
         f"    --border-color: {c['card_border']};\n"
         f"    --code-background-color: {c['card_bg']};\n"
-          "}\n"
-           "html, body, [data-testid=\"stApp\"], "
-           "[data-testid=\"stAppViewContainer\"] {\n"
+        "}\n"
+        'html, body, [data-testid="stApp"], '
+        '[data-testid="stAppViewContainer"] {\n'
         f"    background-color: {c['bg']} !important;\n"
         f"    color: {c['text']} !important;\n"
-          "}\n"
-         # Sidebar: its own bg, and light text on every control inside it
-         # (nav radio, key buttons, metric, captions).
-         "[data-testid=\"stSidebar\"] {\n"
+        "}\n"
+        # Sidebar: its own bg, and light text on every control inside it
+        # (nav radio, key buttons, metric, captions).
+        '[data-testid="stSidebar"] {\n'
         f"    background-color: {c['sidebar_bg']} !important;\n"
-         "}\n"
-         "[data-testid=\"stSidebar\"] * {\n"
+        "}\n"
+        '[data-testid="stSidebar"] * {\n'
         f"    color: {c['text']} !important;\n"
-         "}\n"
-         # Streamlit sets its own dark text color on the elements below, so the
-         # body-level light color never reaches them - repaint each of these
-         # explicitly, or chat answers, captions and control values stay
-         # dark-on-dark (the "messed up" colors).
-         "h1, h2, h3, h4, h5, h6, li, label,\n"
-          ".stMarkdown, .stMarkdown p, .stMarkdown blockquote,\n"
-          ".stText, [data-testid=\"stText\"],\n"
-          ".stCaption, [data-testid=\"stCaption\"],\n"
-            # Chat bubbles, their timestamp captions, and the chat input bar's
-            # own text.
-            "[data-testid=\"stChatMessage\"] *, "
-            "[data-testid=\"stChatInput\"] textarea,\n"
-            # Bordered containers (st.container(border=True)) used on Upload.
-            "[data-testid=\"stVerticalBlockBorderWrapper\"] {\n"
+        "}\n"
+        # Streamlit sets its own dark text color on the elements below, so the
+        # body-level light color never reaches them - repaint each of these
+        # explicitly, or chat answers, captions and control values stay
+        # dark-on-dark (the "messed up" colors).
+        "h1, h2, h3, h4, h5, h6, li, label,\n"
+        ".stMarkdown, .stMarkdown p, .stMarkdown blockquote,\n"
+        '.stText, [data-testid="stText"],\n'
+        '.stCaption, [data-testid="stCaption"],\n'
+        # Chat bubbles, their timestamp captions, and the chat input bar's
+        # own text.
+        '[data-testid="stChatMessage"] *, '
+        '[data-testid="stChatInput"] textarea,\n'
+        # Bordered containers (st.container(border=True)) used on Upload.
+        '[data-testid="stVerticalBlockBorderWrapper"] {\n'
         f"    color: {c['text']} !important;\n"
-         "}\n"
-          "div[data-testid=\"stMetric\"] span {\n"
+        "}\n"
+        'div[data-testid="stMetric"] span {\n'
         f"    color: {c['text']} !important;\n"
-         "}\n"
-         # Form controls: text inputs, text areas, and select/multiselect boxes.
-         "input, textarea,\n"
-         "[data-baseweb=\"control\"],\n"
-         "div[data-ststyle=\"true\"] {\n"
+        "}\n"
+        # Form controls: text inputs, text areas, and select/multiselect boxes.
+        "input, textarea,\n"
+        '[data-baseweb="control"],\n'
+        'div[data-ststyle="true"] {\n'
         f"    background-color: {c['card_bg']} !important;\n"
         f"    color: {c['text']} !important;\n"
         f"    border-color: {c['card_border']} !important;\n"
-         "}\n"
-         # Select/multiselect dropdown rows live in a baseweb popover.
-         "[data-baseweb=\"menu\"],\n"
-         "[data-baseweb=\"popover\"],\n"
-         "[data-baseweb=\"menu-item\"] * {\n"
+        "}\n"
+        # Select/multiselect dropdown rows live in a baseweb popover.
+        '[data-baseweb="menu"],\n'
+        '[data-baseweb="popover"],\n'
+        '[data-baseweb="menu-item"] * {\n'
         f"    background-color: {c['card_bg']} !important;\n"
         f"    color: {c['text']} !important;\n"
-         "}\n"
-         # Buttons: one raised surface so secondary (default) buttons stay
-         # legible on the dark bg.
-         ".stButton > button {\n"
+        "}\n"
+        # Buttons: one raised surface so secondary (default) buttons stay
+        # legible on the dark bg.
+        ".stButton > button {\n"
         f"    background-color: {c['card_bg']} !important;\n"
         f"    border-color: {c['card_border']} !important;\n"
         f"    color: {c['text']} !important;\n"
-         "}\n"
-         "div[data-testid=\"stMetric\"] {\n"
+        "}\n"
+        'div[data-testid="stMetric"] {\n'
         f"    background: {c['card_bg']} !important;\n"
         f"    border-color: {c['card_border']} !important;\n"
-         "}\n"
-         "div[data-testid=\"stExpander\"] details {\n"
+        "}\n"
+        'div[data-testid="stExpander"] details {\n'
         f"    border-color: {c['card_border']} !important;\n"
-         "}\n"
-         "section[data-testid=\"stSidebar\"] div[data-testid=\"stMetric\"] {\n"
+        "}\n"
+        'section[data-testid="stSidebar"] div[data-testid="stMetric"] {\n'
         f"    background: {c['sidebar_bg']} !important;\n"
-         "}\n"
-          ".stDataFrame {\n"
+        "}\n"
+        ".stDataFrame {\n"
         f"      --bg-color: {c['card_bg']};\n"
         f"      --fg-color: {c['text']};\n"
-          "}\n"
-          "</style>\n"
-        )
+        "}\n"
+        "</style>\n"
+    )
     st.markdown(style, unsafe_allow_html=True)

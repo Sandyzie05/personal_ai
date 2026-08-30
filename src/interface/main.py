@@ -328,14 +328,14 @@ class PersonalAIInterface:
             from src.ai_engine.chat_engine import ChatEngine
 
             messages = [
-                 {
-                     "role": "system",
-                     "content": f"{ChatEngine.SYSTEM_PROMPT} "
+                {
+                    "role": "system",
+                    "content": f"{ChatEngine.SYSTEM_PROMPT} "
                     "No retrieved context is attached to this turn because the "
                     "search index isn't loaded yet; if you don't actually know "
                     "the answer from the user's data, say so instead of guessing.",
-                 }
-              ]
+                }
+            ]
 
             if self.chat_history:
                 for msg in self.chat_history.get_recent_messages(5):
