@@ -319,12 +319,22 @@ class PersonalAIInterface:
 
             client = ollama.Client(host=host)
 
+            # Reuse the exact same grounding-first system prompt as the RAG path
+            # so a fallback answer can't silently drift into "answer from your own
+            # knowledge". The fallback has no retrieved context, so the prompt
+            # also tells it to say "I haven't indexed your data yet" rather than
+            # inventing an answer.
+            from src.ai_engine.chat_engine import ChatEngine
+
             messages = [
-                {
-                    "role": "system",
-                    "content": "You are a helpful personal assistant with access to your local data. Be concise and cite your sources.",
-                }
-            ]
+                 {
+                     "role": "system",
+                     "content": f"{ChatEngine.SYSTEM_PROMPT} "
+                    "No retrieved context is attached to this turn because the "
+                    "search index isn't loaded yet; if you don't actually know "
+                    "the answer from the user's data, say so instead of guessing.",
+                 }
+              ]
 
             if self.chat_history:
                 for msg in self.chat_history.get_recent_messages(5):

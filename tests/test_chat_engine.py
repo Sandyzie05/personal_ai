@@ -174,7 +174,26 @@ def test_build_prompt_with_rag_no_context_found(engine):
     built = engine._build_prompt("anything", use_rag=True)
 
     assert built["context_used"] == ""
-    assert "No data found in vault" in built["messages"][-1]["content"]
+     # The refusal path now uses stronger, grounding-first language so a model
+     # can't "answer from its own knowledge" when nothing was retrieved.
+    assert "No data was found in the user's vault" in built["messages"][-1]["content"]
+    assert "Do NOT answer from your own knowledge" in built["messages"][-1]["content"]
+
+
+def test_system_prompt_enforces_grounding_and_politeness():
+    """The system prompt must forbid guessing and set a warm, concise tone -
+    the two levers that most directly reduce hallucination. A regression that
+    reverts to the old "answer based on the provided context" one-liner is what
+    this guards against."""
+    prompt = ChatEngine.SYSTEM_PROMPT.lower()
+
+     # Forbids confabulation: must name the "don't guess / don't make it up" rule.
+    assert "guess" in prompt or "make anything up" in prompt
+     # Explicit refusal, not a silent confident answer.
+    assert "couldn't find" in prompt
+     # Warm + concise, per the user's ask.
+    assert "polite" in prompt
+    assert "concise" in prompt
 
 
 def test_query_vault_raises_when_model_missing(tmp_path):

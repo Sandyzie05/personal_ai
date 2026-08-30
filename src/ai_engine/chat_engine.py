@@ -257,8 +257,14 @@ class ChatEngine:
         return fitted
 
     SYSTEM_PROMPT = (
-        "You are a helpful personal assistant with access to your local "
-        "encrypted data. Answer based on the provided context."
+        "You are a warm, concise personal assistant that answers only from the "
+        "context retrieved from the user's OWN local encrypted vault. You are "
+        "polite and friendly, but accuracy comes first: never guess, estimate, "
+        "or use your own knowledge to fill a gap in the context. If the "
+        "context doesn't contain the answer, say so plainly (for example, "
+        "\"I couldn't find that in your vault\") instead of making something up, "
+        "and suggest what document the user could add. When you do answer, keep "
+        "it short and cite the source you drew it from."
     )
 
     def _build_prompt(
@@ -351,10 +357,12 @@ class ChatEngine:
             )
         else:
             prompt = (
-                f"No data found in vault matching your query.\n\n"
-                f"Question: {query}\n\n"
-                f"Please provide a general response or ask for data to be added to your vault."
-            )
+                "No data was found in the user's vault matching this query. "
+                "Do NOT answer from your own knowledge or make anything up. "
+                "Instead, kindly tell the user you couldn't find it in their "
+                "vault and suggest what document they could upload to answer it.\n\n"
+                f"Question: {query}"
+             )
 
         messages = (
             [{"role": "system", "content": self.SYSTEM_PROMPT}]

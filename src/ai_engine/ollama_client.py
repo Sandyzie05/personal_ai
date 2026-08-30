@@ -8,6 +8,7 @@ from src.config import (
     DEFAULT_CHAT_MODEL,
     DEFAULT_EMBED_MODEL,
     DEFAULT_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_CHAT_TEMPERATURE,
 )
 
 
@@ -25,7 +26,7 @@ class OllamaClient:
         host: str = DEFAULT_OLLAMA_HOST,
         model: str = DEFAULT_CHAT_MODEL,
         embed_model: str = DEFAULT_EMBED_MODEL,
-        temperature: float = 0.7,
+        temperature: float = DEFAULT_CHAT_TEMPERATURE,
         max_tokens: int = 2048,
         context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
     ):

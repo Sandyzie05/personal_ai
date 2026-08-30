@@ -4,6 +4,53 @@ Commit history for `personal_ai`, newest first, with what actually changed
 and why - kept for future reference so you don't have to reconstruct intent
 from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-08-29 - feat: anti-hallucination grounding in the RAG path
+
+The chat could answer confidently from a near-miss chunk - ChromaDB's
+top-k always returns `k` chunks, so an irrelevant document (cosine
+similarity ~0) was handed to the model with no excuse to decline it, and
+nothing logged which chunks were considered so a hallucination couldn't be
+traced. This makes retrieval *grounding-first* instead of "top-k no matter
+what", across every retrieval path.
+
+- `src/config.py`: `DEFAULT_CHAT_TEMPERATURE` (0.3, down from 0.7 - a small
+  local model confabulates at the old default) and
+  `DEFAULT_MIN_RELATIVE_SCORE` (0.20; a chunk must clear this cosine
+  SIMILARITY to count - the main anti-hallucination lever). Both env
+  overridable.
+- `src/ai_engine/chroma_store.py`: `retrieve_relevant` now over-fetches up
+  to `k`, keeps only chunks whose similarity (0..1, via the new
+  `distance_to_similarity`) meets `min_relevance` (a near-miss returns `[]`
+  rather than a confident-but-wrong answer; threshold `< 0` disables the
+  cut), and dedupes to `max_per_document` (default 1) per source document so
+  one long bill can't crowd out the others (new `document_id` helper keys on
+  `storage_key`; identity-less chunks are always kept). Results come back
+  most-similar-first and are recorded on `last_retrieval()` for
+  diagnostics.
+- `src/ai_engine/rag_engine.py`: threads the two knobs through
+  `RAGEngine._get_chroma_store`, now respects `self.top_k` in
+  `get_context_for_query` (a hardcoded `k=3` previously ignored it), labels
+  each chunk with its source (`_source_label`) so the model can tell chunks
+  apart and a hallucination traces to a chunk + score, and adds
+  `_log_retrieval` diagnostics (which chunks, and how strong the best was).
+- `src/ai_engine/chat_engine.py`: grounding-first `SYSTEM_PROMPT`
+  (never guess/estimate from your own knowledge; say "couldn't find it in
+  your vault" and suggest what to upload) and a matching no-context
+  refusal. `src/ai_engine/ollama_client.py`: `temperature` default now draws
+  from `DEFAULT_CHAT_TEMPERATURE`. `src/interface/config.py` + `main.py`:
+  Settings slider defaults to the new temperature and the degraded
+  Ollama fallback reuses the same grounded system prompt so it can't drift
+  into "answer from your own knowledge".
+- `requirements.txt`: dropped a stray unused `watchdog` line;
+  `tests/test_chroma_store.py` / `tests/test_chat_engine.py`: added
+  threshold/dedup/`score`/prompt regression tests (147 pass).
+
+- `requirements.txt`, `src/config.py`, `src/ai_engine/chroma_store.py`,
+  `src/ai_engine/rag_engine.py`, `src/ai_engine/chat_engine.py`,
+  `src/ai_engine/ollama_client.py`, `src/interface/config.py`,
+  `src/interface/main.py`, `tests/test_chroma_store.py`,
+  `tests/test_chat_engine.py`
+
 ## (pending) - 2026-08-27 - feat: UI/UX revamp across the interface
 
 The interface had grown functional but inconsistent: no app-wide theme
