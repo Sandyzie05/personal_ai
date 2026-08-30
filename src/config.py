@@ -16,6 +16,22 @@ DEFAULT_OLLAMA_HOST = os.environ.get(
 DEFAULT_CHAT_MODEL = os.environ.get("PERSONAL_AI_CHAT_MODEL", "llama3.2:latest")
 DEFAULT_EMBED_MODEL = os.environ.get("PERSONAL_AI_EMBED_MODEL", "nomic-embed-text")
 
+# Default generation temperature for grounded QA. 0.7 (the old default) is too
+# free-wheeling for an assistant that must answer strictly from retrieved
+# context: higher temperature makes a small local model more likely to
+# confabulate. 0.3 keeps replies readable while staying firmly grounded.
+DEFAULT_CHAT_TEMPERATURE = float(os.environ.get("PERSONAL_AI_CHAT_TEMPERATURE", "0.3"))
+
+# Minimum cosine SIMILARITY for a retrieved chunk to count as relevant.
+# ChromaDB's "cosine" space returns a *distance* (1 - similarity, range
+# [0, 2]); a chunk is kept only when its similarity >= this threshold. This is
+# the single biggest anti-hallucination lever: without it, the top-k query
+# always returns k chunks - even nearly-unrelated ones (similarity ~0) - which
+# the model then has no excuse to answer from. Set to 0.0 to disable.
+DEFAULT_MIN_RELATIVE_SCORE = float(
+    os.environ.get("PERSONAL_AI_MIN_RELATIVE_SCORE", "0.20")
+)
+
 # Rough context-window budget (characters, ~4 chars/token) used to guard
 # against silently overflowing the model's context window when RAG context
 # and chat history are concatenated into a single prompt.

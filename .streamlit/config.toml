@@ -11,3 +11,18 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+# Cohesive light theme pinned at server start as the default. primaryColor
+# matches the dashboard's categorical blue (dashboard.py's _SEQUENTIAL_BLUE) so
+# accents, buttons, sliders and links read the same as the charts.
+#
+# The pin is the *default* only: src/interface/theme.py injects a runtime dark
+# mode on top of this when the user flips the "Dark mode" toggle in the
+# sidebar, so per-session dark does not require restarting the server.
+[theme]
+base = "light"
+primaryColor = "#2a78d6"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f6f9"
+textColor = "#1f2328"
+font = "sans serif"
