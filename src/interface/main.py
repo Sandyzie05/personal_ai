@@ -34,6 +34,7 @@ from src.interface.chat import (
     render_chat_history,
     render_sources,
 )
+from src.interface import theme
 from src.security.auth import AuthManager, AuthenticationError
 from src.config import DEFAULT_OLLAMA_HOST, DEFAULT_CHAT_MODEL, DEFAULT_EMBED_MODEL
 
@@ -402,6 +403,8 @@ class PersonalAIInterface:
         with st.sidebar:
             st.title("🔒 Private AI")
             st.caption("Local, encrypted assistant")
+
+            theme.render_theme_toggle()
 
             st.divider()
 
@@ -901,6 +904,15 @@ class PersonalAIInterface:
         self._setup_page()
 
         page = self.render_sidebar()
+
+        # Repaint dark-mode surfaces here, *after* the sidebar toggles the
+        # checkbox. apply_app_shell() reads the toggle's value, so it must run
+        # in the same pass the checkbox is constructed - painting it earlier (in
+        # _setup_page) would one run behind and never show the freshly picked
+        # dark mode. The dark overrides carry !important and follow the light
+        # paint in _setup_page, so they win by cascade order; light mode is a
+        # no-op, so toggling back off cleanly returns to the light paint.
+        theme.apply_app_shell()
 
         if page == "💬 Chat":
             self.render_chat_page()

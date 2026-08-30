@@ -1,8 +1,39 @@
 # Changelog
 
-Commit history for `personal_ai`, newest first, with what actually changed
-and why - kept for future reference so you don't have to reconstruct intent
-from `git log` alone. Update this file whenever you commit.
+ Commit history for `personal_ai`, newest first, with what actually changed
+ and why - kept for future reference so you don't have to reconstruct intent
+ from `git log` alone. Update this file whenever you commit.
+
+## (pending) - 2026-08-29 - feat: light/dark theme toggle
+
+ The UI was pinned to a light theme (`.streamlit/config.toml` `base = "light"`),
+ so it read wrong on a dark OS. Streamlit 1.62 (the pinned version) bakes its
+ base theme into the compiled frontend, so there's no first-class *runtime*
+ "switch the whole app's theme" call, and `[theme]` only takes effect at server
+start - which is also where the localhost security pin lives, so we don't want
+to rewrite it. The light/dark choice is instead a **sidebar toggle** that lives
+in `st.session_state` and is applied without touching `config.toml`.
+
+- `src/interface/theme.py` (new): single source of truth for the two surface
+  palettes and the mode resolution/persistence. `ui_theme_mode` in
+   `st.session_state` records the user's choice (default `light`, so existing
+   users see exactly what they saw before this existed).
+- App chrome: `apply_app_shell()` (called from `main._setup_page`, after the
+   light-mode CSS) injects a `<style>` block that repaints the surfaces
+   Streamlit exposes - main, sidebar, metric cards, expander borders. Dark
+   values carry `!important` and win by cascade order; light is a no-op so
+   toggling off cleanly undoes a dark session.
+- Charts: `dashboard.py` pulls gridline/font/pie-border/fill from
+   `theme.chart_surfaces()` per render, so a dark session paints its Plotly
+   figures for a dark backdrop. The categorical/sequential *hue* roles stay
+   mode-independent (color always means the same category in both themes).
+- `main.py`: imports `theme`, adds the toggle under the brand in the sidebar,
+   and calls `apply_app_shell()` in `_setup_page`. `.streamlit/config.toml`
+   comment updated: the light pin is now the *default*, overridable per-session.
+- `tests/test_theme.py`: mode resolution/persistence, dark-vs-light surface
+  differences, and that `apply_app_shell` injects on dark and is a no-op on
+   light. Known limitation, not chased: a few Streamlit widget internals are
+   still coloured in JS and may keep light styling under dark mode.
 
 ## (pending) - 2026-08-29 - feat: anti-hallucination grounding in the RAG path
 
