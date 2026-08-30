@@ -176,12 +176,21 @@ def apply_app_shell() -> None:
         # Chat bubbles, their timestamp captions, and the chat input bar's
         # own text.
         '[data-testid="stChatMessage"] *, '
-        '[data-testid="stChatInput"] textarea,\n'
+        '[data-testid="stChatInputTextArea"],\n'
         # Bordered containers (st.container(border=True)) used on Upload.
-        '[data-testid="stVerticalBlockBorderWrapper"] {\n'
-        f"    color: {c['text']} !important;\n"
-        "}\n"
-        'div[data-testid="stMetric"] span {\n'
+        '[data-testid="stVerticalBlockBorderWrapper"],\n'
+        # Metric label/value/delta - these are separate leaf elements, not
+        # children of a shared span, so the dashboard's "Total documents" /
+        # "Categories in use" numbers were rendering in Streamlit's default
+        # (dark-on-dark) color and reading as blank.
+        '[data-testid="stMetricLabel"], [data-testid="stMetricValue"], '
+        '[data-testid="stMetricDelta"],\n'
+        # Alert boxes (st.info/success/warning/error).
+        '[data-testid="stAlertContainer"],\n'
+        # Expander/status body text (st.expander, st.status share this).
+        '[data-testid="stExpanderDetails"],\n'
+        # Modal dialogs (st.dialog - the Clear chat / Delete confirmations).
+        '[data-testid="stDialog"] {\n'
         f"    color: {c['text']} !important;\n"
         "}\n"
         # Form controls: text inputs, text areas, and select/multiselect boxes.
@@ -206,14 +215,25 @@ def apply_app_shell() -> None:
         f"    border-color: {c['card_border']} !important;\n"
         f"    color: {c['text']} !important;\n"
         "}\n"
-        'div[data-testid="stMetric"] {\n'
-        f"    background: {c['card_bg']} !important;\n"
+        # Metric card, expander/status shell, alert boxes, the chat input's
+        # bottom bar, dialogs, and the file uploader dropzone all default to
+        # a light card surface Streamlit bakes into the component itself -
+        # none of these read `--secondary-background-color`, so each needs
+        # its background repainted explicitly or it stays a white box.
+        '[data-testid="stMetric"],\n'
+        '[data-testid="stExpander"],\n'
+        '[data-testid="stExpanderDetails"],\n'
+        '[data-testid="stAlertContainer"],\n'
+        '[data-testid="stBottom"],\n'
+        '[data-testid="stBottomBlockContainer"],\n'
+        '[data-testid="stChatInput"],\n'
+        '[data-testid="stDialog"],\n'
+        '[data-testid="stFileUploader"],\n'
+        '[data-testid="stFileUploaderDropzone"] {\n'
+        f"    background-color: {c['card_bg']} !important;\n"
         f"    border-color: {c['card_border']} !important;\n"
         "}\n"
-        'div[data-testid="stExpander"] details {\n'
-        f"    border-color: {c['card_border']} !important;\n"
-        "}\n"
-        'section[data-testid="stSidebar"] div[data-testid="stMetric"] {\n'
+        'section[data-testid="stSidebar"] [data-testid="stMetric"] {\n'
         f"    background: {c['sidebar_bg']} !important;\n"
         "}\n"
         ".stDataFrame {\n"
