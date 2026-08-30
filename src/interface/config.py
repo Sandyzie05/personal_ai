@@ -45,14 +45,14 @@ def render_config_page(current: Optional[Dict[str, Any]] = None) -> Dict[str, An
     with col2:
         st.subheader("Generation")
         temperature = st.slider(
-             "Temperature",
+            "Temperature",
             min_value=0.0,
             max_value=2.0,
             value=float(current.get("temperature", DEFAULT_CHAT_TEMPERATURE)),
             step=0.1,
             help="Randomness of responses (higher = more creative). Lower "
             "values keep answers tightly grounded in your data.",
-          )
+        )
         max_tokens = st.slider(
             "Max tokens",
             min_value=100,

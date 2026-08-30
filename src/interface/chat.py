@@ -6,8 +6,8 @@ from typing import List, Dict, Any, Optional
 
 from src.data_vault import DataVaultError
 
-USER_AVATAR = "🧑"
-ASSISTANT_AVATAR = "🤖"
+USER_AVATAR = ":material/person:"
+ASSISTANT_AVATAR = ":material/smart_toy:"
 
 
 class ChatMessage:
@@ -65,9 +65,10 @@ class ChatHistory:
             data = self.vault.retrieve_data(self.history_key)
         except DataVaultError as e:
             st.warning(
-                f"⚠️ Could not load saved chat history ({e}). Starting a new "
+                f"Could not load saved chat history ({e}). Starting a new "
                 "history - this usually means it was encrypted under a "
-                "different vault key than the one unlocked now."
+                "different vault key than the one unlocked now.",
+                icon=":material/warning:",
             )
             self.messages = []
             return
@@ -130,7 +131,9 @@ def render_sources(sources: Optional[List[str]]) -> None:
     """Render source citations under a message, if any."""
     if not sources:
         return
-    with st.expander(f"📎 {len(sources)} source(s) used", expanded=False):
+    with st.expander(
+        f":material/attach_file: {len(sources)} source(s) used", expanded=False
+    ):
         for i, source in enumerate(sources, 1):
             preview = source if len(source) <= 500 else source[:500] + "…"
             st.caption(f"**{i}.** {preview}")

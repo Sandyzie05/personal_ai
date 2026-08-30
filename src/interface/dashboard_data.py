@@ -150,3 +150,35 @@ def recent_uploads(records: List[Dict[str, Any]], n: int = 5) -> List[Dict[str, 
 
     ordered = sorted(records, key=sort_key, reverse=True)
     return ordered[:n]
+
+
+def distinct_vendors(records: List[Dict[str, Any]]) -> List[str]:
+    """Sorted, deduplicated `metadata.provider` values (e.g. "Rocky Mountain
+    Power", "Chase") across `records` - the vendor filter's option list."""
+    vendors = set()
+    for record in records:
+        provider = (record.get("metadata") or {}).get("provider")
+        if isinstance(provider, str) and provider.strip():
+            vendors.add(provider.strip())
+    return sorted(vendors)
+
+
+def filter_records(
+    records: List[Dict[str, Any]],
+    category_keys: Optional[List[str]] = None,
+    vendors: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Records matching both filters; an empty/`None` filter matches everything
+    (so clearing a multiselect shows all data instead of a blank dashboard)."""
+    filtered = records
+    if category_keys:
+        keys = set(category_keys)
+        filtered = [r for r in filtered if _record_category_key(r) in keys]
+    if vendors:
+        vendor_set = set(vendors)
+        filtered = [
+            r
+            for r in filtered
+            if (r.get("metadata") or {}).get("provider") in vendor_set
+        ]
+    return filtered

@@ -42,7 +42,7 @@ def render_upload_page(
     successfully uploaded file so the caller can index it into RAG
     immediately.
     """
-    st.header("📂 Upload Data")
+    st.header(":material/upload_file: Upload Data")
     st.caption(
         "Encrypted file upload - data will be processed locally. Select "
         "multiple files at once to upload a whole group (e.g. every "
@@ -72,7 +72,10 @@ def render_upload_page(
         _render_pending_row(entry, keys)
 
     if st.button(
-        f"🔒 Upload All ({len(pending)})", type="primary", use_container_width=True
+        f"Upload All ({len(pending)})",
+        icon=":material/lock:",
+        type="primary",
+        use_container_width=True,
     ):
         _upload_all(pending, vault, encryption_key, ollama_client, on_uploaded)
         _clear_all_pending()
@@ -87,7 +90,9 @@ def _render_pending_row(entry: Dict[str, Any], keys: List[str]) -> None:
     with st.container(border=True):
         col1, col2 = st.columns([3, 2])
         with col1:
-            st.write(f"📄 **{entry['filename']}** ({entry['size']} bytes)")
+            st.write(
+                f":material/description: **{entry['filename']}** ({entry['size']} bytes)"
+            )
             st.caption(
                 f"Auto-detected: {get_category(entry['detected_category']).label}"
             )
@@ -171,7 +176,7 @@ def _prepare_one(
         text_preview = handler.preview_text(tmp_path)
         detected_category = classify_document(text_preview, ollama_client)
     except IngestionError as e:
-        st.error(f"❌ Could not read {uploaded_file.name}: {e}")
+        st.error(f"Could not read {uploaded_file.name}: {e}", icon=":material/error:")
         _cleanup_tmp(tmp_path)
         return None
 
@@ -180,10 +185,11 @@ def _prepare_one(
         and len(text_preview.strip()) < _SCANNED_PDF_TEXT_THRESHOLD
     ):
         st.warning(
-            f"⚠️ **{uploaded_file.name}**: almost no text could be extracted. "
+            f"**{uploaded_file.name}**: almost no text could be extracted. "
             "This usually means it's a scanned/image-only PDF with no "
             "embedded text layer - OCR isn't supported yet, so search and "
-            "chat answers for this file may be empty or unreliable."
+            "chat answers for this file may be empty or unreliable.",
+            icon=":material/warning:",
         )
 
     return {
@@ -231,7 +237,7 @@ def _upload_all(
                 result = handler.handle_upload(entry["tmp_path"], metadata=metadata)
                 if not result["success"]:
                     failed += 1
-                    st.write(f"❌ {filename}: upload failed")
+                    st.write(f":material/close: {filename}: upload failed")
                     continue
 
                 consistency_warning = _try_structured_extraction(
@@ -247,12 +253,12 @@ def _upload_all(
                     on_uploaded(result["storage_key"], final_data)
 
                 succeeded += 1
-                st.write(f"✅ {filename}")
+                st.write(f":material/check: {filename}")
                 if consistency_warning:
                     st.write(consistency_warning)
             except IngestionError as e:
                 failed += 1
-                st.write(f"❌ {filename}: {e}")
+                st.write(f":material/close: {filename}: {e}")
 
         final_label = f"Uploaded {succeeded}/{total} file(s)"
         if failed:
@@ -310,9 +316,10 @@ def _extraction_consistency_warning(extraction) -> Optional[str]:
     line_item_sum = sum(item.amount for item in extraction.line_items)
     if abs(line_item_sum - extraction.total) > 0.01:
         return (
-            f"⚠️ extraction check: total (${extraction.total:.2f}) doesn't "
-            f"match the sum of line items (${line_item_sum:.2f}) - worth "
-            "double-checking this document's extracted data."
+            f":material/warning: extraction check: total "
+            f"(${extraction.total:.2f}) doesn't match the sum of line items "
+            f"(${line_item_sum:.2f}) - worth double-checking this document's "
+            "extracted data."
         )
     return None
 
