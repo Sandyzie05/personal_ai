@@ -5,7 +5,7 @@ import uuid
 from typing import List, Dict, Any, Optional
 
 from .embeddings import EmbeddingsGenerator
-from ..config import DEFAULT_MIN_RELATIVE_SCORE
+from ..config import DEFAULT_MIN_RELATIVE_SCORE, DEFAULT_MAX_PER_DOCUMENT
 from ..ai_engine.chroma_store import (
     ChromaStore as _ChromaStore,
     ChromaStoreError as _ChromaStoreError,
@@ -30,7 +30,7 @@ class RAGEngine:
         top_k: int = 5,
         persist_directory: Optional[str] = None,
         min_relevance: float = DEFAULT_MIN_RELATIVE_SCORE,
-        max_per_document: int = 1,
+        max_per_document: int = DEFAULT_MAX_PER_DOCUMENT,
     ):
         self.embedding_generator = embedding_generator
         self.chroma_store = chroma_store
@@ -93,9 +93,7 @@ class RAGEngine:
             return []
 
         try:
-            results = self._get_chroma_store().retrieve_relevant(
-                query, k, where=where
-            )
+            results = self._get_chroma_store().retrieve_relevant(query, k, where=where)
             self._log_retrieval(query, results)
             return results
         except _ChromaStoreError:
