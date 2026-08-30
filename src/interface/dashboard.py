@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.data_extraction.categories import get_category
+from src.data_extraction.categories import CATEGORIES
 from src.data_vault import DataVault, is_internal_vault_key
 from src.interface import dashboard_data
 from src.interface import theme
@@ -59,6 +59,7 @@ def _surfaces() -> Dict[str, str]:
     surfaces.setdefault("fill", "rgba(42, 120, 214, 0.10)")
     surfaces.setdefault("font", "#1f2328")
     return surfaces
+
 
 def _render_overview(records: List[Dict[str, Any]]) -> None:
     total_docs = dashboard_data.total_documents(records)
@@ -134,7 +135,13 @@ def _render_by_category(records: List[Dict[str, Any]]) -> None:
     fig.update_layout(
         margin=dict(l=0, r=32, t=8, b=0),
         height=max(220, 44 * len(labels)),
-        xaxis=dict(showgrid=True, gridcolor=surfaces["gridline"], zeroline=False, title=None, tickfont=dict(color=surfaces["font"])),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor=surfaces["gridline"],
+            zeroline=False,
+            title=None,
+            tickfont=dict(color=surfaces["font"]),
+        ),
         yaxis=dict(showgrid=False, title=None, tickfont=dict(color=surfaces["font"])),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -166,7 +173,9 @@ def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
             values=values,
             hole=0.62,
             sort=False,
-            marker=dict(colors=colors, line=dict(color=surfaces["pie_border"], width=2)),
+            marker=dict(
+                colors=colors, line=dict(color=surfaces["pie_border"], width=2)
+            ),
             textinfo="percent",
             textposition="outside",
             hovertemplate="%{label}: $%{value:,.2f} (%{percent})<extra></extra>",
@@ -176,7 +185,7 @@ def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
         text=f"<b>${total_spend:,.0f}</b><br><span style='font-size:12px'>total spend</span>",
         showarrow=False,
         font=dict(size=18, color=surfaces["font"]),
-     )
+    )
     fig.update_layout(
         margin=dict(l=0, r=0, t=8, b=0),
         legend=dict(
@@ -186,9 +195,9 @@ def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
             x=0.5,
             xanchor="center",
             font=dict(color=surfaces["font"]),
-         ),
+        ),
         paper_bgcolor="rgba(0,0,0,0)",
-     )
+    )
     st.plotly_chart(fig)
 
 
@@ -230,7 +239,7 @@ def _render_spend_over_time(records: List[Dict[str, Any]]) -> None:
                 size=8,
                 color=_SEQUENTIAL_BLUE,
                 line=dict(width=2, color=surfaces["pie_border"]),
-             ),
+            ),
             fill="tozeroy",
             fillcolor=surfaces["fill"],
             hovertemplate="%{x}: $%{y:,.2f}<extra></extra>",
@@ -247,7 +256,7 @@ def _render_spend_over_time(records: List[Dict[str, Any]]) -> None:
             title=None,
             tickprefix="$",
             tickfont=dict(color=surfaces["font"]),
-          ),
+        ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
@@ -255,80 +264,53 @@ def _render_spend_over_time(records: List[Dict[str, Any]]) -> None:
     st.plotly_chart(fig)
 
 
-def _render_recent_uploads(records: List[Dict[str, Any]]) -> None:
-    recent = dashboard_data.recent_uploads(records, 5)
-    if not recent:
-        st.caption("No uploads yet.")
-        return
-
-    rows: List[Dict[str, Any]] = []
-    for record in recent:
-        metadata = record.get("metadata") or {}
-        filename = metadata.get("original_filename", record.get("storage_key"))
-        category_key = metadata.get("category")
-        category_label = get_category(category_key).label if category_key else "-"
-        upload_timestamp = metadata.get("upload_timestamp")
-        date_display = (
-            upload_timestamp[:10] if isinstance(upload_timestamp, str) else "unknown"
-        )
-        extraction = record.get("extraction") or {}
-        amount = extraction.get("total")
-        amount_value: Optional[float] = (
-            float(amount)
-            if isinstance(amount, (int, float)) and not isinstance(amount, bool)
-            else None
-        )
-        rows.append(
-            {
-                "Category": category_label,
-                "File": filename,
-                "Uploaded": date_display,
-                "Amount": amount_value,
-            }
-        )
-
-    st.dataframe(
-        rows,
-        hide_index=True,
-        column_config={
-            "Category": st.column_config.TextColumn(width="medium"),
-            "File": st.column_config.TextColumn(width="large"),
-            "Uploaded": st.column_config.TextColumn(width="small"),
-            "Amount": st.column_config.NumberColumn(width="small", format="$%.2f"),
-        },
-    )
-
-
-# Ordered registry of (widget_key, display_label, render_fn) tuples. Order
-# here is the order widgets render in (and the order shown in the
-# customization multiselect).
-WIDGETS: List[Tuple[str, str, Callable[[List[Dict[str, Any]]], None]]] = [
-    ("overview", "📈 Overview", _render_overview),
-    ("by_category", "📂 Documents by Category", _render_by_category),
+# Ordered registry of (widget_key, display_label, description, render_fn)
+# tuples. Order here is the order widgets render in (and the order shown in
+# the customization list). `description` is shown next to each widget's
+# toggle in "Customize widgets" so the out-of-the-box choice is legible
+# without having to enable a widget just to find out what it does.
+WIDGETS: List[Tuple[str, str, str, Callable[[List[Dict[str, Any]]], None]]] = [
+    (
+        "overview",
+        ":material/insights: Overview",
+        "Total spend, document count, and month-over-month trend.",
+        _render_overview,
+    ),
+    (
+        "by_category",
+        ":material/folder_open: Documents by Category",
+        "How many documents you have per bill/data type.",
+        _render_by_category,
+    ),
     (
         "spend_by_category",
-        "💰 Spend Share by Category",
+        ":material/pie_chart: Spend Share by Category",
+        "Where your tracked spend is going, by category.",
         _render_spend_by_category,
     ),
-    ("spend_over_time", "📅 Spend Over Time", _render_spend_over_time),
-    ("recent_uploads", "🕐 Recent Uploads", _render_recent_uploads),
+    (
+        "spend_over_time",
+        ":material/show_chart: Spend Over Time",
+        "Monthly spend trend across dated statements.",
+        _render_spend_over_time,
+    ),
 ]
 
 # Each widget belongs to one of these sections. A section header is shown
 # once, the first time an enabled widget from that section renders - this
-# gives the page clear visual grouping (what someone actually wants: "the
-# big picture", "where's my money going", "what did I just upload") without
-# needing tabs that could end up empty depending on widget selection.
+# gives the page clear visual grouping ("the big picture" vs. "where's my
+# money going") without needing tabs that could end up empty depending on
+# widget selection.
 _WIDGET_SECTIONS = {
     "overview": "Overview",
     "by_category": "Overview",
     "spend_by_category": "Spend Analysis",
     "spend_over_time": "Spend Analysis",
-    "recent_uploads": "Recent Activity",
 }
 
-_WIDGET_LABELS = {key: label for key, label, _render_fn in WIDGETS}
-_ALL_WIDGET_KEYS = [key for key, _label, _render_fn in WIDGETS]
+_WIDGET_LABELS = {key: label for key, label, _desc, _render_fn in WIDGETS}
+_WIDGET_DESCRIPTIONS = {key: desc for key, _label, desc, _render_fn in WIDGETS}
+_ALL_WIDGET_KEYS = [key for key, _label, _desc, _render_fn in WIDGETS]
 
 
 def _load_records(vault: DataVault) -> List[Dict[str, Any]]:
@@ -366,9 +348,82 @@ def _load_enabled_widgets(vault: DataVault) -> List[str]:
     return [key for key in enabled if key in _WIDGET_LABELS]
 
 
+_FILTER_CATEGORY_KEY = "dashboard_filter_categories"
+_FILTER_VENDOR_KEY = "dashboard_filter_vendors"
+
+
+def _render_filter_bar(
+    records: List[Dict[str, Any]],
+) -> Tuple[List[str], List[str]]:
+    """Global filter row: bill/data type + vendor, driving every widget below.
+
+    Selections live in `st.session_state` only (a view filter, not a saved
+    preference) so they reset to "everything" on a fresh page load - the
+    out-of-the-box view always shows all data.
+    """
+    all_category_keys = [category.key for category in CATEGORIES]
+    category_labels = {category.key: category.label for category in CATEGORIES}
+    vendors = dashboard_data.distinct_vendors(records)
+
+    category_col, vendor_col, reset_col = st.columns([2, 2, 1])
+    with category_col:
+        selected_categories = st.multiselect(
+            ":material/category: Bill / data type",
+            options=all_category_keys,
+            default=all_category_keys,
+            format_func=lambda key: category_labels.get(key, key),
+            key=_FILTER_CATEGORY_KEY,
+        )
+    with vendor_col:
+        selected_vendors = st.multiselect(
+            ":material/storefront: Vendor / provider",
+            options=vendors,
+            default=vendors,
+            placeholder="All vendors" if vendors else "No vendors yet",
+            key=_FILTER_VENDOR_KEY,
+        )
+    with reset_col:
+        st.write("")
+        if st.button(
+            "Reset", icon=":material/filter_alt_off:", use_container_width=True
+        ):
+            st.session_state.pop(_FILTER_CATEGORY_KEY, None)
+            st.session_state.pop(_FILTER_VENDOR_KEY, None)
+            st.rerun()
+
+    return selected_categories, selected_vendors
+
+
+def _render_customize_widgets(vault: DataVault, enabled_widgets: List[str]) -> None:
+    """Per-widget on/off toggles with a description, instead of a bare
+    multiselect - so the customization surface doubles as a legend for what
+    each widget shows."""
+    enabled_set = set(enabled_widgets)
+    with st.expander(
+        f":material/tune: Customize widgets ({len(enabled_set)}/{len(_ALL_WIDGET_KEYS)} shown)"
+    ):
+        new_selection: List[str] = []
+        for widget_key, label, description, _render_fn in WIDGETS:
+            toggle_col, desc_col = st.columns([2, 3])
+            with toggle_col:
+                is_on = st.toggle(
+                    label,
+                    value=widget_key in enabled_set,
+                    key=f"widget_toggle_{widget_key}",
+                )
+            with desc_col:
+                st.caption(description)
+            if is_on:
+                new_selection.append(widget_key)
+
+        if st.button("Save layout", icon=":material/save:", type="primary"):
+            vault.store_data(DASHBOARD_CONFIG_KEY, {"enabled_widgets": new_selection})
+            st.rerun()
+
+
 def render_dashboard_page(vault: DataVault) -> None:
     """Render the Dashboard page: customizable at-a-glance widgets."""
-    st.header("📊 Dashboard")
+    st.header(":material/dashboard: Dashboard")
     st.caption("A single at-a-glance view of the documents in your vault")
 
     records = _load_records(vault)
@@ -377,22 +432,21 @@ def render_dashboard_page(vault: DataVault) -> None:
         st.info("No documents yet - upload something first.")
         return
 
-    enabled_widgets = _load_enabled_widgets(vault)
+    selected_categories, selected_vendors = _render_filter_bar(records)
+    filtered_records = dashboard_data.filter_records(
+        records, category_keys=selected_categories, vendors=selected_vendors
+    )
 
-    with st.expander("⚙️ Customize widgets"):
-        selection = st.multiselect(
-            "Widgets to show",
-            options=_ALL_WIDGET_KEYS,
-            default=enabled_widgets,
-            format_func=lambda key: _WIDGET_LABELS.get(key, key),
-        )
-        if st.button("💾 Save"):
-            vault.store_data(DASHBOARD_CONFIG_KEY, {"enabled_widgets": selection})
-            st.rerun()
+    enabled_widgets = _load_enabled_widgets(vault)
+    _render_customize_widgets(vault, enabled_widgets)
+
+    if not filtered_records:
+        st.warning("No documents match the current filters.")
+        return
 
     enabled_set = set(enabled_widgets)
     last_section: Optional[str] = None
-    for widget_key, _label, render_fn in WIDGETS:
+    for widget_key, _label, _description, render_fn in WIDGETS:
         if widget_key not in enabled_set:
             continue
         section = _WIDGET_SECTIONS.get(widget_key)
@@ -400,5 +454,5 @@ def render_dashboard_page(vault: DataVault) -> None:
             st.subheader(section)
             last_section = section
         with st.container():
-            render_fn(records)
+            render_fn(filtered_records)
         st.divider()

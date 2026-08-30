@@ -38,6 +38,17 @@ from src.interface import theme
 from src.security.auth import AuthManager, AuthenticationError
 from src.config import DEFAULT_OLLAMA_HOST, DEFAULT_CHAT_MODEL, DEFAULT_EMBED_MODEL
 
+# Nav key -> display label (Material Symbols, bundled with Streamlit - no
+# external font/network request). Keys are stable identifiers used in run()'s
+# routing; labels are what the sidebar radio actually shows.
+NAV_PAGES = {
+    "chat": ":material/chat: Chat",
+    "upload": ":material/upload_file: Upload",
+    "files": ":material/folder: Files",
+    "dashboard": ":material/dashboard: Dashboard",
+    "settings": ":material/settings: Settings",
+}
+
 
 @st.dialog("Clear chat history?")
 def _clear_chat_dialog(chat_history: ChatHistory) -> None:
@@ -162,11 +173,15 @@ class PersonalAIInterface:
     def _show_rag_not_ready(self) -> bool:
         """Check if RAG is not ready due to missing model."""
         if not self.encryption_key:
-            st.warning("🔒 Encryption key not loaded. Please reload the app.")
+            st.warning(
+                "Encryption key not loaded. Please reload the app.",
+                icon=":material/lock:",
+            )
             return True
         if self.chat_engine is None:
             st.warning(
-                "🤖 AI model not loaded. This will be initialized on first chat."
+                "AI model not loaded. This will be initialized on first chat.",
+                icon=":material/smart_toy:",
             )
             return True
         return False
@@ -254,14 +269,15 @@ class PersonalAIInterface:
                     self._load_chat_history_for_session(chosen)
                     st.rerun()
         with new_col:
-            if st.button("➕ New Chat", use_container_width=True):
+            if st.button("New Chat", icon=":material/add:", use_container_width=True):
                 new_id = chat_sessions.create_session(self.vault)
                 st.session_state["active_chat_session_id"] = new_id
                 self._load_chat_history_for_session(new_id)
                 st.rerun()
         with delete_col:
             if st.button(
-                "🗑️ Delete chat",
+                "Delete chat",
+                icon=":material/delete:",
                 use_container_width=True,
                 disabled=not session_ids,
             ):
@@ -290,8 +306,8 @@ class PersonalAIInterface:
                 response_text = st.write_stream(stream)
                 return response_text, stream.sources
             except ChatEngineError as e:
-                error_text = f"⚠️ {e}"
-                st.error(error_text)
+                error_text = str(e)
+                st.error(error_text, icon=":material/warning:")
                 return error_text, []
 
         with st.spinner("Thinking..."):
@@ -308,7 +324,8 @@ class PersonalAIInterface:
             import ollama
         except ImportError:
             return (
-                "⚠️ Ollama is not installed. Please install it to enable AI chat.\n\n"
+                ":material/warning: Ollama is not installed. Please install it "
+                "to enable AI chat.\n\n"
                 "Install: https://ollama.com/download\n\n"
                 "Or run: pip install ollama",
                 [],
@@ -328,14 +345,14 @@ class PersonalAIInterface:
             from src.ai_engine.chat_engine import ChatEngine
 
             messages = [
-                 {
-                     "role": "system",
-                     "content": f"{ChatEngine.SYSTEM_PROMPT} "
+                {
+                    "role": "system",
+                    "content": f"{ChatEngine.SYSTEM_PROMPT} "
                     "No retrieved context is attached to this turn because the "
                     "search index isn't loaded yet; if you don't actually know "
                     "the answer from the user's data, say so instead of guessing.",
-                 }
-              ]
+                }
+            ]
 
             if self.chat_history:
                 for msg in self.chat_history.get_recent_messages(5):
@@ -364,10 +381,13 @@ class PersonalAIInterface:
         vault_keys = self.vault.list_keys() if self.vault else []
 
         if vault_keys:
-            sources.append(f"📁 Querying {len(vault_keys)} local data files")
+            sources.append(
+                f":material/folder: Querying {len(vault_keys)} local data files"
+            )
         else:
             sources.append(
-                "ℹ️ No local data files found. Upload documents to enable data-driven answers."
+                ":material/info: No local data files found. Upload documents "
+                "to enable data-driven answers."
             )
 
         return sources
@@ -384,7 +404,10 @@ class PersonalAIInterface:
             try:
                 config_data = self.vault.retrieve_data("ollama_config")
             except DataVaultError as e:
-                st.warning(f"⚠️ Could not load saved settings ({e}). Using defaults.")
+                st.warning(
+                    f"Could not load saved settings ({e}). Using defaults.",
+                    icon=":material/warning:",
+                )
 
         if config_data:
             self.ollama_config = config_data
@@ -398,10 +421,11 @@ class PersonalAIInterface:
                 "stream": True,
             }
 
-    def render_sidebar(self) -> None:
-        """Render sidebar with navigation and settings."""
+    def render_sidebar(self) -> str:
+        """Render sidebar with navigation and settings. Returns the nav key
+        ("chat", "upload", "files", "dashboard", or "settings")."""
         with st.sidebar:
-            st.title("🔒 Private AI")
+            st.title(":material/lock: Private AI")
             st.caption("Local, encrypted assistant")
 
             theme.render_theme_toggle()
@@ -410,7 +434,8 @@ class PersonalAIInterface:
 
             page = st.radio(
                 "Navigation",
-                ["💬 Chat", "📂 Upload", "📄 Files", "📊 Dashboard", "⚙️ Settings"],
+                list(NAV_PAGES.keys()),
+                format_func=lambda key: NAV_PAGES[key],
                 label_visibility="collapsed",
             )
 
@@ -425,20 +450,33 @@ class PersonalAIInterface:
 
             vault_state = "Unlocked" if self.encryption_key else "Locked"
             st.caption(
-                f"🔐 Vault **{vault_state}** · processed locally — nothing "
-                "leaves your machine"
+                f":material/lock: Vault **{vault_state}** · processed locally "
+                "— nothing leaves your machine"
             )
 
             # Diagnostics are tucked into an expander so the sidebar stays
             # calm; the button bodies are unchanged, just relocated.
-            with st.expander("🩺 Status & diagnostics"):
-                if st.button("🔑 Encryption key status", use_container_width=True):
+            with st.expander(":material/monitor_heart: Status & diagnostics"):
+                if st.button(
+                    "Encryption key status",
+                    icon=":material/key:",
+                    use_container_width=True,
+                ):
                     if self.encryption_key:
-                        st.success("✅ Vault key unlocked for this session")
+                        st.success(
+                            "Vault key unlocked for this session",
+                            icon=":material/check_circle:",
+                        )
                     else:
-                        st.warning("⚠️ No encryption key unlocked")
+                        st.warning(
+                            "No encryption key unlocked", icon=":material/warning:"
+                        )
 
-                if st.button("📊 Vault status", use_container_width=True):
+                if st.button(
+                    "Vault status",
+                    icon=":material/inventory_2:",
+                    use_container_width=True,
+                ):
                     if self.vault:
                         keys = self.vault.list_keys()
                         st.info(f"{len(keys)} encrypted entries")
@@ -446,7 +484,9 @@ class PersonalAIInterface:
                             try:
                                 data = self.vault.retrieve_data(key)
                             except DataVaultError as e:
-                                st.caption(f"⚠️ {key}: could not decrypt ({e})")
+                                st.caption(
+                                    f":material/warning: {key}: could not decrypt ({e})"
+                                )
                                 continue
                             if data and isinstance(data, dict):
                                 metadata = data.get("metadata", {})
@@ -455,12 +495,14 @@ class PersonalAIInterface:
                                         :10
                                     ]
                                     st.caption(
-                                        f"📄 {metadata.get('original_filename', key)}"
+                                        f":material/description: {metadata.get('original_filename', key)}"
                                         f" · {metadata.get('file_type', '?')}"
                                         f" · {stamp or '?'}"
                                     )
 
-                if st.button("🔄 Check Ollama", use_container_width=True):
+                if st.button(
+                    "Check Ollama", icon=":material/sync:", use_container_width=True
+                ):
                     try:
                         try:
                             import ollama
@@ -470,22 +512,31 @@ class PersonalAIInterface:
                             )
                             models = client.list()
                             st.success(
-                                f"✅ Ollama connected! {len(models.get('models', []))} models available"
+                                f"Ollama connected! {len(models.get('models', []))} models available",
+                                icon=":material/check_circle:",
                             )
                             for model in models.get("models", [])[:5]:
                                 st.caption(f"• {model.get('model', 'unknown')}")
                         except ImportError:
-                            st.error("❌ Ollama package not installed")
+                            st.error(
+                                "Ollama package not installed",
+                                icon=":material/error:",
+                            )
                             st.info("Install: pip install ollama")
                     except Exception as e:
-                        st.error(f"❌ Cannot connect to Ollama: {str(e)}")
+                        st.error(
+                            f"Cannot connect to Ollama: {str(e)}",
+                            icon=":material/error:",
+                        )
                         st.info(
                             "Make sure Ollama is running: https://ollama.com/download"
                         )
 
             st.divider()
 
-            if st.button("🔓 Lock vault", use_container_width=True):
+            if st.button(
+                "Lock vault", icon=":material/lock_open:", use_container_width=True
+            ):
                 st.session_state.pop("vault_key", None)
                 self.vault = None
                 self.chat_engine = None
@@ -502,12 +553,15 @@ class PersonalAIInterface:
 
         title_col, clear_col = st.columns([5, 1])
         with title_col:
-            st.header("💬 Chat with Your Data")
+            st.header(":material/chat: Chat with Your Data")
             st.caption("All interactions are encrypted and stored locally")
         with clear_col:
             has_messages = bool(self.chat_history.get_messages())
             if st.button(
-                "🗑️ Clear", use_container_width=True, disabled=not has_messages
+                "Clear",
+                icon=":material/delete_sweep:",
+                use_container_width=True,
+                disabled=not has_messages,
             ):
                 _clear_chat_dialog(self.chat_history)
 
@@ -538,12 +592,12 @@ class PersonalAIInterface:
                     "Context window is getting full — consider starting a new chat soon."
                 )
 
-        with st.expander("⚙️ Advanced"):
-            if st.button("🔄 Rebuild RAG Index"):
+        with st.expander(":material/tune: Advanced"):
+            if st.button("Rebuild RAG Index", icon=":material/sync:"):
                 with st.spinner("Rebuilding RAG index from vault data..."):
                     self._init_vault()
                     self._initialize_rag()
-                st.success("✅ RAG index rebuilt!")
+                st.success("RAG index rebuilt!", icon=":material/check_circle:")
                 st.rerun()
 
         render_chat_history(self.chat_history)
@@ -585,7 +639,7 @@ class PersonalAIInterface:
 
     def render_config_page(self) -> None:
         """Render configuration page."""
-        st.header("⚙️ Settings")
+        st.header(":material/settings: Settings")
         st.caption(
             "Connect your local Ollama instance and tune generation. "
             "Saved to your encrypted vault — never sent anywhere else."
@@ -598,16 +652,22 @@ class PersonalAIInterface:
 
         self.ollama_config = render_config_page(self.ollama_config)
 
-        if st.button("💾 Save settings", type="primary"):
+        if st.button("Save settings", icon=":material/save:", type="primary"):
             if self.vault:
                 self.vault.store_data("ollama_config", self.ollama_config)
-                st.success("✅ Settings saved to your encrypted vault")
+                st.success(
+                    "Settings saved to your encrypted vault",
+                    icon=":material/check_circle:",
+                )
             else:
-                st.error("Vault not available — cannot save settings.")
+                st.error(
+                    "Vault not available — cannot save settings.",
+                    icon=":material/error:",
+                )
 
     def render_files_page(self) -> None:
         """Render uploaded files grouped into folder-like sections by category."""
-        st.header("📄 Your Uploaded Files")
+        st.header(":material/folder: Your Uploaded Files")
         st.caption("All files are encrypted and stored locally in your vault")
 
         self._init_vault()  # Initialize vault but not RAG
@@ -627,7 +687,8 @@ class PersonalAIInterface:
 
         query = (
             st.text_input(
-                "🔍 Search files by name",
+                "Search files by name",
+                icon=":material/search:",
                 key="files_search",
                 placeholder="Type to filter…",
             )
@@ -692,7 +753,8 @@ class PersonalAIInterface:
 
         if unreadable:
             with st.expander(
-                f"⚠️ {len(unreadable)} file(s) could not be decrypted", expanded=False
+                f":material/warning: {len(unreadable)} file(s) could not be decrypted",
+                expanded=False,
             ):
                 st.caption(
                     "Usually means these were encrypted under a previous vault "
@@ -701,7 +763,11 @@ class PersonalAIInterface:
                 )
                 for key, error in unreadable:
                     st.text(f"{key}: {error}")
-                    if st.button("🗑️ Delete", key=f"delete_unreadable_{key}"):
+                    if st.button(
+                        "Delete",
+                        icon=":material/delete:",
+                        key=f"delete_unreadable_{key}",
+                    ):
                         self.vault.delete_data(key)
                         st.rerun()
 
@@ -733,7 +799,9 @@ class PersonalAIInterface:
             else:
                 size_str = f"{file_size} bytes"
 
-            with st.expander(f"📄 {original_filename}", expanded=False):
+            with st.expander(
+                f":material/description: {original_filename}", expanded=False
+            ):
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Type", file_type.upper())
@@ -755,10 +823,15 @@ class PersonalAIInterface:
                 if extraction:
                     total = extraction.get("total")
                     period = f"{extraction.get('period_start', '?')} to {extraction.get('period_end', '?')}"
-                    st.success(f"💰 Total: {total} ({period})")
+                    st.success(
+                        f"Total: {total} ({period})",
+                        icon=":material/payments:",
+                    )
                     line_items = extraction.get("line_items", [])
                     if line_items:
-                        with st.expander(f"📋 {len(line_items)} line item(s)"):
+                        with st.expander(
+                            f":material/receipt_long: {len(line_items)} line item(s)"
+                        ):
                             for item in line_items:
                                 st.caption(f"{item.get('label')}: {item.get('amount')}")
 
@@ -766,11 +839,14 @@ class PersonalAIInterface:
 
                 if data.get("text_content"):
                     text_length = len(data["text_content"])
-                    st.info(f"📄 Text content: {text_length} characters")
+                    st.info(
+                        f"Text content: {text_length} characters",
+                        icon=":material/article:",
+                    )
 
                     # Show preview if not too long
                     if text_length <= 2000:
-                        with st.expander("👁️ View Text Preview"):
+                        with st.expander(":material/visibility: View Text Preview"):
                             st.text(data["text_content"][:2000])
                             if text_length > 2000:
                                 st.text(f"... ({text_length - 2000} more characters)")
@@ -792,13 +868,18 @@ class PersonalAIInterface:
                     )
                 with save_col:
                     st.write("")
-                    if st.button("💾 Save category", key=f"recat_{key}"):
+                    if st.button(
+                        "Save category", icon=":material/save:", key=f"recat_{key}"
+                    ):
                         data.setdefault("metadata", {})["category"] = new_category
                         self.vault.store_data(key, data)
-                        st.success(f"Moved to {get_category(new_category).label}")
+                        st.success(
+                            f"Moved to {get_category(new_category).label}",
+                            icon=":material/check_circle:",
+                        )
                         st.rerun()
 
-                if st.button("🗑️ Delete", key=f"delete_{key}"):
+                if st.button("Delete", icon=":material/delete:", key=f"delete_{key}"):
                     self.vault.delete_data(key)
                     st.rerun()
 
@@ -857,7 +938,7 @@ class PersonalAIInterface:
         st.set_page_config(
             page_title="Private AI Assistant - Sign In", layout="centered"
         )
-        st.title("🔒 Private AI Assistant")
+        st.title(":material/lock: Private AI Assistant")
 
         auth = AuthManager()
 
@@ -914,15 +995,15 @@ class PersonalAIInterface:
         # no-op, so toggling back off cleanly returns to the light paint.
         theme.apply_app_shell()
 
-        if page == "💬 Chat":
+        if page == "chat":
             self.render_chat_page()
-        elif page == "📂 Upload":
+        elif page == "upload":
             self.render_upload_page()
-        elif page == "📄 Files":
+        elif page == "files":
             self.render_files_page()
-        elif page == "📊 Dashboard":
+        elif page == "dashboard":
             self.render_dashboard_page()
-        elif page == "⚙️ Settings":
+        elif page == "settings":
             self.render_config_page()
 
 

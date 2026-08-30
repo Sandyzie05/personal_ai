@@ -4,6 +4,8 @@ from src.data_extraction.categories import CATEGORIES, DEFAULT_CATEGORY_KEY
 from src.interface.dashboard_data import (
     BILL_LIKE_CATEGORY_KEYS,
     count_by_category,
+    distinct_vendors,
+    filter_records,
     month_over_month_change,
     recent_uploads,
     spend_by_category,
@@ -13,12 +15,21 @@ from src.interface.dashboard_data import (
 )
 
 
-def _record(storage_key, category=None, total=None, period_start=None, timestamp=None):
+def _record(
+    storage_key,
+    category=None,
+    total=None,
+    period_start=None,
+    timestamp=None,
+    provider=None,
+):
     metadata = {}
     if category is not None:
         metadata["category"] = category
     if timestamp is not None:
         metadata["upload_timestamp"] = timestamp
+    if provider is not None:
+        metadata["provider"] = provider
     extraction = None
     if total is not None or period_start is not None:
         extraction = {}
@@ -287,3 +298,72 @@ def test_recent_uploads_respects_n():
     ]
     result = recent_uploads(records, n=2)
     assert [r["storage_key"] for r in result] == ["c", "b"]
+
+
+# --- distinct_vendors -----------------------------------------------------
+
+
+def test_distinct_vendors_empty_input():
+    assert distinct_vendors([]) == []
+
+
+def test_distinct_vendors_deduplicates_and_sorts():
+    records = [
+        _record("a", provider="Rocky Mountain Power"),
+        _record("b", provider="Chase"),
+        _record("c", provider="Rocky Mountain Power"),
+    ]
+    assert distinct_vendors(records) == ["Chase", "Rocky Mountain Power"]
+
+
+def test_distinct_vendors_skips_missing_or_blank_provider():
+    records = [
+        _record("a"),
+        _record("b", provider=""),
+        _record("c", provider="   "),
+        _record("d", provider="Chase"),
+    ]
+    assert distinct_vendors(records) == ["Chase"]
+
+
+# --- filter_records ---------------------------------------------------------
+
+
+def test_filter_records_no_filters_returns_everything():
+    records = [_record("a", category="electricity"), _record("b", category="gas")]
+    assert filter_records(records) == records
+
+
+def test_filter_records_empty_category_or_vendor_list_means_no_filter():
+    records = [_record("a", category="electricity"), _record("b", category="gas")]
+    assert filter_records(records, category_keys=[], vendors=[]) == records
+
+
+def test_filter_records_by_category():
+    records = [
+        _record("a", category="electricity"),
+        _record("b", category="gas"),
+    ]
+    result = filter_records(records, category_keys=["electricity"])
+    assert [r["storage_key"] for r in result] == ["a"]
+
+
+def test_filter_records_by_vendor():
+    records = [
+        _record("a", category="electricity", provider="Rocky Mountain Power"),
+        _record("b", category="electricity", provider="Chase"),
+    ]
+    result = filter_records(records, vendors=["Chase"])
+    assert [r["storage_key"] for r in result] == ["b"]
+
+
+def test_filter_records_combines_category_and_vendor():
+    records = [
+        _record("a", category="electricity", provider="Rocky Mountain Power"),
+        _record("b", category="gas", provider="Rocky Mountain Power"),
+        _record("c", category="electricity", provider="Chase"),
+    ]
+    result = filter_records(
+        records, category_keys=["electricity"], vendors=["Rocky Mountain Power"]
+    )
+    assert [r["storage_key"] for r in result] == ["a"]

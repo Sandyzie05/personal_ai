@@ -4,6 +4,37 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-08-30 - feat: dashboard filters, drop Recent Activity, modern icons
+
+The dashboard's out-of-the-box view had no way to narrow to one bill type or
+vendor, "Customize widgets" was a bare multiselect with no explanation of
+what each widget showed, and the app-wide emoji icons looked inconsistent
+next to the new dark mode. Also merged in `feat/ui-ux-revamp`'s dark/light
+theme toggle and sidebar/Files/Settings revamp, which existed on a branch
+but had never reached `main`.
+
+- `dashboard.py` / `dashboard_data.py`: a global filter bar (bill/data type +
+  vendor/provider, via new `distinct_vendors()` / `filter_records()`) drives
+  every widget at once; an empty selection falls back to "show everything"
+  rather than a blank dashboard. Removed the Recent Activity widget (the
+  Files page already covers it). "Customize widgets" is now per-widget
+  toggles with a one-line description each.
+- Replaced emoji chrome (nav, buttons, headers, alerts, chat avatars) with
+  Streamlit's built-in Material Symbols (`:material/...:`) across
+  `main.py`, `chat.py`, `upload.py` - bundled with Streamlit, no external
+  font/network request, and legible in both themes. Left
+  `data_extraction/categories.py`'s emoji labels alone: they feed Plotly
+  chart text and `query_analysis`'s keyword matching, neither of which
+  renders markdown. Sidebar nav now routes on stable keys instead of
+  matching emoji-prefixed label strings.
+- Merged `feat/ui-ux-revamp` (dark/light theme toggle via `theme.py`,
+  sidebar/Files/Settings revamp, and an anti-hallucination RAG grounding
+  fix) and fixed its formatting (`ruff format` had never been run on it).
+
+Verified via Streamlit's `AppTest` harness against a throwaway vault (never
+touches `~/.personal_ai_vault`): all 5 pages render with no exceptions.
+162/162 tests pass, `ruff check`/`format` clean.
+
 ## (pending) - 2026-08-29 - feat: light/dark theme toggle
 
  The UI was pinned to a light theme (`.streamlit/config.toml` `base = "light"`),
