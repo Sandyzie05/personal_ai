@@ -7,6 +7,7 @@ import uuid
 from .embeddings import EmbeddingsGenerator
 from ..config import (
     DEFAULT_EMBED_CHUNK_TOKENS,
+    DEFAULT_MIN_RELATIVE_SCORE,
     CHARS_PER_TOKEN_ESTIMATE,
 )
 
@@ -21,6 +22,34 @@ DEFAULT_CHROMA_DIR = os.path.expanduser("~/.personal_ai_vault/.chroma")
 # safe even for base64 (which tokenizes ~1 char/token) against nomic-embed-text's
 # real 2048-token context.
 HARD_CHUNK_CHAR_CAP = 2000
+
+
+def distance_to_similarity(cosine_distance: float) -> float:
+    """Turn a ChromaDB cosine *distance* into a 0..1 *similarity*.
+
+    ChromaDB's "cosine" space reports a distance of `1 - similarity`
+    (range roughly [0, 2]), not a similarity. Retrieval thresholds work on
+    "how similar", so everything downstream converts via this one function
+    rather than each call site re-deriving the (easy to get backwards) sign.
+    A perfect match is distance 0 -> similarity 1; unrelated vectors land near
+    0 (or below, clamped).
+    """
+    return max(0.0, min(1.0, 1.0 - float(cosine_distance)))
+
+
+def document_id(metadata: Optional[Dict[str, Any]]) -> Optional[str]:
+    """The source-document identity for a chunk, for dedup - or None.
+
+    Chunks of one vault document all share its `storage_key`, so that's the
+    natural "which document" identity. A chunk without a `storage_key` (e.g.
+    one added straight via `RAGEngine.add_document` with no metadata) has no
+    document identity, so it can't be grouped - return None and let the caller
+    keep it rather than risk collapsing two unrelated chunks into one.
+    """
+    if not metadata:
+        return None
+    key = metadata.get("storage_key")
+    return str(key) if key else None
 
 
 def _chunk_text(text: str, chunk_chars: int) -> List[str]:
@@ -90,6 +119,8 @@ class ChromaStore:
         embedding_generator: Optional[EmbeddingsGenerator] = None,
         collection_name: str = "personal_ai_vault",
         persist_directory: Optional[str] = None,
+        min_relevance: float = DEFAULT_MIN_RELATIVE_SCORE,
+        max_per_document: int = 1,
     ):
         self.embedding_generator = embedding_generator
         self.collection_name = collection_name
@@ -97,6 +128,11 @@ class ChromaStore:
         self.collection = None
         self._client = None
         self._initialized = False
+        # Anti-hallucination knobs (see config.DEFAULT_MIN_RELATIVE_SCORE).
+        # `min_relevance` < 0 disables the threshold entirely.
+        self.min_relevance = min_relevance
+        self.max_per_document = max(1, max_per_document)
+        self._last_retrieval: List[Dict[str, Any]] = []
 
     def _ensure_initialized(self) -> None:
         """Initialize ChromaDB client and collection lazily."""
@@ -111,7 +147,8 @@ class ChromaStore:
 
             self._client = chromadb.Client(
                 Settings(
-                    persist_directory=self.persist_directory, anonymized_telemetry=False
+                    persist_directory=self.persist_directory,
+                    anonymized_telemetry=False,
                 )
             )
 
@@ -183,15 +220,35 @@ class ChromaStore:
             raise ChromaStoreError(f"Failed to add documents: {str(e)}")
 
     def retrieve_relevant(
-        self, query: str, k: int = 5, where: Optional[Dict[str, Any]] = None
+        self,
+        query: str,
+        k: int = 5,
+        where: Optional[Dict[str, Any]] = None,
+        min_relevance: Optional[float] = None,
+        max_per_document: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Retrieve relevant documents for a query, optionally scoped by metadata.
 
         `where` is a ChromaDB metadata filter (e.g. {"category": "electricity"})
         - used to scope retrieval to a document category instead of searching
         blindly across everything in the vault.
+
+        Anti-hallucination filtering happens *here* so every retrieval path is
+        consistent:
+
+        - Over-fetch up to `k` candidates, then keep only chunks whose cosine
+          SIMILARITY meets `min_relevance`. A near-miss returns [] rather than a
+          confident-but-wrong answer. A threshold < 0 disables the cut.
+        - Dedupe by source document (`document_id`), keeping the best
+          `max_per_document` chunk(s), so one long bill can't crowd out the
+          others.
+
+        Results come back most-similar-first and are recorded on
+        `last_retrieval()` for diagnostics/citations.
         """
         self._ensure_initialized()
+        threshold = self.min_relevance if min_relevance is None else min_relevance
+        per_doc = self.max_per_document if max_per_document is None else max_per_document
         try:
             query_kwargs: Dict[str, Any] = {"n_results": k}
             if where:
@@ -205,24 +262,66 @@ class ChromaStore:
             else:
                 results = self.collection.query(query_texts=[query], **query_kwargs)
 
-            docs = []
-            for i, doc in enumerate(results["documents"][0]):
+            docs: List[Dict[str, Any]] = []
+            distances = results.get("distances", [None])[0] or []
+            for i, doc in enumerate(results["documents"][0] or []):
+                distance = distances[i] if i < len(distances) else 0.0
                 docs.append(
                     {
                         "content": doc,
-                        "metadata": results["metadatas"][0][i]
-                        if results["metadatas"][0]
-                        else {},
-                        "score": results["distances"][0][i]
-                        if results["distances"][0]
-                        else 0.0,
+                        "metadata": (
+                            results["metadatas"][0][i]
+                            if results["metadatas"][0]
+                            else {}
+                        ),
+                        "distance": distance,
+                        # Similarity (0..1), not raw distance, so callers/tests
+                        # read the "how relevant" intuition directly.
+                        "score": distance_to_similarity(distance),
                     }
                 )
 
+            if threshold >= 0:
+                docs = [d for d in docs if d["score"] >= threshold]
+            docs = self._dedupe_by_document(docs, per_doc)
+            docs.sort(key=lambda d: d["score"], reverse=True)
+
+            self._last_retrieval = docs
             return docs
 
         except Exception as e:
             raise ChromaStoreError(f"Failed to retrieve documents: {str(e)}")
+
+    @staticmethod
+    def _dedupe_by_document(
+        docs: List[Dict[str, Any]], max_per_document: int
+    ) -> List[Dict[str, Any]]:
+        """Keep at most `max_per_document` chunks per source document, by best
+        similarity. Chunks with no document identity are always kept, since they
+        can't be grouped into a document and must not be silently dropped."""
+        if max_per_document <= 0:
+            return docs
+        kept: Dict[str, int] = {}
+        deduped: List[Dict[str, Any]] = []
+        for doc in docs:
+            # Input arrives most-similar-first, so the first N for a doc are
+            # its best chunks.
+            doc_id = document_id(doc.get("metadata"))
+            if doc_id is None:
+                deduped.append(doc)
+                continue
+            if kept.get(doc_id, 0) < max_per_document:
+                deduped.append(doc)
+                kept[doc_id] = kept.get(doc_id, 0) + 1
+        return deduped
+
+    def last_retrieval(self) -> List[Dict[str, Any]]:
+        """Most recent retrieval results - for diagnostics/observability only.
+
+        Lets the chat layer log *which chunks and scores* were considered for an
+        answer, so a hallucination can be traced back to weak or missing
+        grounding instead of being invisible."""
+        return list(self._last_retrieval)
 
     def delete_all(self) -> bool:
         """Delete all documents from the collection."""
@@ -270,10 +369,14 @@ def create_chroma_store(
     embedding_generator: Optional[EmbeddingsGenerator] = None,
     collection_name: str = "personal_ai_vault",
     persist_directory: Optional[str] = None,
+    min_relevance: float = DEFAULT_MIN_RELATIVE_SCORE,
+    max_per_document: int = 1,
 ) -> ChromaStore:
     """Factory function to create a ChromaDB store."""
     return ChromaStore(
         embedding_generator=embedding_generator,
         collection_name=collection_name,
         persist_directory=persist_directory,
+        min_relevance=min_relevance,
+        max_per_document=max_per_document,
     )

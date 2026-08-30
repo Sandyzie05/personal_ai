@@ -1,8 +1,114 @@
 # Changelog
 
-Commit history for `personal_ai`, newest first, with what actually changed
-and why - kept for future reference so you don't have to reconstruct intent
-from `git log` alone. Update this file whenever you commit.
+ Commit history for `personal_ai`, newest first, with what actually changed
+ and why - kept for future reference so you don't have to reconstruct intent
+ from `git log` alone. Update this file whenever you commit.
+
+## (pending) - 2026-08-29 - feat: light/dark theme toggle
+
+ The UI was pinned to a light theme (`.streamlit/config.toml` `base = "light"`),
+ so it read wrong on a dark OS. Streamlit 1.62 (the pinned version) bakes its
+ base theme into the compiled frontend, so there's no first-class *runtime*
+ "switch the whole app's theme" call, and `[theme]` only takes effect at server
+start - which is also where the localhost security pin lives, so we don't want
+to rewrite it. The light/dark choice is instead a **sidebar toggle** that lives
+in `st.session_state` and is applied without touching `config.toml`.
+
+- `src/interface/theme.py` (new): single source of truth for the two surface
+  palettes and the mode resolution/persistence. `ui_theme_mode` in
+   `st.session_state` records the user's choice (default `light`, so existing
+   users see exactly what they saw before this existed).
+- App chrome: `apply_app_shell()` (called from `main._setup_page`, after the
+   light-mode CSS) injects a `<style>` block that repaints the surfaces
+   Streamlit exposes - main, sidebar, metric cards, expander borders. Dark
+   values carry `!important` and win by cascade order; light is a no-op so
+   toggling off cleanly undoes a dark session.
+- Charts: `dashboard.py` pulls gridline/font/pie-border/fill from
+   `theme.chart_surfaces()` per render, so a dark session paints its Plotly
+   figures for a dark backdrop. The categorical/sequential *hue* roles stay
+   mode-independent (color always means the same category in both themes).
+- `main.py`: imports `theme`, adds the toggle under the brand in the sidebar,
+   and calls `apply_app_shell()` in `_setup_page`. `.streamlit/config.toml`
+   comment updated: the light pin is now the *default*, overridable per-session.
+- `tests/test_theme.py`: mode resolution/persistence, dark-vs-light surface
+  differences, and that `apply_app_shell` injects on dark and is a no-op on
+   light. Known limitation, not chased: a few Streamlit widget internals are
+   still coloured in JS and may keep light styling under dark mode.
+
+## (pending) - 2026-08-29 - feat: anti-hallucination grounding in the RAG path
+
+The chat could answer confidently from a near-miss chunk - ChromaDB's
+top-k always returns `k` chunks, so an irrelevant document (cosine
+similarity ~0) was handed to the model with no excuse to decline it, and
+nothing logged which chunks were considered so a hallucination couldn't be
+traced. This makes retrieval *grounding-first* instead of "top-k no matter
+what", across every retrieval path.
+
+- `src/config.py`: `DEFAULT_CHAT_TEMPERATURE` (0.3, down from 0.7 - a small
+  local model confabulates at the old default) and
+  `DEFAULT_MIN_RELATIVE_SCORE` (0.20; a chunk must clear this cosine
+  SIMILARITY to count - the main anti-hallucination lever). Both env
+  overridable.
+- `src/ai_engine/chroma_store.py`: `retrieve_relevant` now over-fetches up
+  to `k`, keeps only chunks whose similarity (0..1, via the new
+  `distance_to_similarity`) meets `min_relevance` (a near-miss returns `[]`
+  rather than a confident-but-wrong answer; threshold `< 0` disables the
+  cut), and dedupes to `max_per_document` (default 1) per source document so
+  one long bill can't crowd out the others (new `document_id` helper keys on
+  `storage_key`; identity-less chunks are always kept). Results come back
+  most-similar-first and are recorded on `last_retrieval()` for
+  diagnostics.
+- `src/ai_engine/rag_engine.py`: threads the two knobs through
+  `RAGEngine._get_chroma_store`, now respects `self.top_k` in
+  `get_context_for_query` (a hardcoded `k=3` previously ignored it), labels
+  each chunk with its source (`_source_label`) so the model can tell chunks
+  apart and a hallucination traces to a chunk + score, and adds
+  `_log_retrieval` diagnostics (which chunks, and how strong the best was).
+- `src/ai_engine/chat_engine.py`: grounding-first `SYSTEM_PROMPT`
+  (never guess/estimate from your own knowledge; say "couldn't find it in
+  your vault" and suggest what to upload) and a matching no-context
+  refusal. `src/ai_engine/ollama_client.py`: `temperature` default now draws
+  from `DEFAULT_CHAT_TEMPERATURE`. `src/interface/config.py` + `main.py`:
+  Settings slider defaults to the new temperature and the degraded
+  Ollama fallback reuses the same grounded system prompt so it can't drift
+  into "answer from your own knowledge".
+- `requirements.txt`: dropped a stray unused `watchdog` line;
+  `tests/test_chroma_store.py` / `tests/test_chat_engine.py`: added
+  threshold/dedup/`score`/prompt regression tests (147 pass).
+
+- `requirements.txt`, `src/config.py`, `src/ai_engine/chroma_store.py`,
+  `src/ai_engine/rag_engine.py`, `src/ai_engine/chat_engine.py`,
+  `src/ai_engine/ollama_client.py`, `src/interface/config.py`,
+  `src/interface/main.py`, `tests/test_chroma_store.py`,
+  `tests/test_chat_engine.py`
+
+## (pending) - 2026-08-27 - feat: UI/UX revamp across the interface
+
+The interface had grown functional but inconsistent: no app-wide theme
+(the dashboard charts assume a light `#2a78d6` palette, but nothing tied
+the app chrome to it), a cluttered sidebar (an always-100% "privacy"
+progress bar, raw debug buttons, file count as plain text), a Files page
+that dumped every category's files into one long scroll, and a Settings
+page with two stacked headers, two Save buttons (one of which showed a
+success toast but never persisted), and a form that always showed defaults
+instead of saved values.
+
+- `.streamlit/config.toml`: added a light `[theme]` whose `primaryColor`
+  matches the dashboard's categorical blue, so buttons/sliders/links/charts
+  read as one system. `[server]` localhost binding untouched.
+- `src/interface/main.py`: set a `page_icon`, added a small global CSS coat
+  (calmer spacing, rounded controls, metric values as cards); rebuilt the
+  sidebar (brand header, `Documents in vault` metric, one privacy line, and
+  diagnostics moved into a `Status & diagnostics` expander); Files page now
+  has a name search + a per-category segmented control so one category
+  renders at a time instead of a long scroll; Settings page reduced to a
+  single header + single primary Save, and now prefills from saved config.
+- `src/interface/config.py`: `render_config_page(current=...)` prefills from
+  saved values and returns them; dropped the duplicate header and the
+  misleading second Save button (persistence is the caller's single action).
+
+- `.streamlit/config.toml`, `src/interface/main.py`,
+  `src/interface/config.py`, `CHANGELOG.md`
 
 ## 83539b1 - 2026-08-25 - feat: add Dashboard page with configurable widgets
 

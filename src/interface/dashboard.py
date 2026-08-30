@@ -20,6 +20,7 @@ import streamlit as st
 from src.data_extraction.categories import get_category
 from src.data_vault import DataVault, is_internal_vault_key
 from src.interface import dashboard_data
+from src.interface import theme
 
 DASHBOARD_CONFIG_KEY = "dashboard_config"
 
@@ -44,6 +45,20 @@ _STATUS_CRITICAL = "#d03b3b"  # reserved: spend went up
 _MUTED_INK = "#898781"
 _GRIDLINE = "#e1e0d9"
 
+
+def _surfaces() -> Dict[str, str]:
+    """Active chart surface colors for the current theme mode.
+
+    Pulled per-render from `theme` so dark mode paints the charts for a
+    dark backdrop. Categorical/sequential hue roles stay mode-independent;
+    only these surfaces change.
+    """
+    surfaces = theme.chart_surfaces()
+    surfaces.setdefault("gridline", _GRIDLINE)
+    surfaces.setdefault("pie_border", "#ffffff")
+    surfaces.setdefault("fill", "rgba(42, 120, 214, 0.10)")
+    surfaces.setdefault("font", "#1f2328")
+    return surfaces
 
 def _render_overview(records: List[Dict[str, Any]]) -> None:
     total_docs = dashboard_data.total_documents(records)
@@ -92,6 +107,7 @@ def _render_overview(records: List[Dict[str, Any]]) -> None:
 
 
 def _render_by_category(records: List[Dict[str, Any]]) -> None:
+    surfaces = _surfaces()
     counts = dashboard_data.count_by_category(records)
     nonzero = [(label, count) for _key, label, count in counts if count > 0]
     if not nonzero:
@@ -118,8 +134,8 @@ def _render_by_category(records: List[Dict[str, Any]]) -> None:
     fig.update_layout(
         margin=dict(l=0, r=32, t=8, b=0),
         height=max(220, 44 * len(labels)),
-        xaxis=dict(showgrid=True, gridcolor=_GRIDLINE, zeroline=False, title=None),
-        yaxis=dict(showgrid=False, title=None),
+        xaxis=dict(showgrid=True, gridcolor=surfaces["gridline"], zeroline=False, title=None, tickfont=dict(color=surfaces["font"])),
+        yaxis=dict(showgrid=False, title=None, tickfont=dict(color=surfaces["font"])),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
@@ -129,6 +145,7 @@ def _render_by_category(records: List[Dict[str, Any]]) -> None:
 
 
 def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
+    surfaces = _surfaces()
     totals = dashboard_data.spend_by_category(records)
     nonzero = [(label, total) for label, total in totals if total > 0]
     if not nonzero:
@@ -149,7 +166,7 @@ def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
             values=values,
             hole=0.62,
             sort=False,
-            marker=dict(colors=colors, line=dict(color="#ffffff", width=2)),
+            marker=dict(colors=colors, line=dict(color=surfaces["pie_border"], width=2)),
             textinfo="percent",
             textposition="outside",
             hovertemplate="%{label}: $%{value:,.2f} (%{percent})<extra></extra>",
@@ -158,17 +175,25 @@ def _render_spend_by_category(records: List[Dict[str, Any]]) -> None:
     fig.add_annotation(
         text=f"<b>${total_spend:,.0f}</b><br><span style='font-size:12px'>total spend</span>",
         showarrow=False,
-        font=dict(size=18),
-    )
+        font=dict(size=18, color=surfaces["font"]),
+     )
     fig.update_layout(
         margin=dict(l=0, r=0, t=8, b=0),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.2, x=0.5, xanchor="center"),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.2,
+            x=0.5,
+            xanchor="center",
+            font=dict(color=surfaces["font"]),
+         ),
         paper_bgcolor="rgba(0,0,0,0)",
-    )
+     )
     st.plotly_chart(fig)
 
 
 def _render_spend_over_time(records: List[Dict[str, Any]]) -> None:
+    surfaces = _surfaces()
     series = dashboard_data.spend_over_time(records)
     if not series:
         st.info(
@@ -202,24 +227,27 @@ def _render_spend_over_time(records: List[Dict[str, Any]]) -> None:
             mode="lines+markers",
             line=dict(color=_SEQUENTIAL_BLUE, width=2, shape="spline"),
             marker=dict(
-                size=8, color=_SEQUENTIAL_BLUE, line=dict(width=2, color="#ffffff")
-            ),
+                size=8,
+                color=_SEQUENTIAL_BLUE,
+                line=dict(width=2, color=surfaces["pie_border"]),
+             ),
             fill="tozeroy",
-            fillcolor=_SEQUENTIAL_BLUE_FILL,
+            fillcolor=surfaces["fill"],
             hovertemplate="%{x}: $%{y:,.2f}<extra></extra>",
         )
     )
     fig.update_layout(
         margin=dict(l=0, r=8, t=8, b=0),
         height=320,
-        xaxis=dict(showgrid=False, title=None),
+        xaxis=dict(showgrid=False, title=None, tickfont=dict(color=surfaces["font"])),
         yaxis=dict(
             showgrid=True,
-            gridcolor=_GRIDLINE,
+            gridcolor=surfaces["gridline"],
             zeroline=False,
             title=None,
             tickprefix="$",
-        ),
+            tickfont=dict(color=surfaces["font"]),
+          ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
