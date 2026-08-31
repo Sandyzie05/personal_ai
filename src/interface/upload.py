@@ -1,11 +1,13 @@
-"""Upload page: auto-detected category, a confirmable metadata form, and
+"""Upload page: auto-detected category, a pre-filled metadata form, and
 best-effort structured extraction - the document-datastore pipeline.
 
-Flow: pick one or more files -> each is classified individually
-(heuristics, LLM fallback) -> user confirms/overrides each file's category
-(and, optionally, a few category-specific fields) -> "Upload All" encrypts
-+ stores every file -> best-effort LLM extraction of structured line items
-per file for fast, accurate aggregation queries later.
+Flow: pick one or more files -> each is classified individually (heuristics,
+LLM fallback) and best-effort structured-extracted once (provider, account
+identifier, period) to pre-fill its metadata form so the user isn't retyping
+"Chase" or an account's last 4 digits on every statement -> user
+confirms/overrides each file's category and fields -> "Upload All" encrypts
++ stores every file, reusing the cached extraction (re-running it only if
+the category was changed) for fast, accurate aggregation queries later.
 """
 
 import os
@@ -192,6 +194,32 @@ def _prepare_one(
             icon=":material/warning:",
         )
 
+    # Run structured extraction once, here, so its fields (provider, account
+    # identifier, period) can pre-fill the confirmation form below - the
+    # user shouldn't have to re-type "Chase" or last-4 digits for every
+    # single statement of the same card/account. Cached (with the category
+    # used) so `_upload_all` reuses it instead of paying for a second LLM
+    # call, unless the user overrides the category before confirming.
+    extraction = None
+    if ollama_client is not None and detected_category != "other":
+        try:
+            extraction = extract_structured_data(
+                text_preview, detected_category, ollama_client
+            )
+        except ExtractionError:
+            extraction = None
+
+    field_values: Dict[str, str] = {}
+    if extraction is not None:
+        if extraction.provider:
+            field_values["provider"] = extraction.provider
+        if extraction.account_identifier:
+            field_values["account_label"] = extraction.account_identifier
+        if extraction.period_start:
+            field_values["period_start"] = extraction.period_start
+        if extraction.period_end:
+            field_values["period_end"] = extraction.period_end
+
     return {
         "signature": (uploaded_file.name, uploaded_file.size),
         "signature_key": f"{uploaded_file.name}_{uploaded_file.size}".replace(" ", "_"),
@@ -201,7 +229,9 @@ def _prepare_one(
         "text_preview": text_preview,
         "detected_category": detected_category,
         "selected_category": detected_category,
-        "field_values": {},
+        "field_values": field_values,
+        "extraction": extraction,
+        "extraction_category": detected_category,
     }
 
 
@@ -246,6 +276,8 @@ def _upload_all(
                     entry["text_preview"],
                     selected_category,
                     ollama_client,
+                    cached_extraction=entry.get("extraction"),
+                    cached_extraction_category=entry.get("extraction_category"),
                 )
 
                 if on_uploaded:
@@ -276,19 +308,32 @@ def _try_structured_extraction(
     text_preview: str,
     category: str,
     ollama_client: Optional[Any],
+    cached_extraction: Optional[Any] = None,
+    cached_extraction_category: Optional[str] = None,
 ) -> Optional[str]:
     """Best-effort structured extraction - failure here doesn't fail the upload.
+
+    Reuses `cached_extraction` (computed in `_prepare_one` to pre-fill the
+    form) when it was run against the same category the user ultimately
+    confirmed, instead of paying for a second LLM call. If the user changed
+    the category after auto-detection, the cache is stale and extraction
+    re-runs for the confirmed category.
 
     Returns a warning message if the extraction looks internally
     inconsistent (see `_extraction_consistency_warning`), or None if
     extraction was skipped or looked fine.
     """
-    if ollama_client is None or category == "other":
+    if category == "other":
         return None
 
-    try:
-        extraction = extract_structured_data(text_preview, category, ollama_client)
-    except ExtractionError:
+    if cached_extraction is not None and cached_extraction_category == category:
+        extraction = cached_extraction
+    elif ollama_client is not None:
+        try:
+            extraction = extract_structured_data(text_preview, category, ollama_client)
+        except ExtractionError:
+            return None
+    else:
         return None
 
     if extraction is None:

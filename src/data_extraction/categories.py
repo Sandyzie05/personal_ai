@@ -66,6 +66,9 @@ CATEGORIES: List[Category] = [
             "minimum payment",
             "credit limit",
             "purchase apr",
+            "new balance",
+            "payment due date",
+            "available credit",
         ],
         fields=[
             CategoryField("provider", "Card issuer", required=True),
@@ -82,6 +85,10 @@ CATEGORIES: List[Category] = [
             "savings account",
             "beginning balance",
             "ending balance",
+            "account summary",
+            "opening balance",
+            "closing balance",
+            "deposits and other credits",
         ],
         fields=[
             CategoryField("provider", "Bank name", required=True),

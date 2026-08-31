@@ -24,6 +24,11 @@ class ExtractedDocument(BaseModel):
     """
 
     provider: Optional[str] = None
+    # Last 4 digits, account/card suffix, or phone number as printed on the
+    # statement (e.g. "...4412") - lets two accounts from the same provider
+    # (two credit cards, two checking accounts) be told apart without the
+    # user having to type an account nickname on every upload.
+    account_identifier: Optional[str] = None
     period_start: Optional[str] = None  # ISO YYYY-MM-DD when determinable
     period_end: Optional[str] = None
     total: Optional[float] = None

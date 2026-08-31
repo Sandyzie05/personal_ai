@@ -45,6 +45,32 @@ def test_extract_structured_data_parses_valid_response():
     assert result.line_items[1].amount == -42.10
 
 
+def test_extract_structured_data_parses_account_identifier():
+    reply = """
+    {
+      "provider": "Chase",
+      "account_identifier": "ending in 4412",
+      "period_start": "2026-06-01",
+      "period_end": "2026-06-30",
+      "total": 100.0,
+      "line_items": [{"label": "Groceries", "amount": 100.0}]
+    }
+    """
+    client = FakeOllamaClient(reply=reply)
+
+    result = extract_structured_data("some statement text", "credit_card", client)
+
+    assert result.account_identifier == "ending in 4412"
+
+
+def test_extract_structured_data_account_identifier_defaults_to_none():
+    client = FakeOllamaClient(reply=VALID_JSON)
+
+    result = extract_structured_data("some bill text", "electricity", client)
+
+    assert result.account_identifier is None
+
+
 def test_extract_structured_data_passes_json_schema_format():
     client = FakeOllamaClient(reply=VALID_JSON)
 
