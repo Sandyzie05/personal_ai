@@ -1,6 +1,8 @@
 """Ollama API client for local LLM interactions."""
 
 import ollama
+import httpx
+import math
 from typing import List, Dict, Any, Optional, Union
 
 from src.config import (
@@ -29,6 +31,8 @@ class OllamaClient:
         temperature: float = DEFAULT_CHAT_TEMPERATURE,
         max_tokens: int = 2048,
         context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
+        request_timeout_seconds: Optional[float] = None,
+        safe_local_transport: bool = False,
     ):
         self.host = host
         self.model = model
@@ -39,7 +43,18 @@ class OllamaClient:
         # (via `num_ctx` below). ChatEngine reads this back so its own
         # budget math can never drift from what's really sent to Ollama.
         self.context_window_tokens = context_window_tokens
-        self.client = ollama.Client(host=host)
+        transport_options = {}
+        if request_timeout_seconds is not None:
+            if not math.isfinite(request_timeout_seconds) or request_timeout_seconds <= 0:
+                raise ValueError("Request timeout must be finite and positive")
+            transport_options["timeout"] = httpx.Timeout(
+                request_timeout_seconds, connect=min(5.0, request_timeout_seconds)
+            )
+        if safe_local_transport:
+            if request_timeout_seconds is None:
+                raise ValueError("Safe local transport requires a finite request timeout")
+            transport_options.update(follow_redirects=False, trust_env=False)
+        self.client = ollama.Client(host=host, **transport_options)
 
     def chat(
         self,

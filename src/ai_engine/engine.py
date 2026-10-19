@@ -1,11 +1,14 @@
 """Factory for creating LLM clients with different engines."""
 
-import os
 from typing import Optional, Dict, Any
 
 from .ollama_client import OllamaClient
 from .omlx_client import OmlxClient
 from ..config import (
+    DEFAULT_OLLAMA_HOST,
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_EMBED_MODEL,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
     PERSONAL_AI_LLM_ENGINE,
     PERSONAL_AI_OMLX_HOST,
     PERSONAL_AI_OMLX_CHAT_MODEL,
@@ -18,7 +21,9 @@ from ..config import (
 def build_chat_client(engine: Optional[str] = None, host: Optional[str] = None,
                       model: Optional[str] = None, temperature: float = 0.7,
                       max_tokens: Optional[int] = None,
-                      context_window_tokens: Optional[int] = None) -> Any:
+                      context_window_tokens: Optional[int] = None,
+                      request_timeout_seconds: Optional[float] = None,
+                      safe_local_transport: bool = False) -> Any:
     """Build chat client for the specified engine."""
     if engine is None:
         engine = PERSONAL_AI_LLM_ENGINE
@@ -27,15 +32,21 @@ def build_chat_client(engine: Optional[str] = None, host: Optional[str] = None,
         if engine == "omlx":
             host = PERSONAL_AI_OMLX_HOST
         else:
-            # For Ollama, use default Ollama host
-            host = "http://localhost:11434"
+            host = DEFAULT_OLLAMA_HOST
 
     if model is None:
         if engine == "omlx":
             model = PERSONAL_AI_OMLX_CHAT_MODEL
         else:
-            # For Ollama, we'll use default logic or parameter (can be set later)
-            model = None
+            model = DEFAULT_CHAT_MODEL
+
+    if context_window_tokens is None:
+        context_window_tokens = DEFAULT_CONTEXT_WINDOW_TOKENS
+    transport_options = {}
+    if request_timeout_seconds is not None:
+        transport_options["request_timeout_seconds"] = request_timeout_seconds
+    if safe_local_transport:
+        transport_options["safe_local_transport"] = True
 
     if engine == "omlx":
         return OmlxClient(
@@ -43,7 +54,8 @@ def build_chat_client(engine: Optional[str] = None, host: Optional[str] = None,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            context_window_tokens=context_window_tokens
+            context_window_tokens=context_window_tokens,
+            **transport_options,
         )
     else:
         # Default to Ollama
@@ -52,7 +64,8 @@ def build_chat_client(engine: Optional[str] = None, host: Optional[str] = None,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            context_window_tokens=context_window_tokens
+            context_window_tokens=context_window_tokens,
+            **transport_options,
         )
 
 
@@ -66,20 +79,15 @@ def build_embed_client(engine: Optional[str] = None, host: Optional[str] = None,
         if engine == "omlx":
             host = PERSONAL_AI_OMLX_HOST
         else:
-            # For Ollama, use default Ollama host
-            host = "http://localhost:11434"
+            host = DEFAULT_OLLAMA_HOST
 
     if model is None:
         if engine == "omlx":
             model = PERSONAL_AI_OMLX_EMBED_MODEL
         else:
-            # For Ollama, we'll use default logic or parameter
-            model = None
+            model = DEFAULT_EMBED_MODEL
 
     if engine == "omlx":
-        # Create a simple client that handles embeddings for oMLX
-        # The OmlxClient will be used for chat, and we need to handle embeddings properly
-        # Return just a basic client with embedding context info
         return OmlxClient(
             host=host,
             model=model,
@@ -92,6 +100,7 @@ def build_embed_client(engine: Optional[str] = None, host: Optional[str] = None,
         return OllamaClient(
             host=host,
             model=model,
+            embed_model=model,
             temperature=0.0,  # Embeddings don't use temperature
             max_tokens=None,  # Embeddings don't use max_tokens
             context_window_tokens=EMBED_MODEL_CONTEXT_TOKENS.get(model, 2048)
@@ -99,7 +108,7 @@ def build_embed_client(engine: Optional[str] = None, host: Optional[str] = None,
 
 
 def client_kwargs_from_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert vault ollama_config dict to factory arguments."""
+    """Convert saved settings, retaining legacy Ollama keys and backend choices."""
     # Handle backward compatibility - if engine field is missing, assume Ollama
     engine = cfg.get("engine", "ollama")
     embed_engine = cfg.get("embed_engine", "ollama")
@@ -107,8 +116,14 @@ def client_kwargs_from_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     # Handle missing keys in config
     return {
         "engine": engine,
-        "host": cfg.get("llm_host"),
-        "model": cfg.get("llm_model"),
+        "host": cfg.get("llm_host") or (
+            PERSONAL_AI_OMLX_HOST if engine == "omlx"
+            else cfg.get("ollama_host") or DEFAULT_OLLAMA_HOST
+        ),
+        "model": cfg.get("llm_model") or (
+            PERSONAL_AI_OMLX_CHAT_MODEL if engine == "omlx"
+            else cfg.get("ollama_model") or DEFAULT_CHAT_MODEL
+        ),
         "temperature": cfg.get("temperature", 0.7),
         "max_tokens": cfg.get("max_tokens"),
         "context_window_tokens": cfg.get("context_window_tokens"),
