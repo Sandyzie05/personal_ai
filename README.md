@@ -26,12 +26,16 @@ index has a documented plaintext-at-rest limitation.
 - 🗂️ Files page grouped into per-category folders (e.g. "Mobile / Phone"),
   with a re-categorize control for anything misclassified
 - 📊 Dashboard page with configurable widgets - document counts, spend by
-  category, spend over time, recent uploads - built from the same structured
+  category and spend over time - built from the same structured
   extraction data, not a RAG summary
 - 🖥️ Streamlit web UI: chat, upload, files, dashboard, and settings pages
 - Forecast page: requested-US-stock research, optional parallel local
   specialist reviews, and explicitly saved encrypted forecasts/outcomes.
   Scores are heuristic, not calibrated probabilities or investment advice.
+
+UI uploads are parsed in memory before encrypted storage. DOCX extraction
+covers paragraphs/tables; XML extraction recognizes supported health-record
+types, not arbitrary XML. Scanned documents have no built-in OCR.
 
 ## Project structure
 
@@ -44,6 +48,7 @@ src/
 ├── data_ingestion/    # File upload handling + per-format parsers
 ├── data_extraction/   # Category registry, classifier, LLM structured
 │                       extraction (categories.py, classifier.py, extractor.py)
+├── agents/            # Configurable agents, MCP, encrypted runtime state
 ├── forecaster/        # Public market evidence, research, specialist scenarios,
 │                       explicit-session forecast/outcome evaluation
 ├── interface/         # Streamlit UI: chat, chat_sessions, upload, files
@@ -58,7 +63,7 @@ examples/              # CLI usage examples
 ## Agentic capstone direction
 
 The planned unified application combines document-backed personal assistance
-with requested-stock research from the companion `stock_predictor` project.
+with the requested-stock research already implemented under `src/forecaster/`.
 Its target architecture uses a bounded coordinator, separate private/public
 data boundaries, parallel forecast specialists, approved encrypted memory
 and leakage-aware outcome evaluation. Trading and payments are outside the
@@ -98,23 +103,26 @@ out of source control; do not enter them into forecast prompts.
 
 ## Requirements
 
-- macOS, Linux, or Windows
+- macOS or Linux; Windows requires adapting Unix-style setup/Makefile paths
 - Python 3.10+
+- Streamlit 1.62+ (the UI and headless regressions use current APIs)
 - [Ollama](https://ollama.com/download), installed and running (`ollama serve`)
 
 ## Setup
 
-Quickest path - one command does everything below (creates `./venv`,
+Ollama-only setup - the command below creates `./venv`,
 installs dependencies, checks Ollama is installed and running, pulls the
-configured chat + embedding models if you don't already have them):
+configured Ollama chat + embedding models if missing. Explicitly select
+Ollama embeddings so this path does not also require an oMLX server:
 
 ```bash
 git clone <repository-url>
 cd personal_ai
+export PERSONAL_AI_EMBED_ENGINE=ollama
 make setup   # or: python3 scripts/setup.py
 ```
 
-It's safe to re-run - every step is skipped if already satisfied. Add
+Re-running reuses the environment but still installs dependencies. Add
 `--skip-models` (e.g. `python3 scripts/setup.py --skip-models`) to skip the
 `ollama pull` step. If Ollama isn't installed or isn't running, it stops
 with a clear message telling you what to do next rather than guessing.
@@ -134,8 +142,9 @@ source venv/bin/activate
 # 3. Install dependencies
 make install   # or: pip install -r requirements.txt
 
-# 4. Pull the models you'll use (defaults below; override via env vars, see Configuration)
-ollama pull qwen3:8b
+# 4. For an Ollama-only setup, explicitly select Ollama embeddings
+export PERSONAL_AI_EMBED_ENGINE=ollama
+ollama pull llama3.2:latest
 ollama pull nomic-embed-text
 ```
 
@@ -158,20 +167,27 @@ Other useful entry points:
 make setup           # One-command bootstrap (see Setup above); safe to re-run
 make demo            # CLI walkthrough: register/login, store data, RAG query
 make check-context   # Sanity-check model context-window assumptions (see below)
-make test            # Run the test suite
+make test            # Isolated offline regressions; one synthetic loopback callback
 ```
 
 ## Configuration
 
-Model names and the Ollama host are centralized in `src/config.py` and
+Model names, inference/embedding backends and hosts are centralized in `src/config.py` and
 overridable via environment variables instead of editing code:
 
 ```bash
 export PERSONAL_AI_OLLAMA_HOST=http://localhost:11434
-export PERSONAL_AI_CHAT_MODEL=qwen3:8b
+export PERSONAL_AI_CHAT_MODEL=llama3.2:latest
+export PERSONAL_AI_EMBED_ENGINE=ollama
 export PERSONAL_AI_EMBED_MODEL=nomic-embed-text
 export PERSONAL_AI_CONTEXT_WINDOW_TOKENS=8192   # must not exceed your chat model's real window
 ```
+
+Chat defaults to Ollama; embeddings default to oMLX. The Ollama-only
+example overrides that embedding default. Settings can select either
+backend independently; an oMLX setup also needs its configured server and
+models. Keep private inference endpoints local and trusted: binding the
+Streamlit UI to localhost does not constrain outbound model requests.
 
 Run `make check-context` after changing models to confirm the configured
 context window doesn't exceed what Ollama actually reports for that model -
@@ -180,12 +196,15 @@ or a runtime error.
 
 ## Security
 
-The vault is encrypted at rest (AES-256-GCM) with a key derived from your
-password; the key is never written to disk in plaintext, and repeated wrong
-passwords trigger a persistent lockout. The one known residual risk: the
+The vault is encrypted at rest (AES-256-GCM) with a random data-encryption
+key wrapped by a password-derived key. The data-encryption key is not written
+to disk in plaintext by the app, and repeated wrong passwords trigger a
+persistent lockout. A significant residual risk: the
 local semantic search index (ChromaDB) stores document text in plaintext
 under `~/.personal_ai_vault/.chroma` (locked to `0700` permissions) to
-support fast local search - it is not yet encrypted at rest.
+support fast local search - it is not yet encrypted at rest. Plaintext
+skill files, in-memory upload previews, configured remote tools and inference endpoints
+have additional privacy boundaries described in the security design.
 
 Full threat model, what's implemented vs. not, and why: **`docs/security_design.md`**.
 
@@ -196,11 +215,12 @@ Full threat model, what's implemented vs. not, and why: **`docs/security_design.
   privacy boundaries, migration scope and evaluation targets
 - `docs/multi_agent_design.md` - existing configurable agent/MCP architecture;
   broader than the capstone's research-only scope
-- `docs/design_2026_08.md` - how the document pipeline, RAG vs. structured
-  datastore, chat context management, and dashboard fit together
-- `docs/roadmap.md` - original project plan and feature roadmap (historical; not current state)
+- `docs/system_architecture.md` - implemented components and trust boundaries
+- `docs/ai_engine.md` - inference, embeddings and document retrieval APIs
+- `docs/forecasting_system.md` - public research, explicit saves and evaluation limits
+- `docs/development_planning.md` - current-state matrix, ordered build steps
+  and measurable acceptance gates
 - `AGENTS.md` - checklist and conventions for making further changes to this repo
-- `INTERFACE_README.md` / `INTERFACE_SUMMARY.md` - Streamlit UI notes
 
 ## Contributing & Maintenance
 

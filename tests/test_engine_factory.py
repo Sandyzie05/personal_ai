@@ -1,5 +1,8 @@
 import unittest
 from unittest.mock import patch, MagicMock
+import importlib
+
+import pytest
 
 from src.ai_engine.engine import (
     build_chat_client,
@@ -176,6 +179,9 @@ class TestEngineFactory(unittest.TestCase):
         self.assertEqual(kwargs["host"], PERSONAL_AI_OMLX_HOST)
         self.assertEqual(kwargs["model"], PERSONAL_AI_OMLX_CHAT_MODEL)
 
+    def test_missing_saved_config_uses_defaults(self):
+        self.assertEqual(client_kwargs_from_config(None), client_kwargs_from_config({}))
+
     def test_client_kwargs_from_config_old_format(self):
         # Test backward compatibility with old config format
         old_config = {
@@ -244,6 +250,115 @@ class TestEngineFactory(unittest.TestCase):
         self.assertEqual(kwargs["embed_engine"], "ollama")  # Default
         self.assertEqual(kwargs["embed_host"], None)
         self.assertEqual(kwargs["embed_model"], None)
+
+
+@pytest.fixture
+def interface_module():
+    with patch("dotenv.load_dotenv"):
+        module = importlib.import_module("src.interface.main")
+    with patch.object(module, "st") as ui:
+        ui.session_state = {}
+        yield module
+
+
+@pytest.mark.parametrize("initializer", ["_get_chat_engine_instance", "_initialize_rag"])
+@pytest.mark.parametrize("saved", [None, {
+    "engine": "omlx", "llm_host": "http://127.0.0.1:8010",
+    "llm_model": "synthetic-chat", "temperature": 0.2, "max_tokens": 321,
+    "context_window_tokens": 4096,
+    "embed_engine": "omlx", "embed_host": "http://127.0.0.1:8020",
+    "embed_model": "synthetic-embedding",
+}])
+def test_interface_initializers_preserve_chat_settings(interface_module, initializer, saved):
+    app = interface_module.PersonalAIInterface()
+    app.vault = MagicMock()
+    app.vault.retrieve_data.return_value = saved
+    app.encryption_key = b"synthetic-key"
+    with patch("src.ai_engine.engine.build_chat_client") as build_client, \
+            patch("src.ai_engine.engine.build_embed_client") as build_embedding, \
+            patch("src.ai_engine.embeddings.EmbeddingsGenerator") as embeddings, \
+            patch("src.ai_engine.chat_engine.ChatEngine") as engine:
+        if initializer == "_get_chat_engine_instance":
+            app._get_chat_engine_instance("synthetic-vault", app.encryption_key)
+        else:
+            app._initialize_rag()
+        expected = {
+            k: v for k, v in client_kwargs_from_config(app.ollama_config).items()
+            if not k.startswith("embed_")
+        }
+        build_client.assert_called_once_with(**expected)
+        kwargs = client_kwargs_from_config(app.ollama_config)
+        build_embedding.assert_called_once_with(
+            engine=kwargs["embed_engine"], host=kwargs["embed_host"],
+            model=kwargs["embed_model"],
+        )
+        embeddings.assert_called_once_with(client=build_embedding.return_value)
+        assert engine.call_args.kwargs["ollama_client"] is build_client.return_value
+        assert engine.call_args.kwargs["embedding_generator"] is embeddings.return_value
+
+
+def test_interface_fresh_defaults_match_selected_backends(interface_module):
+    app = interface_module.PersonalAIInterface()
+    with patch.object(interface_module, "PERSONAL_AI_LLM_ENGINE", "omlx"), \
+            patch.object(interface_module, "PERSONAL_AI_EMBED_ENGINE", "omlx"):
+        app._load_ollama_config()
+    assert app.ollama_config["llm_host"] == PERSONAL_AI_OMLX_HOST
+    assert app.ollama_config["llm_model"] == PERSONAL_AI_OMLX_CHAT_MODEL
+    assert app.ollama_config["embed_host"] == PERSONAL_AI_OMLX_HOST
+    assert app.ollama_config["embed_model"] == PERSONAL_AI_OMLX_EMBED_MODEL
+
+
+def test_interface_fallback_preserves_generation_settings(interface_module):
+    app = interface_module.PersonalAIInterface()
+    app.ollama_config = {
+        "engine": "omlx", "llm_host": "http://127.0.0.1:8010",
+        "llm_model": "synthetic-chat", "temperature": 0.1, "max_tokens": 123,
+        "context_window_tokens": 4096,
+    }
+    with patch("src.ai_engine.engine.build_chat_client") as build_client:
+        build_client.return_value.chat.return_value = {"message": {"content": "synthetic"}}
+        assert app._get_fallback_response("synthetic question")[0] == "synthetic"
+    build_client.assert_called_once_with(
+        engine="omlx", host="http://127.0.0.1:8010", model="synthetic-chat",
+        temperature=0.1, max_tokens=123, context_window_tokens=4096,
+    )
+
+
+@pytest.mark.parametrize("save", [True, False])
+def test_settings_save_invalidates_live_engines_only_after_saving(interface_module, save):
+    app = interface_module.PersonalAIInterface()
+    app.vault = MagicMock()
+    app.vault.retrieve_data.return_value = {"engine": "ollama"}
+    app._initialized = True
+    old_engine = app.chat_engine = object()
+    old_runtime = interface_module.st.session_state["agent_runtime"] = object()
+    interface_module.st.button.return_value = save
+    settings = {"engine": "omlx", "llm_model": "synthetic-chat"}
+    with patch("src.interface.config.render_config_page", return_value=settings):
+        app.render_config_page()
+    if save:
+        app.vault.store_data.assert_called_once_with("ollama_config", settings)
+        assert app.chat_engine is None
+        assert "agent_runtime" not in interface_module.st.session_state
+    else:
+        app.vault.store_data.assert_not_called()
+        assert app.chat_engine is old_engine
+        assert interface_module.st.session_state["agent_runtime"] is old_runtime
+
+
+def test_settings_failed_save_keeps_live_engines(interface_module):
+    app = interface_module.PersonalAIInterface()
+    app.vault = MagicMock()
+    app.vault.store_data.side_effect = RuntimeError("synthetic save failure")
+    app._initialized = True
+    old_engine = app.chat_engine = object()
+    old_runtime = interface_module.st.session_state["agent_runtime"] = object()
+    interface_module.st.button.return_value = True
+    with patch("src.interface.config.render_config_page", return_value={"engine": "omlx"}), \
+            pytest.raises(RuntimeError, match="synthetic save failure"):
+        app.render_config_page()
+    assert app.chat_engine is old_engine
+    assert interface_module.st.session_state["agent_runtime"] is old_runtime
 
 
 if __name__ == '__main__':

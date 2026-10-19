@@ -1,6 +1,9 @@
 """Unit tests for src.ai_engine.chat_engine (prompt building, streaming)."""
 
 import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -11,6 +14,7 @@ from src.ai_engine.chat_engine import (
     estimate_tokens,
 )
 from src.ai_engine.ollama_client import OllamaClientError
+from src.ai_engine.chroma_store import ChromaStore
 from src.config import DEFAULT_CONTEXT_WINDOW_TOKENS
 
 
@@ -58,6 +62,38 @@ class FakeRagEngine:
         return self.context
 
 
+@pytest.mark.parametrize("configured", [False, True])
+def test_configured_embeddings_preserve_lazy_rag_initialization(configured):
+    embeddings = object() if configured else None
+    with patch("src.ai_engine.chat_engine.DataVault") as vault_class, \
+            patch("src.ai_engine.chat_engine.RAGEngine") as rag_class, \
+            patch("src.ai_engine.chat_engine.EmbeddingsGenerator") as generator_class:
+        vault = vault_class.return_value
+        vault.vault_path = Path("synthetic-vault")
+        vault.list_keys.return_value = ["synthetic-document"]
+        vault.retrieve_data.side_effect = lambda key: (
+            None if key == "ollama_config" else {"text_content": "synthetic public text"}
+        )
+        engine = ChatEngine(
+            ollama_client=FakeOllamaClient(),
+            vault_path="synthetic-vault",
+            encryption_key=b"synthetic-key",
+            embedding_generator=embeddings,
+        )
+        rag_class.assert_not_called()
+        engine.initialize_rag()
+        engine.initialize_rag()
+        rag_class.assert_called_once_with(
+            embedding_generator=embeddings if configured else generator_class.return_value,
+            persist_directory=str(Path("synthetic-vault") / ".chroma"),
+        )
+        assert rag_class.return_value.clear.call_count == 2
+        assert rag_class.return_value.add_documents.call_count == 2
+        texts, metadata = rag_class.return_value.add_documents.call_args.args
+        assert "synthetic public text" in texts[0]
+        assert metadata[0]["storage_key"] == "synthetic-document"
+
+
 def make_engine(tmp_path, **client_kwargs) -> ChatEngine:
     return ChatEngine(
         ollama_client=FakeOllamaClient(**client_kwargs),
@@ -69,6 +105,339 @@ def make_engine(tmp_path, **client_kwargs) -> ChatEngine:
 @pytest.fixture
 def engine(tmp_path):
     return make_engine(tmp_path)
+
+@pytest.fixture
+def indexed_engine(engine, monkeypatch):
+    """Real chunking/RAG lifecycle backed by a synthetic in-memory collection."""
+    rows = {}
+    collection = MagicMock()
+
+    def get(include=None):
+        return {
+            "ids": list(rows),
+            "documents": [row[0] for row in rows.values()],
+            "metadatas": [row[1] for row in rows.values()],
+        }
+
+    def add(ids, documents, metadatas, embeddings):
+        assert not set(ids).intersection(rows)
+        rows.update(zip(ids, zip(documents, metadatas)))
+
+    def delete(ids=None, where=None):
+        if where:
+            ids = [
+                key for key, row in rows.items()
+                if all(row[1].get(k) == v for k, v in where.items())
+            ]
+        for chunk_id in ids:
+            rows.pop(chunk_id)
+
+    def query(n_results, where=None, **kwargs):
+        matched = [
+            row for row in rows.values()
+            if not where or all(row[1].get(k) == v for k, v in where.items())
+        ][:n_results]
+        return {
+            "documents": [[row[0] for row in matched]],
+            "metadatas": [[row[1] for row in matched]],
+            "distances": [[0.0] * len(matched)],
+        }
+
+    collection.get.side_effect = get
+    collection.add.side_effect = add
+    collection.delete.side_effect = delete
+    collection.query.side_effect = query
+
+    def initialize(store):
+        store.collection = collection
+        store._initialized = True
+
+    monkeypatch.setattr(ChromaStore, "_ensure_initialized", initialize)
+    engine._embedding_generator = MagicMock(
+        document_prefix="", query_prefix="",
+    )
+    engine._embedding_generator.generate_embedding.return_value = [1.0, 0.0]
+    return engine, collection, rows
+
+
+def test_rebuild_twice_and_reopen_removes_legacy_duplicates(indexed_engine):
+    engine, collection, rows = indexed_engine
+    rows["legacy-random-id"] = ("obsolete synthetic text", {"storage_key": "removed"})
+    engine.vault.store_data("note", {"text_content": "synthetic current note"})
+    engine.vault.store_data("chat_history", {"messages": ["never indexed"]})
+
+    engine.initialize_rag()
+    first = dict(rows)
+    engine.initialize_rag()
+    assert rows == first
+    assert len(rows) == 1
+    assert "obsolete" not in engine.rag_engine.get_context_for_query("note")
+    assert "never indexed" not in engine.rag_engine.get_context_for_query("note")
+
+    engine.rag_engine = None  # Simulate a new session opening the persisted index.
+    engine.initialize_rag()
+    assert rows == first
+    assert collection.delete.call_count == 3
+
+
+def test_upload_replace_reclassify_delete_and_empty_rebuild(indexed_engine):
+    engine, _, rows = indexed_engine
+    data = {"text_content": "old synthetic text " * 400, "metadata": {"category": "gas"}}
+    engine.vault.store_data("note", data)
+    engine.index_document("note", data)
+    assert len(rows) > 1
+    rows["legacy-random-id"] = ("legacy tail", {"storage_key": "note", "category": "gas"})
+    untouched = ("unrelated source", {"storage_key": "other", "category": "other"})
+    rows["untouched-id"] = untouched
+
+    replacement = {"text_content": "current synthetic text", "metadata": {"category": "electricity"}}
+    engine.vault.store_data("note", replacement)
+    engine.index_document("note", replacement)
+    assert len(rows) == 2
+    assert rows["untouched-id"] == untouched
+    assert engine.rag_engine.get_context_for_query("q", where={"category": "gas"}) == ""
+    context = engine.rag_engine.get_context_for_query("q", where={"category": "electricity"})
+    assert "current synthetic text" in context
+    assert "old synthetic text" not in context
+
+    engine.vault.delete_data("note")
+    engine.remove_document("note")
+    assert rows == {"untouched-id": untouched}
+    engine.initialize_rag()
+    assert rows == {}
+    assert engine.rag_engine.get_context_for_query("q") == ""
+
+
+def test_one_hundred_upload_callbacks_embed_exactly_one_hundred_chunks(indexed_engine):
+    engine, collection, rows = indexed_engine
+    for i in range(100):
+        key = f"synthetic-upload-{i}"
+        data = {"text_content": f"synthetic public document {i}"}
+        engine.vault.store_data(key, data)
+        engine.index_document(key, data)
+
+    assert len(rows) == 100
+    assert engine._embedding_generator.generate_embedding.call_count == 100
+    assert collection.get.call_count == 1  # Only the first callback initializes the snapshot.
+    collection.delete.assert_any_call(where={"storage_key": "synthetic-upload-99"})
+
+
+@pytest.mark.parametrize("key", ["ollama_config", "chat_history", "mcp_oauth_synthetic"])
+def test_incremental_updates_never_index_internal_vault_records(indexed_engine, key):
+    engine, _, rows = indexed_engine
+    engine.initialize_rag()
+
+    engine.add_data_to_vault(key, {"text_content": "synthetic internal record"})
+    engine.index_document(key, {"text_content": "synthetic internal record"})
+
+    assert rows == {}
+    engine._embedding_generator.generate_embedding.assert_not_called()
+
+
+def test_generic_agent_context_uses_saved_embedding_client_not_environment(engine):
+    from src.agents.runtime import _default_context_engine_factory
+
+    engine.vault.store_data("ollama_config", {
+        "embed_engine": "ollama",
+        "embed_host": "http://synthetic.invalid:1234",
+        "embed_model": "synthetic-saved-embedding",
+    })
+    configured_client = SimpleNamespace(model="synthetic-saved-embedding")
+    with patch("src.ai_engine.chat_engine.build_chat_client", return_value=FakeOllamaClient()), \
+            patch("src.ai_engine.chat_engine.build_embed_client", return_value=configured_client) as build, \
+            patch("src.ai_engine.chat_engine.RAGEngine") as rag:
+        context = _default_context_engine_factory(engine.vault)({})
+        build.assert_not_called()
+        context.initialize_rag()
+
+    build.assert_called_once_with(
+        engine="ollama", host="http://synthetic.invalid:1234",
+        model="synthetic-saved-embedding",
+    )
+    assert context._embedding_generator.client is configured_client
+    assert rag.call_args.kwargs["embedding_generator"].client is configured_client
+
+
+@pytest.mark.parametrize("identity_change", ["model", "host", "backend"])
+def test_embedding_dimension_switch_uses_independent_collections(
+    engine, monkeypatch, identity_change,
+):
+    from chromadb.api.segment import SegmentAPI
+
+    collections = {}
+    validator = SimpleNamespace(_sysdb=MagicMock())
+
+    def initialize(store):
+        if store.collection_name not in collections:
+            rows = {}
+            model = type("DimensionModel", (dict,), {"id": store.collection_name})(dimension=None)
+            collection = MagicMock()
+
+            def get(include=None):
+                return {
+                    "ids": list(rows),
+                    "documents": [row[0] for row in rows.values()],
+                    "metadatas": [row[1] for row in rows.values()],
+                }
+
+            def add(ids, documents, metadatas, embeddings):
+                # Use installed Chroma validation: clearing rows cannot reset dimension.
+                for vector in embeddings:
+                    SegmentAPI._validate_dimension(validator, model, len(vector), update=True)
+                rows.update(zip(ids, zip(documents, metadatas)))
+
+            def delete(ids=None, where=None):
+                for chunk_id in ids or []:
+                    rows.pop(chunk_id)
+
+            collection.get.side_effect = get
+            collection.add.side_effect = add
+            collection.delete.side_effect = delete
+            collections[store.collection_name] = (collection, model, rows)
+        store.collection = collections[store.collection_name][0]
+        store._initialized = True
+
+    class FirstBackend(SimpleNamespace):
+        pass
+
+    class SecondBackend(SimpleNamespace):
+        pass
+
+    def embeddings(dimension):
+        backend = SecondBackend if identity_change == "backend" and dimension == 3 else FirstBackend
+        return SimpleNamespace(
+            client=backend(
+                host=f"http://synthetic.invalid:{dimension}" if identity_change == "host" else "http://synthetic.invalid",
+                model=f"synthetic-{dimension}d" if identity_change == "model" else "synthetic-model",
+            ),
+            document_prefix="", query_prefix="",
+            generate_embedding=MagicMock(return_value=[1.0] * dimension),
+        )
+
+    monkeypatch.setattr(ChromaStore, "_ensure_initialized", initialize)
+    engine.vault.store_data("note", {"text_content": "synthetic dimension test"})
+    engine._embedding_generator = embeddings(2)
+    engine.initialize_rag()
+    first_name = engine.rag_engine.chroma_store.collection_name
+    first_rows = dict(collections[first_name][2])
+
+    switched = ChatEngine(
+        ollama_client=FakeOllamaClient(),
+        vault_path=str(engine.vault.vault_path),
+        encryption_key=engine._encryption_key,
+        embedding_generator=embeddings(3),
+    )
+    switched.initialize_rag()
+    switched.initialize_rag()
+    second_name = switched.rag_engine.chroma_store.collection_name
+
+    assert first_name != second_name
+    assert collections[first_name][1]["dimension"] == 2
+    assert collections[second_name][1]["dimension"] == 3
+    assert collections[first_name][2] == first_rows
+    assert len(collections[second_name][2]) == 1
+
+
+@pytest.mark.parametrize("failure", ["clear", "embedding", "read"])
+def test_failed_rebuild_drops_queryable_engine_and_cannot_report_success(
+    indexed_engine, monkeypatch, failure,
+):
+    engine, collection, _ = indexed_engine
+    engine.vault.store_data("note", {"text_content": "synthetic text"})
+    engine.initialize_rag()
+    if failure == "clear":
+        collection.delete.side_effect = RuntimeError("synthetic clear failure")
+    elif failure == "embedding":
+        engine._embedding_generator.generate_embedding.side_effect = RuntimeError("synthetic embedding failure")
+    else:
+        monkeypatch.setattr(engine.vault, "retrieve_data", MagicMock(side_effect=RuntimeError("synthetic read failure")))
+
+    with pytest.raises(ChatEngineError, match="Failed to rebuild"):
+        engine.initialize_rag()
+    assert engine.rag_engine is None
+    with pytest.raises(ChatEngineError):
+        engine._build_prompt("synthetic question", use_rag=True)
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_rebuild_action_calls_real_initializer_and_reports_only_its_result(
+    indexed_engine, monkeypatch, fails,
+):
+    from src.interface import main as interface
+
+    engine, collection, rows = indexed_engine
+    engine.vault.store_data("note", {"text_content": "synthetic text"})
+    if fails:
+        collection.add.side_effect = RuntimeError("synthetic indexing failure")
+    ui = MagicMock()
+    monkeypatch.setattr(interface, "st", ui)
+    app = interface.PersonalAIInterface()
+    app.vault = engine.vault
+    app.chat_engine = engine
+    app.encryption_key = b"synthetic-key"
+    app._initialized = True
+
+    app._rebuild_rag_index()
+
+    if fails:
+        ui.success.assert_not_called()
+        ui.error.assert_called_once()
+        assert engine.rag_engine is None
+    else:
+        ui.success.assert_called_once()
+        ui.error.assert_not_called()
+        assert len(rows) == 1
+
+
+@pytest.mark.parametrize("action", ["recat_note", "delete_note"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_file_mutations_refresh_shared_index_before_success(
+    indexed_engine, monkeypatch, action, fails,
+):
+    from src.interface import main as interface
+
+    engine, _, rows = indexed_engine
+    data = {"text_content": "synthetic text", "metadata": {"category": "gas"}}
+    engine.vault.store_data("note", data)
+    engine.initialize_rag()
+    observer = engine.rag_engine
+    if fails:
+        method = "index_document" if action == "recat_note" else "remove_document"
+        monkeypatch.setattr(engine, method, MagicMock(side_effect=ChatEngineError("synthetic failure")))
+    ui = MagicMock()
+    ui.columns.side_effect = lambda widths: [
+        MagicMock() for _ in range(widths if isinstance(widths, int) else len(widths))
+    ]
+    ui.selectbox.return_value = "electricity"
+    ui.button.side_effect = lambda *args, **kwargs: kwargs.get("key") == action
+    monkeypatch.setattr(interface, "st", ui)
+    app = interface.PersonalAIInterface()
+    app.vault = engine.vault
+    app.encryption_key = b"synthetic-key"
+    app._initialized = True
+    app._get_chat_engine_instance = MagicMock(return_value=engine)
+
+    app._render_file_card("note", data, data["metadata"])
+
+    app._get_chat_engine_instance.assert_called_once()
+    if fails:
+        ui.success.assert_not_called()
+        ui.rerun.assert_not_called()
+        ui.error.assert_called_once()
+    else:
+        ui.error.assert_not_called()
+        ui.rerun.assert_called_once()
+        assert observer.get_context_for_query("q", where={"category": "gas"}) == ""
+        if action == "recat_note":
+            assert engine.vault.retrieve_data("note")["metadata"]["category"] == "electricity"
+            assert "synthetic text" in observer.get_context_for_query(
+                "q", where={"category": "electricity"},
+            )
+            assert len(rows) == 1
+        else:
+            assert "note" not in engine.vault.list_keys()
+            assert observer.get_context_for_query("q") == ""
+            assert rows == {}
 
 
 def test_data_to_text_skips_binary_and_flattens_nested_values(engine):

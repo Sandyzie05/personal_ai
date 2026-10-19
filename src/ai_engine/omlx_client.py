@@ -116,6 +116,8 @@ class OmlxClient:
         """Parse streaming chat response."""
         url = urljoin(self.host, "/v1/chat/completions")
         headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         json_data = json.dumps(data).encode('utf-8')
         req = urllib.request.Request(url, data=json_data, headers=headers, method="POST")
 
@@ -159,7 +161,7 @@ class OmlxClient:
         """Get model capabilities."""
         return {}
 
-    def model_supports_tools(self) -> bool:
+    def model_supports_tools(self, model: Optional[str] = None) -> bool:
         """Check if model supports tools."""
         return False
 
