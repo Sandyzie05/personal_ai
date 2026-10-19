@@ -13,7 +13,12 @@ outputs → service layer → governance). Every element of that diagram is
 mapped in §4 to: what exists today, what **v1 (this build)** adds, and what
 is explicitly deferred with the interface that will carry it in v2.
 
-Status: **design final for v1; v1 implemented alongside this doc.**
+Status (2026-10-19): **configurable agents and MCP tool loops implemented;
+automatic coordination, approved task memory and scheduling proposed.**
+The dated v1 decisions below preserve design history. The current inference
+factory supports Ollama and oMLX; model tool support still requires runtime
+verification. This generic agent platform is broader than the research-only
+capstone in [agentic_system_design.md](agentic_system_design.md).
 
 ---
 
@@ -30,13 +35,13 @@ Status: **design final for v1; v1 implemented alongside this doc.**
    MCP servers (remote HTTP or local stdio), see their results, and reason
    over them — including the Robinhood trading MCP
    (`https://agent.robinhood.com/mcp/trading`).
-4. **Safety for actions.** Tools that mutate state (placing trades, creating
-   alerts) require an explicit in-UI confirmation from the user before
-   execution.
+4. **Safety for actions.** With the agent's confirmation setting enabled,
+   tools classified as mutating pause for in-UI approval. Classification and
+   optional confirmation are not a universal authorization policy.
 5. **Keep the security posture.** All new state (agent configs, MCP
    configs, OAuth tokens, activity log, run state) lives in the encrypted
    vault. No new plaintext-at-rest location except skill instruction files
-   (non-sensitive, documented in §9).
+   (user-controlled plaintext, documented in §9).
 6. **Testable without a browser.** Core logic (store, tool mapping, agent
    loop) is pure-Python and unit-tested with fakes; UI is smoke-tested with
    `streamlit.testing.v1.AppTest`.
@@ -45,9 +50,9 @@ Status: **design final for v1; v1 implemented alongside this doc.**
 
 - No automatic agent-to-agent handoff / planner that dispatches sub-agents
   (v2 — the runtime is shaped to support it, §10).
-- No multi-model provider backend (no OpenAI/Anthropic/oMLX clients).
-  v1 uses **Ollama only** — the machine already runs it with tool-capable
-  models, and the whole security model is "local-only inference".
+- The original v1 selected Ollama only. The current application also has
+  oMLX clients; this historical constraint is no longer a backend inventory.
+  Configurable endpoints must be kept local/trusted for private inference.
 - No image/audio/video inputs, scheduled/autonomous agents, long-term
   memory extraction, knowledge graph, or visualization generation from
   agents. All mapped to the roadmap (§4, §10).
@@ -137,7 +142,7 @@ Key facts verified on this machine (2026-10-10):
 │  Safety & Alignment: grounding prompts, confirmation gate, per-agent scope │
 │  Security & Privacy:  localhost-only app, vault-encrypted configs/tokens   │
 │  Ethics: "not financial advice" stance in default agent templates          │
-│  Monitoring: agent_activity_log (every tool call, args, outcome, duration) │
+│  Monitoring: encrypted activity log (digest, outcome, duration)            │
 │  Evaluation & Feedback: v2 (per-answer feedback button, loop into tuning)  │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -163,10 +168,10 @@ Key facts verified on this machine (2026-10-10):
 | 13 | Knowledge → Vector DB | ChromaDB at `<vault>/.chroma` | Shared index; per-agent `where` scope by category | Per-agent indexes v2 if needed |
 | 14 | Knowledge → Knowledge Graph | — | — | v3 |
 | 15 | Knowledge → Document Store | Encrypted vault | Agent/MCP/skill-adjacent state also in vault (schemas §6) | — |
-| 16 | Knowledge → Long-term Memory | — | Activity log (audit-grade memory of tool use) | v2: curated memory |
+| 16 | Knowledge → Long-term Memory | — | Encrypted activity log, not curated task memory or complete audit coverage | v2: curated memory |
 | 17 | Outputs → Text / Reports | Chat | Chat, streamed, with source citations + tool-use trail | Markdown export v2 |
 | 18 | Outputs → Visualizations | — | Tool results rendered as text/tables in chat | v2: chart tool (plotly → data URI) |
-| 19 | Outputs → Dashboards | Dashboard page (vault data) | Dashboard lists agent activity summary | — |
+| 19 | Outputs → Dashboards | Dashboard page (vault data) | Agent activity is shown on the Agents page, not a dashboard widget | — |
 | 20 | Outputs → Actions | — | **MCP tool calls** (e.g. place/cancel orders, create alerts) behind the confirmation gate | — |
 | 21 | Outputs → Alerts | — | Agent can create broker alerts via tools | v2: app-level alert hub reading broker alerts |
 | 22 | Service → APIs & Integrations | — | **MCP servers** (Robinhood first; any stdio/remote MCP) | More MCP servers = more integrations; v2 non-MCP APIs via a generic REST tool provider |
@@ -184,7 +189,7 @@ Key facts verified on this machine (2026-10-10):
 
 ### D1 — Tool calling backend: Ollama-native function calling
 
-**Decision:** agents use Ollama's `/api/chat` `tools` parameter and
+**Original v1 decision:** agents use Ollama's `/api/chat` `tools` parameter and
 `role: "tool"` result messages. No OpenAI-compatible side channel (oMLX etc.).
 
 **Why:** verified working with local models; keeps the "all inference is
@@ -286,10 +291,11 @@ behavior, so all existing tests pass untouched):
 
 `AgentRuntime` then: builds the prompt exactly like today
 (`_build_prompt` → messages + sources), then runs the tool loop over those
-messages. RAG scoping composes with the existing query-analysis scoping
-(union of both: if the query names a category outside the agent's scope,
-retrieval is empty for that query — the agent honestly says "outside my
-scope" because the grounding prompt forces it to).
+messages. RAG scoping limits results to the agent's allowed categories.
+When query analysis requests categories outside that scope, the current
+implementation can fall back to retrieval across the allowed scope; it
+does not guarantee an empty result or a particular model refusal.
+Prompt wording is not the authorization boundary.
 
 **Why:** one prompt-building code path (the tested one) instead of two;
 per-agent budgets stay correct because budget math reads
@@ -476,22 +482,20 @@ reloads the run state, executes, and continues exactly where it paused.
 ```python
 class McpManager:
     def __init__(self, vault): ...
-    def connect(self, server: McpServer) -> Connection   # lazy per-server session
-    async def list_tools(self, server_id) -> list[McpTool]
-    async def call_tool(self, server_id, name, args) -> ToolResult
-    def to_ollama_tool(self, tool: McpTool) -> dict      # {"type":"function","function":{...}}
-    def connect_remote_with_oauth(self, server_id)       # starts browser flow (UI button)
-    @staticmethod
-    def is_sensitive_tool(name: str) -> bool
+    def connect(self, server_id, *, interactive=False): ...
+    def list_tools(self, server_id): ...
+    def call_tool(self, server_id, name, args): ...
 ```
 
-- `McpTool`: `{server_id, name, description, input_schema, annotated_write: bool}`
-  (`annotated_write` from MCP `annotations.readOnlyHint == False` when
+- `McpTool` includes `{server_id, name, description, input_schema, is_write}`.
+  (`is_write` from MCP `annotations.readOnlyHint == False` when
   present, else the prefix heuristic — MCP annotations are the *primary*
   signal when a server provides them; the prefix list is the fallback for
   servers without annotations).
-- Connections are cached per server id for the Streamlit process; a failed
-  connect degrades to `last_status="error"` and the agent simply runs
+- Public operations are synchronous wrappers around fresh MCP sessions,
+  not a process-wide connection cache. `connect(..., interactive=True)`
+  enables the user-initiated OAuth flow. A failed connection reports status
+  and the agent runs
   without that server's tools (UI shows the error; the agent is never
   silently broken).
 - Tool results: `CallToolResult.content` text parts are joined;
@@ -505,26 +509,32 @@ class McpManager:
 
 New in v1, recorded per the repo's security checklist:
 
-1. **Network egress.** Remote MCP servers (Robinhood) receive the user's
-   messages, retrieved vault context (if RAG is on for that agent), and
-   tool results; OAuth tokens transit to `api.robinhood.com`. This is an
+1. **Network egress.** Remote MCP servers receive tool names and arguments,
+   not the complete model message list. Arguments may reproduce private
+   user messages, history or retrieved context; tool results return to the
+   model. OAuth credentials transit to configured authorization services.
+   This is an
    **explicit, per-agent opt-in** (agent only gets a server's tools if the
    user attached that server). Mitigations: localhost-only app unchanged;
    per-agent RAG scoping limits what context an agent can pull;
-   `rag_enabled: false` removes vault context from tool calls entirely.
+   `rag_enabled: false` removes retrieved document context, not private user
+   text or conversation history.
    Default template text warns the user. This is the biggest threat-model
    delta and is called out as accepted risk (like `.chroma` plaintext).
 2. **Token storage.** OAuth tokens + registered-client info live in the
    encrypted vault (`mcp_oauth_<id>`), not a plaintext file. The `mcp` SDK
    refreshes transparently; a refresh failure returns the agent to
    `needs_auth` (UI shows "Reconnect").
-3. **Action safety.** Confirmation gate (D5) is enforced by the runtime,
-   not the prompt. Audit: every tool call (args digest, outcome, duration)
-   in `agent_activity_log`.
-4. **No new key paths.** Vault DEK flow is untouched; no code reads
-   `~/.personal_ai_auth` or the old key file.
-5. **Skill files** at `~/.personal_ai/skills/` are plaintext *instructions*
-   (no personal data) — accepted, mirroring the `.chroma` tradeoff.
+3. **Action safety.** When enabled, the confirmation gate (D5) is enforced
+   by the runtime, not the prompt. The encrypted activity log records
+   executed/denied activity; unknown tool requests are not guaranteed audit
+   entries. This is not complete provider/model/tool-attempt coverage.
+4. **No new key paths.** Agent/MCP code receives the existing
+   AuthManager-provided vault key; it does not derive keys independently or
+   read a legacy raw-key file.
+5. **Skill files** at `~/.personal_ai/skills/` are plaintext *instructions*.
+   Their arbitrary user-written contents are not enforced to be non-sensitive;
+   keep personal data and credentials out of them.
 6. **Stdio MCP servers** run as local child processes; the add form is
    user-explicit (they type the command). Not enabled by default for
    anyone; same trust level as any CLI the user runs.
@@ -535,13 +545,14 @@ New in v1, recorded per the repo's security checklist:
   provider — add an *internal* tool provider exposing
   `dispatch_agent(agent_id, task)`, which runs a sub-agent's
   `start_run` in its own transient session and returns the answer. Task
-  decomposition + inter-agent communication fall out of that one addition.
+  decomposition needs typed task state, inherited permissions and shared
+  budgets; an internal dispatch tool alone does not establish safe coordination.
 - **Long-term memory:** periodic extraction of durable facts from
   sessions into vault records, injected per agent like skills.
 - **Feedback/evaluation:** 👍/👎 + note per answer → vault; surface in
   Agents→Activity; later, a "reflection" agent summarizes recurring issues.
-- **Scheduled agents:** a local scheduler (no new deps:
-  `while sleep` in the Streamlit process or a launchd plist) starts
+- **Scheduled agents (deferred):** a separately designed lifecycle-managed
+  local scheduler could start
   `start_run` for configured agents on a cadence (e.g. morning portfolio
   brief) into dedicated sessions.
 - **Outputs:** charting tool (plotly → static image) for "Outputs →

@@ -2,6 +2,8 @@
 
 import os
 import re
+import hashlib
+import json
 from typing import List, Dict, Any, Optional
 import uuid
 
@@ -91,20 +93,22 @@ def _chunk_text(
         words = piece.split()
         current = ""
         for word in words:
+            if len(word) > cap:
+                if current:
+                    chunks.append(current)
+                    current = ""
+                while len(word) > cap:
+                    chunks.append(word[:cap])
+                    word = word[cap:]
             if not current:
                 current = word
             elif len(current) + 1 + len(word) <= cap:
                 current += " " + word
             else:
                 chunks.append(current)
-                tail = current[-overlap:] if overlap else ""
+                tail_length = min(overlap, max(cap - len(word) - 1, 0))
+                tail = current[-tail_length:] if tail_length else ""
                 current = f"{tail} {word}".strip() if tail else word
-        # A single word/pathological token can still exceed cap; hard-split it.
-        if len(current) > cap:
-            step = cap
-            while len(current) > step:
-                chunks.append(current[:step])
-                current = current[step:]
         if current:
             chunks.append(current)
 
@@ -292,7 +296,15 @@ def _chunk_markdown(text: str, chunk_chars: int, overlap_chars: int = DEFAULT_CH
                     overlapping_chunks.append(chunk)
         chunks = overlapping_chunks
 
-    return chunks
+    return [
+        part
+        for chunk in chunks
+        for part in (
+            _chunk_text(chunk, chunk_chars, overlap_chars)
+            if len(chunk) > max(chunk_chars, 1)
+            else [chunk]
+        )
+    ]
 
 
 def chunk_text(text: str, embed_context_tokens: int = 2048) -> List[str]:
@@ -300,7 +312,8 @@ def chunk_text(text: str, embed_context_tokens: int = 2048) -> List[str]:
     # Calculate chunk size based on embedding model's context
     chunk_chars = min(
         DEFAULT_EMBED_CHUNK_TOKENS * CHARS_PER_TOKEN_ESTIMATE,
-        max(HARD_CHUNK_CHAR_CAP, int(embed_context_tokens * CHARS_PER_TOKEN_ESTIMATE * 0.25))
+        HARD_CHUNK_CHAR_CAP,
+        max(1, int(embed_context_tokens * CHARS_PER_TOKEN_ESTIMATE * 0.25)),
     )
 
     # Use markdown-aware chunking if the text seems to contain markdown
@@ -331,14 +344,6 @@ class ChromaStore:
     def __init__(
         self,
         embedding_generator: Optional[EmbeddingsGenerator] = None,
-        # Bumped from "personal_ai_vault_v2": changing embedding model from
-        # nomic-embed-text to mlx-community/Qwen3-VL-Embedding-2B-8bit changes
-        # what every embedding in the collection means, so old and new vectors
-        # can't share an HNSW index without corrupting similarity scores. A new
-        # collection name makes ChromaDB start a fresh index automatically - the
-        # old collection is simply abandoned on disk (safe to delete manually to
-        # reclaim space) since the vault, not Chroma, is the source of truth
-        # and initialize_rag() rebuilds the index from it every session.
         collection_name: str = "personal_ai_vault_v3",
         persist_directory: Optional[str] = None,
         min_relevance: float = DEFAULT_MIN_RELATIVE_SCORE,
@@ -346,6 +351,17 @@ class ChromaStore:
     ):
         self.embedding_generator = embedding_generator
         self.collection_name = collection_name
+        client = getattr(embedding_generator, "client", None)
+        model = getattr(client, "embed_model", None) or getattr(client, "model", None)
+        if isinstance(model, str) and model:
+            # Chroma retains collection dimensions even after every row is deleted.
+            identity = (
+                f"{type(client).__module__}.{type(client).__qualname__}",
+                getattr(client, "host", ""),
+                model,
+            )
+            digest = hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:32]
+            self.collection_name = f"{collection_name}_{digest}"
         self.persist_directory = persist_directory or DEFAULT_CHROMA_DIR
         self.collection = None
         self._client = None
@@ -434,7 +450,11 @@ class ChromaStore:
             else:
                 embeddings = None
 
-            ids = [f"doc_{uuid.uuid4().hex[:8]}" for _ in chunked_docs]
+            ids = [
+                f"vault_{hashlib.sha256(source.encode()).hexdigest()}_{meta['chunk']}"
+                if (source := document_id(meta)) else f"doc_{uuid.uuid4().hex}"
+                for meta in chunked_metas
+            ]
 
             self.collection.add(
                 embeddings=embeddings,
@@ -562,10 +582,30 @@ class ChromaStore:
         """Delete all documents from the collection."""
         self._ensure_initialized()
         try:
-            self.collection.delete(where={"id": {"$ne": ""}})
+            ids = self.collection.get(include=[])["ids"]
+            if ids:
+                self.collection.delete(ids=ids)
+            self._last_retrieval = []
             return True
         except Exception as e:
             raise ChromaStoreError(f"Failed to delete documents: {str(e)}")
+
+    def delete_document(self, storage_key: str) -> None:
+        """Remove all chunks for one source, including legacy random chunk IDs."""
+        self._ensure_initialized()
+        try:
+            self.collection.delete(where={"storage_key": storage_key})
+            self._last_retrieval = []
+        except Exception:
+            raise ChromaStoreError("Failed to remove document chunks") from None
+
+    def replace_document(self, content: str, metadata: Dict[str, Any]) -> List[str]:
+        """Replace just this source; shrinking documents cannot retain old tails."""
+        source = document_id(metadata)
+        if not source:
+            raise ChromaStoreError("Document replacement requires a storage key")
+        self.delete_document(source)
+        return self.add_documents([content], [metadata])
 
     def get_all(self) -> List[Dict[str, Any]]:
         """Get all documents from the collection."""

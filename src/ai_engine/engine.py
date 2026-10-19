@@ -107,8 +107,9 @@ def build_embed_client(engine: Optional[str] = None, host: Optional[str] = None,
         )
 
 
-def client_kwargs_from_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
+def client_kwargs_from_config(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Convert saved settings, retaining legacy Ollama keys and backend choices."""
+    cfg = cfg or {}
     # Handle backward compatibility - if engine field is missing, assume Ollama
     engine = cfg.get("engine", "ollama")
     embed_engine = cfg.get("embed_engine", "ollama")

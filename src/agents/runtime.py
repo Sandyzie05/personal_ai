@@ -20,6 +20,7 @@ interaction and a rerun (or a tab close) must not lose a half-finished
 trade.
 """
 
+import hashlib
 import json
 import time
 from dataclasses import dataclass, field
@@ -82,10 +83,12 @@ def assemble_system_prompt(agent: Dict[str, Any]) -> str:
 
 def _args_digest(args: Any) -> str:
     try:
-        digest = json.dumps(args, default=str, separators=(",", ":"))
+        serialized = json.dumps(
+            args, sort_keys=True, default=str, separators=(",", ":")
+        )
     except Exception:
-        digest = str(args)
-    return digest[:200]
+        serialized = "<unserializable>"
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _apply_notices(answer: str, notices: List[str]) -> str:

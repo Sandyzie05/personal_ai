@@ -46,9 +46,12 @@ from src.config import (
     DEFAULT_OLLAMA_HOST,
     DEFAULT_CHAT_MODEL,
     DEFAULT_EMBED_MODEL,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
     PERSONAL_AI_LLM_ENGINE,
     PERSONAL_AI_OMLX_HOST,
-    PERSONAL_AI_EMBED_ENGINE
+    PERSONAL_AI_OMLX_CHAT_MODEL,
+    PERSONAL_AI_EMBED_ENGINE,
+    PERSONAL_AI_OMLX_EMBED_MODEL,
 )
 
 # Nav key -> display label (Material Symbols, bundled with Streamlit - no
@@ -140,32 +143,28 @@ class PersonalAIInterface:
     def _get_chat_engine_instance(self, _key_path: str, _key: bytes) -> Any:
         """ChatEngine instance to prevent multiple instances during initialization."""
         from src.ai_engine.chat_engine import ChatEngine
-        from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
+        from src.ai_engine.embeddings import EmbeddingsGenerator
+        from src.ai_engine.engine import (
+            build_chat_client, build_embed_client, client_kwargs_from_config,
+        )
 
-        # Load the configuration from the vault
-        config_data = None
-        if self.vault:
-            try:
-                config_data = self.vault.retrieve_data("ollama_config")
-            except Exception:
-                # If we can't load config, use defaults
-                config_data = {}
+        self._load_ollama_config()
+        client_kwargs = client_kwargs_from_config(self.ollama_config)
 
-        # Build client parameters from config
-        client_kwargs = client_kwargs_from_config(config_data)
-
-        # Remove the engine-related kwargs to match ChatEngine constructor
-        # ChatEngine only takes ollama_client, vault_path, encryption_key, model, context_window_tokens, system_prompt, rag_scope_categories
-        filtered_kwargs = {
+        chat_kwargs = {
             k: v for k, v in client_kwargs.items()
-            if k in ['vault_path', 'encryption_key', 'model', 'context_window_tokens', 'system_prompt', 'rag_scope_categories']
+            if not k.startswith("embed_")
         }
 
-        # If no explicit ollama_client was provided, we'll let ChatEngine create it
         return ChatEngine(
+            ollama_client=build_chat_client(**chat_kwargs),
+            embedding_generator=EmbeddingsGenerator(client=build_embed_client(
+                engine=client_kwargs["embed_engine"],
+                host=client_kwargs["embed_host"],
+                model=client_kwargs["embed_model"],
+            )),
             vault_path=_key_path,
             encryption_key=_key,
-            **filtered_kwargs
         )
 
     def _init_vault(self) -> None:
@@ -192,6 +191,43 @@ class PersonalAIInterface:
             st.error(f"Failed to initialize vault: {str(e)}")
 
         self._initialized = True
+
+    def _lock_vault(self) -> None:
+        """Release session-held vault data and keys; this is not memory zeroization."""
+        owners = (
+            self, self.chat_engine, self.chat_history,
+            st.session_state.get("agent_runtime"),
+            st.session_state.get("mcp_manager"),
+        )
+        vaults = {
+            id(vault): vault for owner in owners
+            if (vault := getattr(owner, "vault", None)) is not None
+        }
+        close_failed = False
+        for vault in vaults.values():
+            db = getattr(vault, "_db", None)
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    close_failed = True
+                finally:
+                    db.encryption_key = None
+                    db._encryption = None
+                    vault._db = None
+            vault.encryption_key = None
+        if self.chat_engine is not None:
+            self.chat_engine._encryption_key = None
+        self.encryption_key = None
+        self.vault = None
+        self.chat_engine = None
+        self.chat_history = None
+        self._chat_history_session_id = None
+        self.ollama_config = {}
+        self._initialized = False
+        st.session_state.clear()
+        if close_failed:
+            st.warning("Vault locked, but a database connection could not be closed.")
 
     def _ensure_vault_and_rag(self) -> None:
         """Ensure vault and RAG are initialized (lazy initialization)."""
@@ -230,39 +266,41 @@ class PersonalAIInterface:
     def _initialize_rag(self) -> None:
         """Initialize chat engine with RAG for querying vault data."""
         if self.encryption_key is None:
-            return
+            raise RuntimeError("Vault is locked")
 
         try:
-            from src.ai_engine.chat_engine import ChatEngine
-            from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
-
-            # Load the configuration from the vault
-            config_data = None
-            if self.vault:
-                try:
-                    config_data = self.vault.retrieve_data("ollama_config")
-                except Exception:
-                    # If we can't load config, use defaults
-                    config_data = {}
-
-            # Build client parameters from config
-            client_kwargs = client_kwargs_from_config(config_data)
-
-            # Remove the engine-related kwargs to match ChatEngine constructor
-            # ChatEngine only takes ollama_client, vault_path, encryption_key, model, context_window_tokens, system_prompt, rag_scope_categories
-            filtered_kwargs = {
-                k: v for k, v in client_kwargs.items()
-                if k in ['vault_path', 'encryption_key', 'model', 'context_window_tokens', 'system_prompt', 'rag_scope_categories']
-            }
-
-            self.chat_engine = ChatEngine(
-                vault_path=os.path.expanduser("~/.personal_ai_vault"),
-                encryption_key=self.encryption_key,
-                **filtered_kwargs
-            )
+            if self.chat_engine is None:
+                self.chat_engine = self._get_chat_engine_instance(
+                    os.path.expanduser("~/.personal_ai_vault"), self.encryption_key
+                )
+            self.chat_engine.initialize_rag()
         except Exception as e:
             st.warning(f"Could not initialize RAG: {str(e)}")
             raise  # Re-raise to let the caller handle it properly
+
+    def _rebuild_rag_index(self) -> None:
+        """Report success only after the current vault snapshot is indexed."""
+        try:
+            self._init_vault()
+            if self.vault is None:
+                raise RuntimeError("Vault not accessible")
+            with st.spinner("Rebuilding index from vault documents..."):
+                self._initialize_rag()
+        except Exception as e:
+            st.error(f"Failed to rebuild RAG index: {e}")
+        else:
+            st.success("RAG index rebuilt successfully!")
+
+    def _update_rag_document(
+        self, key: str, data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self._ensure_vault_and_rag()
+        if self.chat_engine is None:
+            raise RuntimeError("RAG engine not available")
+        if data is None:
+            self.chat_engine.remove_document(key)
+        else:
+            self.chat_engine.index_document(key, data)
 
     def _load_chat_history_for_session(self, session_id: str) -> None:
         """(Re)build `self.chat_history` for `session_id` and remember which
@@ -422,16 +460,12 @@ class PersonalAIInterface:
             self._load_ollama_config()
 
         try:
-            from src.ai_engine.engine import build_chat_client
+            from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
 
-            # Determine which engine to use for fallback
-            engine = self.ollama_config.get("engine", PERSONAL_AI_LLM_ENGINE)
-            host = self.ollama_config.get("llm_host",
-                                        PERSONAL_AI_OMLX_HOST if engine == "omlx" else DEFAULT_OLLAMA_HOST)
-            # Ensure we don't get a None model which can cause issues
-            model = self.ollama_config.get("llm_model") or DEFAULT_CHAT_MODEL
-
-            client = build_chat_client(engine=engine, host=host, model=model)
+            client = build_chat_client(**{
+                k: v for k, v in client_kwargs_from_config(self.ollama_config).items()
+                if not k.startswith("embed_")
+            })
 
             # Reuse the exact same grounding-first system prompt as the RAG path
             # so a fallback answer can't silently drift into "answer from your own
@@ -663,17 +697,27 @@ class PersonalAIInterface:
         if config_data:
             self.ollama_config = config_data
         else:
-            # Ensure we're always defaulting to correct engine names
-            # This fixes issues where old config keys were causing incorrect model loads
             self.ollama_config = {
-                "engine": PERSONAL_AI_LLM_ENGINE,  # This will be "ollama" by default
-                "llm_host": DEFAULT_OLLAMA_HOST,
-                "llm_model": DEFAULT_CHAT_MODEL,
+                "engine": PERSONAL_AI_LLM_ENGINE,
+                "llm_host": (
+                    PERSONAL_AI_OMLX_HOST if PERSONAL_AI_LLM_ENGINE == "omlx"
+                    else DEFAULT_OLLAMA_HOST
+                ),
+                "llm_model": (
+                    PERSONAL_AI_OMLX_CHAT_MODEL if PERSONAL_AI_LLM_ENGINE == "omlx"
+                    else DEFAULT_CHAT_MODEL
+                ),
                 "embed_engine": PERSONAL_AI_EMBED_ENGINE,
-                "embed_host": DEFAULT_OLLAMA_HOST,
-                "embed_model": DEFAULT_EMBED_MODEL,
+                "embed_host": (
+                    PERSONAL_AI_OMLX_HOST if PERSONAL_AI_EMBED_ENGINE == "omlx"
+                    else DEFAULT_OLLAMA_HOST
+                ),
+                "embed_model": (
+                    PERSONAL_AI_OMLX_EMBED_MODEL if PERSONAL_AI_EMBED_ENGINE == "omlx"
+                    else DEFAULT_EMBED_MODEL
+                ),
                 "temperature": 0.7,
-                "context_window_tokens": 8192,
+                "context_window_tokens": DEFAULT_CONTEXT_WINDOW_TOKENS,
                 "max_tokens": 2048,
                 "stream": True,
             }
@@ -794,10 +838,7 @@ class PersonalAIInterface:
             if st.button(
                 "Lock vault", icon=":material/lock_open:", use_container_width=True
             ):
-                st.session_state.pop("vault_key", None)
-                self.vault = None
-                self.chat_engine = None
-                self._initialized = False
+                self._lock_vault()
                 st.rerun()
 
             return page
@@ -851,51 +892,7 @@ class PersonalAIInterface:
 
         with st.expander(":material/tune: Advanced"):
             if st.button("Rebuild RAG Index", icon=":material/sync:"):
-                # Show progress tracking
-                status_placeholder = st.empty()
-                status_placeholder.info("Starting RAG index rebuild...")
-
-                try:
-                    # Initialize vault first to make sure we have access
-                    self._init_vault()
-                    status_placeholder.info("Vault initialized successfully")
-
-                    # Check if we have documents to process
-                    if self.vault:
-                        vault_keys = self.vault.list_keys()
-                        file_keys = [k for k in vault_keys if not is_internal_vault_key(k)]
-                        status_placeholder.info(f"Found {len(file_keys)} documents to index")
-
-                        if file_keys:
-                            # Initialize RAG engine for indexing
-                            status_placeholder.info("Initializing RAG engine...")
-                            self._initialize_rag()
-                            status_placeholder.info("RAG engine initialized successfully")
-
-                            # Force re-initialization to trigger rebuild
-                            status_placeholder.info("Rebuilding index...")
-                            self._init_vault()
-                            self._initialize_rag()
-
-                            # Show document processing details
-                            with st.spinner("Processing documents and rebuilding index..."):
-                                # This should be handled by the chat_engine properly
-                                pass
-
-                            status_placeholder.success("✅ RAG index rebuilt successfully!")
-                            st.success(f"Processed {len(file_keys)} documents")
-                        else:
-                            status_placeholder.info("ℹ️ No documents to process - index is up to date")
-                    else:
-                        status_placeholder.warning("⚠️ Vault not accessible")
-
-                except Exception as e:
-                    status_placeholder.error(f"❌ Failed to rebuild RAG index: {str(e)}")
-                    st.exception(e)
-                    raise  # Re-raise to make it clear the process failed
-                finally:
-                    # Force a rerun to update the UI
-                    st.rerun()
+                self._rebuild_rag_index()
 
         render_chat_history(self.chat_history)
 
@@ -983,6 +980,8 @@ class PersonalAIInterface:
         if st.button("Save settings", icon=":material/save:", type="primary"):
             if self.vault:
                 self.vault.store_data("ollama_config", self.ollama_config)
+                self.chat_engine = None
+                st.session_state.pop("agent_runtime", None)
                 st.success(
                     "Settings saved to your encrypted vault",
                     icon=":material/check_circle:",
@@ -1097,6 +1096,7 @@ class PersonalAIInterface:
                         key=f"delete_unreadable_{key}",
                     ):
                         self.vault.delete_data(key)
+                        self._update_rag_document(key)
                         st.rerun()
 
     def render_dashboard_page(self) -> None:
@@ -1221,6 +1221,7 @@ class PersonalAIInterface:
                     ):
                         data.setdefault("metadata", {})["category"] = new_category
                         self.vault.store_data(key, data)
+                        self._update_rag_document(key, data)
                         st.success(
                             f"Moved to {get_category(new_category).label}",
                             icon=":material/check_circle:",
@@ -1229,6 +1230,7 @@ class PersonalAIInterface:
 
                 if st.button("Delete", icon=":material/delete:", key=f"delete_{key}"):
                     self.vault.delete_data(key)
+                    self._update_rag_document(key)
                     st.rerun()
 
         except Exception as e:
