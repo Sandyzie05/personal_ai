@@ -29,6 +29,7 @@ from src.agents import store
 from src.agents.mcp import McpError, McpManager, McpTool, ToolResult
 from src.agents.skills import render_skills_for_prompt
 from src.ai_engine.engine import build_chat_client
+from src.ai_engine.ollama_client import OllamaClient
 
 DENIED_RESULT_TEXT = (
     "DENIED by user. Do not retry this action; tell the user it was not "

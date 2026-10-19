@@ -231,6 +231,62 @@ spawns the exact command/args the user typed on the Agents page as a child
 process and talks MCP over its stdio. This is the same trust level as any
 CLI the user runs locally; nothing is enabled by default.
 
+## Requested-ticker Forecast integration (2026-10-18)
+
+The authenticated Streamlit app now has a Forecast page for explicit public
+US-ticker research at 5/21 trading-session horizons. Clicking **Research
+ticker** requests public provider data; **Run local specialists** is a separate
+action using the existing inference factory and saved settings. The
+specialist endpoint must name a loopback IP or `localhost`;
+remote saved inference endpoints are rejected by this page. Forecast-only
+factory options disable redirects and environment proxies in both existing
+inference clients (supported Ollama SDK options; a no-redirect urllib opener for
+oMLX). Finite connect/read/write/pool timeouts for Ollama, or socket-operation
+timeouts for oMLX, are bounded by the remaining specialist budget. These are
+**inactivity timeouts, not a hard total request deadline**: genuinely stalled
+I/O terminates, but a continuously active/trickling server can outlive the run.
+Specialist deadlines stop waiting but cannot forcibly cancel that call.
+Client behavior outside this opt-in Forecast path is unchanged.
+The research request carries only the validated canonical ticker/horizons and
+an optional caller-attested public exchange-session sequence. That sequence
+stays local; it is not sent to providers. Current-day candles are eligible only
+when the matching supplied session's close is at/before retrieval and cutoff,
+including early closes. Without it current-day candles are conservatively
+excluded and research cannot be prepared for outcome tracking. Specialist
+packets contain public evidence only: no uploaded documents, vault/chat
+content, holdings, account data, or agent tools are passed to the forecaster.
+Heuristic scores and model scenarios are not calibrated probabilities.
+
+**Persistence requires specific UI consent.** Research/scenarios remain
+session-local until the user supplies and confirms an official complete
+exchange-session sequence **before Research ticker**, prepares an immutable
+forecast from that same captured sequence, reviews its exact
+record, and clicks **Save forecast**. Records include forecast/prediction,
+snapshot and scorer/model identities, origin/as-of, exchange, session target,
+horizon, provider provenance and the asserted session sequence. The payload
+digest binds approval to the displayed content; changed payloads are rejected.
+`DataVault.store_immutable_data()` uses an atomic insert-once check: repeat
+saves are idempotent, while different content under the same ID is rejected.
+Forecast and outcome records use `forecast_snapshot_` / `forecast_outcome_`
+internal vault prefixes, excluded from document listings/counts and RAG.
+They are encrypted with the existing AuthManager-provided DEK; there is no
+new key path or plaintext persistence location.
+
+**Outcome tracking is explicit and limited.** There is no automatic exchange
+calendar verification/fetch, scheduled evaluator, background report, trading,
+or general task-memory coordinator in this page. The user must supply a
+complete official session sequence (including holidays correctly) and explicit
+source-attributed session closing prices plus an aware evaluation timestamp.
+Structural/chronological validation cannot prove that the supplied sequence
+matches an official calendar. Missing session prices never use a latest quote
+as a substitute. Evaluation/status is displayed before a separate **Save
+outcome** action; evaluating or opening saved records does not write forecasts
+or outcomes. Saved outcomes retain supplied price provenance.
+
+This page's public-only/no-trading boundary does **not** change existing generic
+MCP agent capabilities or revoke user-configured trading tools. A broader
+capstone-specific runtime policy remains proposed, not implemented here.
+
 ## Model configuration
 
 Chat/embedding model names and the Ollama host were previously hardcoded to
@@ -331,4 +387,3 @@ already had this pattern; it was just inconsistently applied.
  `agent_run_<session_id>` record if one happened to exist at that moment -
  it stays encrypted and inert in the vault, and is overwritten if the same
  session id were ever reused, which it won't be since ids are random.)
-

@@ -71,6 +71,27 @@ class DataVault:
         except DatabaseError as e:
             raise DataVaultError(str(e)) from e
 
+    def store_immutable_data(self, key: str, data: Dict[str, Any]) -> bool:
+        """Insert encrypted content once; reject a conflicting existing record."""
+        if self._db is None or not self.encryption_key:
+            raise DataVaultError("Cannot store data without encryption key")
+        try:
+            # Serialize competing connections before checking for an existing key.
+            self._db.conn.execute("BEGIN IMMEDIATE")
+            existing = self._db.retrieve_data(key)
+            if existing is not None:
+                if existing != data:
+                    raise DataVaultError("Immutable record already has different content")
+                self._db.conn.commit()
+                return False
+            self._db.store_data(key, data, encrypt=True)
+            return True
+        except Exception as e:
+            self._db.conn.rollback()
+            if isinstance(e, DataVaultError):
+                raise
+            raise DataVaultError(str(e)) from e
+
     def list_keys(self) -> List[str]:
         """List all keys in the vault."""
         try:
@@ -142,6 +163,8 @@ def is_internal_vault_key(key: str) -> bool:
         or key.startswith("chat_history")
         or key.startswith("agent_run_")
         or key.startswith("mcp_oauth_")
+        or key.startswith("forecast_snapshot_")
+        or key.startswith("forecast_outcome_")
         or key in INTERNAL_VAULT_KEYS
     )
 

@@ -2,33 +2,58 @@ import json
 import urllib.request
 import urllib.error
 import os
+import math
 from typing import List, Dict, Any, Optional, Generator
 from urllib.parse import urljoin
 
 from .ollama_client import OllamaClientError
+from ..config import PERSONAL_AI_OMLX_HOST, PERSONAL_AI_OMLX_CHAT_MODEL
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class OmlxClient:
     """Client for oMLX server speaking OpenAI-compatible HTTP API."""
 
-    def __init__(self, host: str = "http://127.0.0.1:8000", model: str = None,
+    def __init__(self, host: str = PERSONAL_AI_OMLX_HOST,
+                 model: str = PERSONAL_AI_OMLX_CHAT_MODEL,
                  temperature: float = 0.7, max_tokens: int = None,
-                 context_window_tokens: int = None):
+                 context_window_tokens: int = None,
+                 request_timeout_seconds: Optional[float] = None,
+                 safe_local_transport: bool = False):
         self.host = host
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.context_window_tokens = context_window_tokens
+        if request_timeout_seconds is not None and (
+            not math.isfinite(request_timeout_seconds) or request_timeout_seconds <= 0
+        ):
+            raise ValueError("Request timeout must be finite and positive")
+        if safe_local_transport and request_timeout_seconds is None:
+            raise ValueError("Safe local transport requires a finite request timeout")
+        self.request_timeout_seconds = request_timeout_seconds
+        self._opener = (
+            urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+            if safe_local_transport else None
+        )
         self._supports_tools = False  # oMLX doesn't currently support tools
         # Read API key from environment
         self.api_key = os.environ.get("omlx_api_key") or os.environ.get("OMLX_API_KEY")
-        # For embedding, we need to handle model names appropriately
-        self.embed_model = None
 
     @property
     def embed_model(self) -> str:
-        # Placeholder - oMLX embeddings will be handled separately
-        return None
+        return self.model
+
+    def _open(self, request):
+        if self._opener is not None:
+            return self._opener.open(request, timeout=self.request_timeout_seconds)
+        if self.request_timeout_seconds is not None:
+            return urllib.request.urlopen(request, timeout=self.request_timeout_seconds)
+        return urllib.request.urlopen(request)
 
     def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
         """Make HTTP request to oMLX server."""
@@ -47,7 +72,7 @@ class OmlxClient:
         req = urllib.request.Request(url, data=json_data, headers=headers, method=method)
 
         try:
-            with urllib.request.urlopen(req) as response:
+            with self._open(req) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
             raise OllamaClientError(f"HTTP {e.code}: {e.reason}")
@@ -95,7 +120,7 @@ class OmlxClient:
         req = urllib.request.Request(url, data=json_data, headers=headers, method="POST")
 
         try:
-            with urllib.request.urlopen(req) as response:
+            with self._open(req) as response:
                 for line in response:
                     line = line.decode('utf-8')
                     if line.startswith('data: '):

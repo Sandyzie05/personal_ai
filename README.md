@@ -1,12 +1,14 @@
 # 🛡️ Secure Personal AI System
 
 A personal AI assistant that answers questions about your own data (notes,
-bills, health/financial documents, etc.) using open-source LLMs running
-**entirely locally** via [Ollama](https://ollama.com), with an encrypted
-vault for everything you give it.
+bills, health/financial documents, etc.) using local models via
+[Ollama](https://ollama.com) or oMLX, with an encrypted primary data vault.
 
-**Core principle**: your data never leaves your machine. All AI processing
-- chat, embeddings, retrieval - happens locally.
+**Local-first, not necessarily offline:** keep private model processing on
+approved local endpoints. Public market research requires network access;
+configured remote MCP tools can also send arguments externally. Review
+`docs/security_design.md` before enabling integrations. The local retrieval
+index has a documented plaintext-at-rest limitation.
 
 ## Features
 
@@ -27,6 +29,9 @@ vault for everything you give it.
   category, spend over time, recent uploads - built from the same structured
   extraction data, not a RAG summary
 - 🖥️ Streamlit web UI: chat, upload, files, dashboard, and settings pages
+- Forecast page: requested-US-stock research, optional parallel local
+  specialist reviews, and explicitly saved encrypted forecasts/outcomes.
+  Scores are heuristic, not calibrated probabilities or investment advice.
 
 ## Project structure
 
@@ -39,14 +44,57 @@ src/
 ├── data_ingestion/    # File upload handling + per-format parsers
 ├── data_extraction/   # Category registry, classifier, LLM structured
 │                       extraction (categories.py, classifier.py, extractor.py)
+├── forecaster/        # Public market evidence, research, specialist scenarios,
+│                       explicit-session forecast/outcome evaluation
 ├── interface/         # Streamlit UI: chat, chat_sessions, upload, files
-│                       (file_grouping.py), dashboard, settings
+│                       (file_grouping.py), dashboard, forecast, settings
 └── config.py           # Central model/host/context-window configuration
 
 scripts/               # Standalone tools (setup, context-overflow checker)
 docs/                  # Security design, system design notes, roadmap/history
 examples/              # CLI usage examples
 ```
+
+## Agentic capstone direction
+
+The planned unified application combines document-backed personal assistance
+with requested-stock research from the companion `stock_predictor` project.
+Its target architecture uses a bounded coordinator, separate private/public
+data boundaries, parallel forecast specialists, approved encrypted memory
+and leakage-aware outcome evaluation. Trading and payments are outside the
+capstone scope.
+
+See [the high-level system design](docs/agentic_system_design.md) for existing
+foundations, proposed controls, migration stages and acceptance targets.
+The design does not claim that every capstone capability is implemented.
+
+### Forecast workflow
+
+Unlock the existing vault, open **Forecast**, enter a **Public US ticker**
+and select **Trading-session horizons** (5 or 21). For trackable forecasts,
+provide and attest a complete official exchange-session sequence before
+**Research ticker**; the run captures that schedule with its evidence.
+Without it, research is explicitly unscheduled. Review provider coverage,
+evidence dates and visible failures. **Run local specialists** is a separate
+optional action using configured local inference; it receives public
+evidence, not your vault documents or chat.
+
+Tracking reuses the captured session sequence. **Prepare forecast** previews the exact snapshot;
+**Save forecast** writes it encrypted. Outcome evaluation requires explicit
+origin/target closing prices for the symbol and benchmark plus a
+timezone-aware evaluation timestamp. **Evaluate outcome** displays the
+result; **Save outcome** is a separate approval.
+
+Calendar completeness is caller-attested, not independently verified.
+Evaluation is manual: there is no scheduled job, latest-quote substitution,
+live-news ingestion or leakage-safe historical backtest. Current SEC/FRED
+adapters cannot reconstruct historical data vintages.
+
+Optional provider configuration lives in `src/config.py`, including
+`PERSONAL_AI_SEC_USER_AGENT` (SEC contact/identification header),
+`PERSONAL_AI_FRED_API_KEY`, and `PERSONAL_AI_ALPHA_VANTAGE_API_KEY`.
+Without those settings, coverage is reduced explicitly. Keep credentials
+out of source control; do not enter them into forecast prompts.
 
 ## Requirements
 
@@ -144,6 +192,10 @@ Full threat model, what's implemented vs. not, and why: **`docs/security_design.
 ## Documentation
 
 - `docs/security_design.md` - security architecture, threat model, residual risks
+- `docs/agentic_system_design.md` - unified assistant/forecaster capstone design,
+  privacy boundaries, migration scope and evaluation targets
+- `docs/multi_agent_design.md` - existing configurable agent/MCP architecture;
+  broader than the capstone's research-only scope
 - `docs/design_2026_08.md` - how the document pipeline, RAG vs. structured
   datastore, chat context management, and dashboard fit together
 - `docs/roadmap.md` - original project plan and feature roadmap (historical; not current state)

@@ -60,6 +60,7 @@ NAV_PAGES = {
     "files": ":material/folder: Files",
     "dashboard": ":material/dashboard: Dashboard",
     "agents": ":material/agent: Agents",
+    "forecast": ":material/query_stats: Forecast",
     "settings": ":material/settings: Settings",
 }
 
@@ -706,8 +707,8 @@ class PersonalAIInterface:
 
             vault_state = "Unlocked" if self.encryption_key else "Locked"
             st.caption(
-                f":material/lock: Vault **{vault_state}** · processed locally "
-                "— nothing leaves your machine"
+                f":material/lock: Vault **{vault_state}** · encrypted at rest. "
+                "Forecast requests public market data; remote agent tools are opt-in."
             )
 
             # Diagnostics are tucked into an expander so the sidebar stays
@@ -1119,6 +1120,15 @@ class PersonalAIInterface:
         ollama_client = self.chat_engine.ollama_client if self.chat_engine else None
         agents.render_agents_page(self.vault, ollama_client)
 
+    def render_forecast_page(self) -> None:
+        from src.interface.forecast import render_forecast_page
+
+        self._init_vault()
+        if not self.vault:
+            st.warning("Vault not initialized. Please reload the page.")
+            return
+        render_forecast_page(self.vault)
+
     def _render_file_card(
         self, key: str, data: Dict[str, Any], metadata: Dict[str, Any]
     ) -> None:
@@ -1343,6 +1353,8 @@ class PersonalAIInterface:
             self.render_dashboard_page()
         elif page == "agents":
             self.render_agents_page()
+        elif page == "forecast":
+            self.render_forecast_page()
         elif page == "settings":
             self.render_config_page()
 

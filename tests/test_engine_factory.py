@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import patch, MagicMock
-import os
 
 from src.ai_engine.engine import (
     build_chat_client,
@@ -8,10 +7,13 @@ from src.ai_engine.engine import (
     client_kwargs_from_config
 )
 from src.config import (
-    PERSONAL_AI_LLM_ENGINE,
+    DEFAULT_OLLAMA_HOST,
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_EMBED_MODEL,
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+    EMBED_MODEL_CONTEXT_TOKENS,
     PERSONAL_AI_OMLX_HOST,
     PERSONAL_AI_OMLX_CHAT_MODEL,
-    PERSONAL_AI_EMBED_ENGINE,
     PERSONAL_AI_OMLX_EMBED_MODEL
 )
 
@@ -19,17 +21,22 @@ from src.config import (
 class TestEngineFactory(unittest.TestCase):
 
     def setUp(self):
-        # Clear any environment variables that might affect tests
-        if 'PERSONAL_AI_LLM_ENGINE' in os.environ:
-            del os.environ['PERSONAL_AI_LLM_ENGINE']
-        if 'PERSONAL_AI_OMLX_HOST' in os.environ:
-            del os.environ['PERSONAL_AI_OMLX_HOST']
-        if 'PERSONAL_AI_OMLX_CHAT_MODEL' in os.environ:
-            del os.environ['PERSONAL_AI_OMLX_CHAT_MODEL']
-        if 'PERSONAL_AI_EMBED_ENGINE' in os.environ:
-            del os.environ['PERSONAL_AI_EMBED_ENGINE']
-        if 'PERSONAL_AI_OMLX_EMBED_MODEL' in os.environ:
-            del os.environ['PERSONAL_AI_OMLX_EMBED_MODEL']
+        for name in ("PERSONAL_AI_LLM_ENGINE", "PERSONAL_AI_EMBED_ENGINE"):
+            patcher = patch(f"src.ai_engine.engine.{name}", "ollama")
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_safe_transport_options_forwarded_to_both_backends(self):
+        for backend, class_name in (("ollama", "OllamaClient"), ("omlx", "OmlxClient")):
+            with self.subTest(backend=backend), patch(
+                f"src.ai_engine.engine.{class_name}"
+            ) as constructor:
+                build_chat_client(
+                    engine=backend, request_timeout_seconds=.5,
+                    safe_local_transport=True,
+                )
+                self.assertEqual(constructor.call_args.kwargs["request_timeout_seconds"], .5)
+                self.assertIs(constructor.call_args.kwargs["safe_local_transport"], True)
 
     @patch('src.ai_engine.engine.OllamaClient')
     def test_build_chat_client_default_ollama(self, mock_ollama_client):
@@ -41,11 +48,11 @@ class TestEngineFactory(unittest.TestCase):
 
         # Should create OllamaClient by default
         mock_ollama_client.assert_called_once_with(
-            host="http://localhost:11434",
-            model=None,
+            host=DEFAULT_OLLAMA_HOST,
+            model=DEFAULT_CHAT_MODEL,
             temperature=0.7,
             max_tokens=None,
-            context_window_tokens=None
+            context_window_tokens=DEFAULT_CONTEXT_WINDOW_TOKENS
         )
 
     @patch('src.ai_engine.engine.OmlxClient')
@@ -62,7 +69,7 @@ class TestEngineFactory(unittest.TestCase):
             model=PERSONAL_AI_OMLX_CHAT_MODEL,
             temperature=0.7,
             max_tokens=None,
-            context_window_tokens=None
+            context_window_tokens=DEFAULT_CONTEXT_WINDOW_TOKENS
         )
 
     @patch('src.ai_engine.engine.OmlxClient')
@@ -99,11 +106,12 @@ class TestEngineFactory(unittest.TestCase):
 
         # Should create OllamaClient for embeddings by default
         mock_ollama_client.assert_called_once_with(
-            host="http://localhost:11434",
-            model=None,
+            host=DEFAULT_OLLAMA_HOST,
+            model=DEFAULT_EMBED_MODEL,
+            embed_model=DEFAULT_EMBED_MODEL,
             temperature=0.0,
             max_tokens=None,
-            context_window_tokens=2048
+            context_window_tokens=EMBED_MODEL_CONTEXT_TOKENS.get(DEFAULT_EMBED_MODEL, 2048)
         )
 
     @patch('src.ai_engine.engine.OmlxClient')
@@ -120,8 +128,53 @@ class TestEngineFactory(unittest.TestCase):
             model=PERSONAL_AI_OMLX_EMBED_MODEL,
             temperature=0.0,
             max_tokens=None,
-            context_window_tokens=32768  # From config for Qwen3-VL-Embedding-2B-8bit
+            context_window_tokens=EMBED_MODEL_CONTEXT_TOKENS.get(PERSONAL_AI_OMLX_EMBED_MODEL, 2048)
         )
+
+    @patch('src.ai_engine.engine.OmlxClient')
+    def test_configured_omlx_defaults_select_both_clients(self, mock_omlx_client):
+        with patch('src.ai_engine.engine.PERSONAL_AI_LLM_ENGINE', "omlx"), \
+                patch('src.ai_engine.engine.PERSONAL_AI_EMBED_ENGINE', "omlx"):
+            build_chat_client()
+            self.assertEqual(mock_omlx_client.call_args.kwargs["model"],
+                             PERSONAL_AI_OMLX_CHAT_MODEL)
+            build_embed_client()
+            self.assertEqual(mock_omlx_client.call_args.kwargs["model"],
+                             PERSONAL_AI_OMLX_EMBED_MODEL)
+        self.assertEqual(mock_omlx_client.call_count, 2)
+
+    @patch('src.ai_engine.ollama_client.ollama.Client')
+    def test_native_ollama_embedding_uses_selected_model(self, mock_sdk):
+        mock_sdk.return_value.embeddings.return_value = {"embedding": [0.1, 0.2]}
+        client = build_embed_client(
+            engine="ollama", host="http://embed-host:11434",
+            model="custom-embedding-model"
+        )
+
+        self.assertEqual(client.generate_embedding("example"), [0.1, 0.2])
+        mock_sdk.assert_called_once_with(host="http://embed-host:11434")
+        mock_sdk.return_value.embeddings.assert_called_once_with(
+            model="custom-embedding-model", prompt="example"
+        )
+
+    def test_config_keys_precedence_and_backend_fallbacks(self):
+        legacy = {"ollama_host": "http://legacy-host:11434",
+                  "ollama_model": "legacy-model"}
+        kwargs = client_kwargs_from_config({
+            **legacy, "llm_host": "http://new-host:11434", "llm_model": "new-model",
+        })
+        self.assertEqual(kwargs["host"], "http://new-host:11434")
+        self.assertEqual(kwargs["model"], "new-model")
+
+        kwargs = client_kwargs_from_config({
+            **legacy, "llm_host": None, "llm_model": None,
+        })
+        self.assertEqual(kwargs["host"], legacy["ollama_host"])
+        self.assertEqual(kwargs["model"], legacy["ollama_model"])
+
+        kwargs = client_kwargs_from_config({**legacy, "engine": "omlx"})
+        self.assertEqual(kwargs["host"], PERSONAL_AI_OMLX_HOST)
+        self.assertEqual(kwargs["model"], PERSONAL_AI_OMLX_CHAT_MODEL)
 
     def test_client_kwargs_from_config_old_format(self):
         # Test backward compatibility with old config format
