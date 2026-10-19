@@ -117,11 +117,21 @@ class DataVaultError(Exception):
 # single-conversation-per-vault model; per-session histories are stored
 # under "chat_history_<session_id>" keys, matched via the prefix check
 # below. "chat_sessions_index" tracks the list of chat sessions themselves.
+#
+# Multi-agent layer (docs/multi_agent_design.md §6): "agents_index" /
+# "mcp_servers" / "agent_activity_log" are indexes; "agent_run_<session_id>"
+# (paused in-flight runs) and "mcp_oauth_<server_id>" (OAuth tokens +
+# registered-client info) are namespaced per session/server and matched via
+# the prefix checks below. Keeping all of these internal keeps tokens and
+# run state out of the Files page, the sidebar count, and the RAG index.
 INTERNAL_VAULT_KEYS = {
     "chat_history",
     "ollama_config",
     "chat_sessions_index",
     "dashboard_config",
+    "agents_index",
+    "mcp_servers",
+    "agent_activity_log",
 }
 
 
@@ -130,6 +140,8 @@ def is_internal_vault_key(key: str) -> bool:
     return (
         key.startswith("vault_")
         or key.startswith("chat_history")
+        or key.startswith("agent_run_")
+        or key.startswith("mcp_oauth_")
         or key in INTERNAL_VAULT_KEYS
     )
 

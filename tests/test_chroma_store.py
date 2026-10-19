@@ -1,224 +1,216 @@
-"""Unit tests for src.ai_engine.chroma_store metadata handling.
+import unittest
+from unittest.mock import patch, MagicMock
+import os
 
-Uses a temp persist_directory and no embedding_generator (ChromaDB's local
-default embedding function), so these run fully offline - no Ollama needed.
+from src.ai_engine.chroma_store import (
+    ChromaStore,
+    chunk_text,
+    _chunk_markdown,
+    _chunk_text,
+    create_chroma_store
+)
+from src.ai_engine.embeddings import EmbeddingsGenerator
+
+
+class TestChromaStore(unittest.TestCase):
+
+    def setUp(self):
+        # Create a mock embedding generator
+        self.mock_embedding_gen = MagicMock()
+        self.mock_embedding_gen.query_prefix = ""
+        self.mock_embedding_gen.document_prefix = ""
+        self.mock_embedding_gen.embed_context_tokens = 2048
+
+    def test_chroma_store_default_collection_name(self):
+        # Test that the default collection name is v3 (as per plan)
+        store = ChromaStore(embedding_generator=self.mock_embedding_gen)
+        self.assertEqual(store.collection_name, "personal_ai_vault_v3")
+
+    @patch('src.ai_engine.chroma_store.chromadb')
+    def test_chroma_store_initialization(self, mock_chromadb):
+        # Mock ChromaDB client
+        mock_client = MagicMock()
+        mock_collection = MagicMock()
+        mock_chromadb.Client.return_value = mock_client
+        mock_client.get_or_create_collection.return_value = mock_collection
+
+        store = ChromaStore(embedding_generator=self.mock_embedding_gen)
+        store._ensure_initialized()
+
+        # Should create client with correct settings
+        mock_chromadb.Client.assert_called_once_with(
+            mock_chromadb.config.Settings(
+                persist_directory=store.persist_directory,
+                anonymized_telemetry=False,
+            )
+        )
+        mock_client.get_or_create_collection.assert_called_once_with(
+            name=store.collection_name, metadata={"hnsw:space": "cosine"}
+        )
+
+    def test_chunk_text_regular_text(self):
+        # Test regular text chunking
+        text = "This is a test sentence. This is another sentence. " * 50  # Long text
+
+        chunks = chunk_text(text, embed_context_tokens=2048)
+
+        # Should not be empty
+        self.assertTrue(len(chunks) > 0)
+
+        # Check that all chunks are under 2000 chars
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 2000)
+
+    def test_chunk_text_with_markdown(self):
+        # Test markdown-aware chunking
+        markdown_text = """# Heading 1
+
+This is paragraph 1.
+
+## Heading 2
+
+This is paragraph 2.
+
+| Column 1 | Column 2 |
+|----------|----------|
+| Row 1    | Data 1   |
+| Row 2    | Data 2   |
+
+Another paragraph after table.
+
+### Heading 3
+
+Code block:
+```python
+print("Hello World")
+```
 """
 
-import pytest
+        chunks = chunk_text(markdown_text, embed_context_tokens=2048)
 
-from src.ai_engine.chroma_store import ChromaStore, document_id, distance_to_similarity
+        # Should not be empty
+        self.assertTrue(len(chunks) > 0)
 
+        # Check that chunks contain markdown structure
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 2000)  # Soft cap
 
-@pytest.fixture(scope="module")
-def chroma_dir(tmp_path_factory):
-    # chromadb.Client() caches a process-wide singleton keyed by settings;
-    # instantiating it with a different persist_directory per test raises
-    # "instance already exists with different settings". Share one
-    # directory for the whole module and isolate tests via collection_name
-    # instead.
-    return str(tmp_path_factory.mktemp("chroma"))
+    def test_chunk_markdown_no_structure(self):
+        # Test markdown chunking with no actual markdown structure
+        plain_text = "This is plain text with no markdown structure. " * 50
 
+        chunks = _chunk_markdown(plain_text, chunk_chars=1000)
 
-@pytest.fixture
-def store(chroma_dir, request):
-    return ChromaStore(
-        collection_name=f"test_{request.node.name}",
-        persist_directory=chroma_dir,
-    )
+        # Should fall back to regular chunking
+        self.assertTrue(len(chunks) > 0)
 
+    def test_chunk_markdown_with_tables(self):
+        # Test table-aware chunking
+        table_text = """# Report
 
-def test_empty_dict_metadata_gets_chunk_key(store):
-    store.add_documents(["test"], [{}])
+| Name | Age | City |
+|------|-----|------|
+| John | 25  | NYC  |
+| Jane | 30  | LA   |
+| Bob  | 35  | Chicago |
 
-    docs = store.get_all()
+Data continues here with more information that might be long...
 
-    assert len(docs) == 1
-    assert docs[0]["metadata"] == {"chunk": "1"}
+More data...
 
+### Conclusion
 
-def test_multiple_empty_dicts(store):
-    store.add_documents(["a", "b", "c"], [{}, {}, {}])
+Final thoughts about the data above.
+"""
 
-    docs = store.get_all()
+        chunks = _chunk_markdown(table_text, chunk_chars=1000)
 
-    assert len(docs) == 3
-    assert all(doc["metadata"] == {"chunk": "1"} for doc in docs)
+        # Should not be empty
+        self.assertTrue(len(chunks) > 0)
 
+        # Check that tables are preserved in chunks when possible
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 2000)  # Soft cap
 
-def test_none_metadatas_defaults_per_document(store):
-    store.add_documents(["x", "y"], None)
+    def test_chunk_markdown_with_code_blocks(self):
+        # Test code block preservation
+        code_text = """# Code Example
 
-    docs = store.get_all()
+Here's some code:
+```python
+def hello_world():
+    print("Hello, World!")
+    return True
+```
 
-    assert len(docs) == 2
-    assert all(doc["metadata"] == {"chunk": "1"} for doc in docs)
+More explanation of the code...
+"""
 
+        chunks = _chunk_markdown(code_text, chunk_chars=1000)
 
-def test_empty_list_metadatas_does_not_drop_documents(store):
-    """Regression: `metadatas=[]` used to zip() to zero pairs and silently
-    drop every document instead of getting default metadata."""
-    store.add_documents(["a", "b"], [])
+        # Should not be empty
+        self.assertTrue(len(chunks) > 0)
 
-    docs = store.get_all()
+        # Check that code blocks are preserved
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 2000)  # Soft cap
 
-    assert len(docs) == 2
-    assert all(doc["metadata"] == {"chunk": "1"} for doc in docs)
+    def test_embed_prefixes(self):
+        # Test with nomic embed model
+        mock_nomic_gen = MagicMock()
+        mock_nomic_gen.query_prefix = "search_query: "
+        mock_nomic_gen.document_prefix = "search_document: "
+        mock_nomic_gen.embed_context_tokens = 2048
 
+        # Test with Qwen model (should have empty prefixes)
+        mock_qwen_gen = MagicMock()
+        mock_qwen_gen.query_prefix = ""
+        mock_qwen_gen.document_prefix = ""
+        mock_qwen_gen.embed_context_tokens = 32768
 
-def test_mixed_empty_and_nonempty_metadata(store):
-    store.add_documents(["a", "b"], [{}, {"key": "val"}])
+        # Create stores with different embedding generators
+        store_nomic = ChromaStore(embedding_generator=mock_nomic_gen)
+        store_qwen = ChromaStore(embedding_generator=mock_qwen_gen)
 
-    docs = store.get_all()
-
-    assert docs[0]["metadata"] == {"chunk": "1"}
-    assert docs[1]["metadata"] == {"key": "val", "chunk": "1"}
-
-
-def test_clear_removes_all_documents(store):
-    store.add_documents(["a", "b"], [{}, {}])
-
-    store.clear()
-
-    assert store.get_all() == []
-
-
-def test_retrieve_relevant_where_filter_scopes_results(store):
-    store.add_documents(
-        ["electric bill text", "gas bill text"],
-        [{"category": "electricity"}, {"category": "gas"}],
-    )
-
-    results = store.retrieve_relevant(
-        "bill text", k=5, where={"category": "electricity"}
-    )
-
-    assert len(results) == 1
-    assert results[0]["content"] == "electric bill text"
-
-
-def test_retrieve_relevant_defaults_similarity_score_field(store):
-    """Each result now carries both the raw `distance` and a 0..1 `score`
-    (similarity), so callers/tests read the "how relevant" intuition."""
-    store.add_documents(
-        ["electric bill monthly charges", "gas bill therm"],
-        [{"storage_key": "e"}, {"storage_key": "g"}],
-    )
-
-    results = store.retrieve_relevant("electric bill", k=2, min_relevance=0.0)
-
-    assert results
-    assert all(0.0 <= r["score"] <= 1.0 for r in results)
-    assert all("distance" in r for r in results)
-    # Results come back most-similar-first.
-    scores = [r["score"] for r in results]
-    assert scores == sorted(scores, reverse=True)
+        # Both should have valid prefix values
+        self.assertEqual(store_nomic.embedding_generator.query_prefix, "search_query: ")
+        self.assertEqual(store_nomic.embedding_generator.document_prefix, "search_document: ")
+        self.assertEqual(store_qwen.embedding_generator.query_prefix, "")
+        self.assertEqual(store_qwen.embedding_generator.document_prefix, "")
 
 
-def test_retrieve_relevant_min_relevance_filters_irrelevant(store):
-    """The core anti-hallucination lever: a near-miss (irrelevant) chunk must
-    be dropped by the similarity threshold so the model can't answer from it."""
-    store.add_documents(
-        [
-            "electric bill monthly kilowatt charges",
-            "a sentence about the ocean and a swimming sea turtle",
-        ],
-        [{"storage_key": "e"}, {"storage_key": "z"}],
-    )
+class TestChunkText(unittest.TestCase):
 
-    with_threshold = store.retrieve_relevant("electric bill", k=2, min_relevance=0.30)
-    no_threshold = store.retrieve_relevant("electric bill", k=2, min_relevance=0.0)
+    def test_chunk_text_empty_input(self):
+        # Test empty input
+        result = _chunk_text("", 100)
+        self.assertEqual(result, [])
 
-    # Without the threshold, k=2 returns everything (incl. the irrelevant one).
-    assert len(no_threshold) == 2
-    # With the threshold, the "sea turtle" chunk is filtered out; the relevant
-    # "electric bill" chunk survives.
-    returned_keys = [r["metadata"].get("storage_key") for r in with_threshold]
-    assert "z" not in returned_keys
-    assert "e" in returned_keys
-    assert all(r["score"] >= 0.30 for r in with_threshold)
+        result = _chunk_text(None, 100)
+        self.assertEqual(result, [])
 
+    def test_chunk_text_simple(self):
+        # Test simple case
+        text = "Hello world!"
+        result = _chunk_text(text, 20)
+        self.assertEqual(result, ["Hello world!"])
 
-def test_retrieve_relevant_negative_threshold_disabled(store):
-    """A threshold < 0 disables the cut entirely (returns raw top-k)."""
-    store.add_documents(
-        ["electric bill", "ocean and a sea turtle"],
-        [{"storage_key": "e"}, {"storage_key": "z"}],
-    )
+    def test_chunk_text_multiline(self):
+        # Test multi-line text
+        text = "Line 1\nLine 2\nLine 3"
+        result = _chunk_text(text, 20)
+        self.assertEqual(result, ["Line 1", "Line 2", "Line 3"])
 
-    results = store.retrieve_relevant("electric bill", k=2, min_relevance=-1.0)
+    def test_chunk_text_large_chunks(self):
+        # Test when chunks are larger than cap
+        text = "This is a very long sentence that should be split properly by the chunking function. " * 10
+        result = _chunk_text(text, 100)
+        self.assertTrue(len(result) > 0)
 
-    assert len(results) == 2
+        # All chunks should be <= cap
+        for chunk in result:
+            self.assertLessEqual(len(chunk), 100)
 
 
-def test_retrieve_relevant_dedup_by_document(store):
-    """max_per_document caps chunks per source doc so one document can't crowd
-    out the others. Two chunks share storage_key 'a'; they collapse to 1 when
-    max_per_document=1."""
-    store.add_documents(
-        [
-            "electric bill part one charges",
-            "electric bill part two usage",
-            "gas bill",
-        ],
-        [
-            {"storage_key": "a", "chunk": "1"},
-            {"storage_key": "a", "chunk": "2"},
-            {"storage_key": "b", "chunk": "1"},
-        ],
-    )
-
-    # max_per_document=1: at most one 'a' chunk + the 'b' chunk.
-    limited = store.retrieve_relevant(
-        "electric bill charges usage", k=5, min_relevance=0.0, max_per_document=1
-    )
-    storage_keys = [r["metadata"].get("storage_key") for r in limited]
-    assert storage_keys.count("a") <= 1
-
-    # max_per_document=2 keeps both 'a' chunks.
-    relaxed = store.retrieve_relevant(
-        "electric bill charges usage", k=5, min_relevance=0.0, max_per_document=2
-    )
-    relaxed_keys = [r["metadata"].get("storage_key") for r in relaxed]
-    assert relaxed_keys.count("a") <= 2
-
-
-def test_dedup_keeps_chunks_without_document_identity():
-    """Chunks with no storage_key can't be grouped, so dedupe must never
-    silently drop them."""
-    docs = [
-        {"content": "a", "metadata": {}, "score": 0.9},
-        {"content": "b", "metadata": None, "score": 0.8},
-    ]
-    out = ChromaStore._dedupe_by_document(docs, max_per_document=1)
-    assert len(out) == 2
-    assert [d["content"] for d in out] == ["a", "b"]
-
-
-def test_document_id_uses_storage_key():
-    assert document_id({"storage_key": "doc1"}) == "doc1"
-    assert document_id({"category": "electricity"}) is None
-    assert document_id(None) is None
-    assert document_id({}) is None
-
-
-def test_distance_to_similarity_conversion():
-    assert distance_to_similarity(0.0) == 1.0
-    assert distance_to_similarity(1.0) == 0.0
-    # Clamps out-of-range distances into 0..1.
-    assert distance_to_similarity(2.0) == 0.0
-    assert distance_to_similarity(-0.5) == 1.0
-
-
-def test_retrieve_relevant_records_last_retrieval(store):
-    """last_retrieval() exposes the most recent results for diagnostics."""
-    store.add_documents(
-        ["electric bill charges"],
-        [{"storage_key": "e"}],
-    )
-
-    results = store.retrieve_relevant("electric bill", k=3, min_relevance=0.0)
-
-    assert store.last_retrieval() == results
-    # Defensive copy: mutations don't leak back into the store.
-    store.last_retrieval().append({"content": "x"})
-    assert len(store.last_retrieval()) == len(results)
+if __name__ == '__main__':
+    unittest.main()

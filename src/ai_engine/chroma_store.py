@@ -1,6 +1,7 @@
 """ChromaDB vector store for RAG embeddings."""
 
 import os
+import re
 from typing import List, Dict, Any, Optional
 import uuid
 
@@ -24,14 +25,6 @@ DEFAULT_CHROMA_DIR = os.path.expanduser("~/.personal_ai_vault/.chroma")
 # safe even for base64 (which tokenizes ~1 char/token) against nomic-embed-text's
 # real 2048-token context.
 HARD_CHUNK_CHAR_CAP = 2000
-
-# nomic-embed-text is trained with task-instruction prefixes and only embeds
-# queries and documents into a comparable space when both sides use them -
-# see the model card at https://docs.nomic.ai/reference/endpoints/nomic-embed-text.
-# Tied to config.DEFAULT_EMBED_MODEL; revisit if that ever changes to a model
-# with a different (or no) prefix convention.
-_NOMIC_QUERY_PREFIX = "search_query: "
-_NOMIC_DOCUMENT_PREFIX = "search_document: "
 
 
 def distance_to_similarity(cosine_distance: float) -> float:
@@ -118,6 +111,208 @@ def _chunk_text(
     return chunks
 
 
+def _chunk_markdown(text: str, chunk_chars: int, overlap_chars: int = DEFAULT_CHUNK_OVERLAP_CHARS) -> List[str]:
+    """Split markdown text into chunks respecting markdown structure.
+
+    This function intelligently chunks markdown while preserving:
+    - Headings (sections stay together)
+    - Tables (whole tables stay together, split only at row boundaries)
+    - Code blocks (atomic blocks)
+    - Paragraphs (with appropriate handling)
+
+    For efficiency, for large pieces that exceed the chunk size but don't contain
+    markdown structure, falls back to regular text chunking.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+
+    # Check if text contains markdown structure
+    has_markdown = bool(re.search(r'^#{1,6}\s|^[\|\+]\s*[\w\-\s\|]*\|', text, re.MULTILINE))
+    if not has_markdown:
+        # If no markdown structure, fall back to regular chunking
+        return _chunk_text(text, chunk_chars, overlap_chars)
+
+    # Split text into markdown elements
+    blocks = []
+    current_block = ""
+
+    # Split into blocks based on markdown patterns
+    lines = text.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Check for headings
+        if re.match(r'^#{1,6}\s', line):
+            # Close previous block if it exists
+            if current_block.strip():
+                blocks.append(current_block.strip())
+            current_block = line + '\n'
+        # Check for table lines
+        elif re.match(r'^\|.*\|$', line) or (line.strip() and (line.strip() == '|---|' or '|' in line.strip())):
+            # Check if this is a table continuation or new table
+            if current_block.strip() and not re.match(r'^#{1,6}\s', current_block.split('\n')[0]) and not current_block.strip().startswith('```'):
+                # If previous block isn't a heading or code block, close it and start new block
+                if current_block.strip():
+                    blocks.append(current_block.strip())
+                current_block = line + '\n'
+            else:
+                # Continue the current table block
+                current_block += line + '\n'
+        # Check for code blocks (fenced code blocks)
+        elif line.startswith('```'):
+            if current_block.strip() and not line.startswith('```'):
+                # Close previous block if it exists
+                if current_block.strip():
+                    blocks.append(current_block.strip())
+                current_block = line + '\n'
+            elif current_block.strip():
+                current_block += line + '\n'
+                # Continue until we see matching backticks
+                i += 1
+                while i < len(lines):
+                    line = lines[i]
+                    current_block += line + '\n'
+                    if line.startswith('```'):
+                        break
+                    i += 1
+                i -= 1  # Adjust for increment in loop
+            else:
+                # If there's a code block at the start, add it
+                current_block = line + '\n'
+        else:
+            # Regular paragraph
+            if not current_block.strip():
+                current_block = line + '\n'
+            elif re.match(r'^#{1,6}\s', current_block.split('\n')[0]):
+                # Close heading block and start new paragraph
+                blocks.append(current_block.strip())
+                current_block = line + '\n'
+            else:
+                current_block += line + '\n'
+        i += 1
+
+    # Add final block
+    if current_block.strip():
+        blocks.append(current_block.strip())
+
+    # Now process blocks for chunking
+    chunks = []
+    current_chunk = ""
+    overlap = max(0, min(overlap_chars, chunk_chars - 1))
+
+    # Process each block
+    for block in blocks:
+        # Check if this block is a heading or table
+        is_heading = re.match(r'^#{1,6}\s', block)
+        is_table = bool(re.search(r'^\|.*\|$', block, re.MULTILINE))
+        is_code = block.strip().startswith('```') and block.strip().endswith('```')
+
+        # If block already exceeds chunk size, it will be split
+        if len(block) <= chunk_chars:
+            if not current_chunk:
+                current_chunk = block
+            elif is_heading and len(current_chunk) > 0:
+                # Start new chunk when a heading comes in and previous chunk is not empty
+                chunks.append(current_chunk)
+                current_chunk = block
+            else:
+                # When not a heading, just append to current chunk
+                # but avoid starting a new chunk for non-heading blocks with insufficient space
+                # to maintain semantic cohesion
+                if len(current_chunk + "\n" + block) <= chunk_chars:
+                    current_chunk += "\n" + block
+                else:
+                    # If adding block would exceed chunk, close current chunk and start new
+                    if current_chunk:
+                        chunks.append(current_chunk)
+                    current_chunk = block
+        else:
+            # Block is too large to fit in a chunk - need to split it
+            if is_table:
+                # Split tables at row boundaries
+                table_lines = block.split('\n')
+                current_table_chunk = ""
+                table_chunk = ""
+
+                # Try to split the table while keeping rows together
+                for line in table_lines:
+                    if not line.strip():
+                        continue
+                    if len(current_table_chunk + line + '\n') <= chunk_chars:
+                        current_table_chunk += line + '\n'
+                    else:
+                        # If we exceed, save previous chunk and start new one
+                        if current_table_chunk.strip():
+                            # Add prefix to table chunk (table head)
+                            if table_chunk:
+                                table_chunk = table_chunk.strip() + "\n" + current_table_chunk.strip()
+                            else:
+                                table_chunk = current_table_chunk.strip()
+                            chunks.append(table_chunk)
+                        current_table_chunk = line + '\n'
+                        table_chunk = line + '\n'  # Keep track of table head
+
+                if current_table_chunk.strip():
+                    chunks.append(current_table_chunk.strip())
+            else:
+                # For regular large chunks (code or text), fall back to chunking with overlap
+                if current_chunk:
+                    chunks.append(current_chunk)
+                # Use regular chunking for oversized blocks
+                large_chunks = _chunk_text(block, chunk_chars, overlap)
+                chunks.extend(large_chunks)
+                current_chunk = ""
+                continue
+
+    # Add remaining chunk
+    if current_chunk.strip():
+        chunks.append(current_chunk)
+
+    # Apply overlap between chunks
+    if len(chunks) > 1:
+        # Add overlap from last chunk to next chunk
+        overlapping_chunks = []
+        for i, chunk in enumerate(chunks):
+            if i == 0:
+                overlapping_chunks.append(chunk)
+            else:
+                prev_chunk = chunks[i-1]
+                # Get overlap from previous chunk tail
+                tail = prev_chunk[-overlap:] if overlap else ""
+                if tail:
+                    # If overlap exists, prepend it to current chunk
+                    combined = tail + "\n" + chunk
+                    if len(combined) <= chunk_chars:
+                        overlapping_chunks.append(combined)
+                    else:
+                        overlapping_chunks.append(chunk)
+                else:
+                    overlapping_chunks.append(chunk)
+        chunks = overlapping_chunks
+
+    return chunks
+
+
+def chunk_text(text: str, embed_context_tokens: int = 2048) -> List[str]:
+    """Intelligently chunk text, preferring markdown-aware chunks when possible."""
+    # Calculate chunk size based on embedding model's context
+    chunk_chars = min(
+        DEFAULT_EMBED_CHUNK_TOKENS * CHARS_PER_TOKEN_ESTIMATE,
+        max(HARD_CHUNK_CHAR_CAP, int(embed_context_tokens * CHARS_PER_TOKEN_ESTIMATE * 0.25))
+    )
+
+    # Use markdown-aware chunking if the text seems to contain markdown
+    if text and (re.search(r'^#{1,6}\s', text, re.MULTILINE) or
+                 re.search(r'^\|.*\|$', text, re.MULTILINE) or
+                 re.search(r'^```', text, re.MULTILINE)):
+        return _chunk_markdown(text, chunk_chars)
+    else:
+        # Fall back to regular text chunking
+        return _chunk_text(text, chunk_chars)
+
+
 class ChromaStoreError(Exception):
     """Custom exception for ChromaDB operations."""
 
@@ -136,15 +331,15 @@ class ChromaStore:
     def __init__(
         self,
         embedding_generator: Optional[EmbeddingsGenerator] = None,
-        # Bumped from "personal_ai_vault": adding Nomic search_query/
-        # search_document prefixes (below) changes what every embedding in
-        # the collection means, so old and new vectors can't share an HNSW
-        # index without corrupting similarity scores. A new collection name
-        # makes ChromaDB start a fresh index automatically - the old
-        # collection is simply abandoned on disk (safe to delete manually to
+        # Bumped from "personal_ai_vault_v2": changing embedding model from
+        # nomic-embed-text to mlx-community/Qwen3-VL-Embedding-2B-8bit changes
+        # what every embedding in the collection means, so old and new vectors
+        # can't share an HNSW index without corrupting similarity scores. A new
+        # collection name makes ChromaDB start a fresh index automatically - the
+        # old collection is simply abandoned on disk (safe to delete manually to
         # reclaim space) since the vault, not Chroma, is the source of truth
         # and initialize_rag() rebuilds the index from it every session.
-        collection_name: str = "personal_ai_vault_v2",
+        collection_name: str = "personal_ai_vault_v3",
         persist_directory: Optional[str] = None,
         min_relevance: float = DEFAULT_MIN_RELATIVE_SCORE,
         max_per_document: int = DEFAULT_MAX_PER_DOCUMENT,
@@ -225,12 +420,14 @@ class ChromaStore:
                 return []
 
             if self.embedding_generator:
+                # Get prefixes from embedding generator
+                query_prefix = getattr(self.embedding_generator, 'document_prefix', "")
                 # Prefix only the text sent for embedding, not the stored/
                 # returned `chunked_docs` - the LLM should see the raw chunk,
-                # not the Nomic task instruction.
+                # not the task instruction.
                 embeddings = [
                     self.embedding_generator.generate_embedding(
-                        _NOMIC_DOCUMENT_PREFIX + doc
+                        query_prefix + doc
                     )
                     for doc in chunked_docs
                 ]
@@ -289,8 +486,10 @@ class ChromaStore:
                 query_kwargs["where"] = where
 
             if self.embedding_generator:
+                # Get prefixes from embedding generator
+                query_prefix = getattr(self.embedding_generator, 'query_prefix', "")
                 query_embedding = self.embedding_generator.generate_embedding(
-                    _NOMIC_QUERY_PREFIX + query
+                    query_prefix + query
                 )
                 results = self.collection.query(
                     query_embeddings=[query_embedding], **query_kwargs

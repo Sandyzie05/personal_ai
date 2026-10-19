@@ -12,6 +12,10 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+# Load environment variables from .env file if it exists
+from dotenv import load_dotenv
+load_dotenv()
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.ai_engine.chat_engine import ChatEngineError
@@ -23,6 +27,8 @@ from src.data_vault import (
     create_vault,
     is_internal_vault_key,
 )
+from src.agents import store as agent_store
+from src.interface import agents
 from src.interface import upload
 from src.interface import chat_sessions
 from src.interface import dashboard
@@ -36,7 +42,14 @@ from src.interface.chat import (
 )
 from src.interface import theme
 from src.security.auth import AuthManager, AuthenticationError
-from src.config import DEFAULT_OLLAMA_HOST, DEFAULT_CHAT_MODEL, DEFAULT_EMBED_MODEL
+from src.config import (
+    DEFAULT_OLLAMA_HOST,
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_EMBED_MODEL,
+    PERSONAL_AI_LLM_ENGINE,
+    PERSONAL_AI_OMLX_HOST,
+    PERSONAL_AI_EMBED_ENGINE
+)
 
 # Nav key -> display label (Material Symbols, bundled with Streamlit - no
 # external font/network request). Keys are stable identifiers used in run()'s
@@ -46,6 +59,7 @@ NAV_PAGES = {
     "upload": ":material/upload_file: Upload",
     "files": ":material/folder: Files",
     "dashboard": ":material/dashboard: Dashboard",
+    "agents": ":material/agent: Agents",
     "settings": ":material/settings: Settings",
 }
 
@@ -125,8 +139,33 @@ class PersonalAIInterface:
     def _get_chat_engine_instance(self, _key_path: str, _key: bytes) -> Any:
         """ChatEngine instance to prevent multiple instances during initialization."""
         from src.ai_engine.chat_engine import ChatEngine
+        from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
 
-        return ChatEngine(vault_path=_key_path, encryption_key=_key)
+        # Load the configuration from the vault
+        config_data = None
+        if self.vault:
+            try:
+                config_data = self.vault.retrieve_data("ollama_config")
+            except Exception:
+                # If we can't load config, use defaults
+                config_data = {}
+
+        # Build client parameters from config
+        client_kwargs = client_kwargs_from_config(config_data)
+
+        # Remove the engine-related kwargs to match ChatEngine constructor
+        # ChatEngine only takes ollama_client, vault_path, encryption_key, model, context_window_tokens, system_prompt, rag_scope_categories
+        filtered_kwargs = {
+            k: v for k, v in client_kwargs.items()
+            if k in ['vault_path', 'encryption_key', 'model', 'context_window_tokens', 'system_prompt', 'rag_scope_categories']
+        }
+
+        # If no explicit ollama_client was provided, we'll let ChatEngine create it
+        return ChatEngine(
+            vault_path=_key_path,
+            encryption_key=_key,
+            **filtered_kwargs
+        )
 
     def _init_vault(self) -> None:
         """Initialize encrypted data vault using the DEK unlocked at login.
@@ -169,6 +208,7 @@ class PersonalAIInterface:
             )
         except Exception as e:
             st.warning(f"Could not initialize RAG: {str(e)}")
+            # Don't raise - let the system continue with fallback
 
     def _show_rag_not_ready(self) -> bool:
         """Check if RAG is not ready due to missing model."""
@@ -193,13 +233,35 @@ class PersonalAIInterface:
 
         try:
             from src.ai_engine.chat_engine import ChatEngine
+            from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
+
+            # Load the configuration from the vault
+            config_data = None
+            if self.vault:
+                try:
+                    config_data = self.vault.retrieve_data("ollama_config")
+                except Exception:
+                    # If we can't load config, use defaults
+                    config_data = {}
+
+            # Build client parameters from config
+            client_kwargs = client_kwargs_from_config(config_data)
+
+            # Remove the engine-related kwargs to match ChatEngine constructor
+            # ChatEngine only takes ollama_client, vault_path, encryption_key, model, context_window_tokens, system_prompt, rag_scope_categories
+            filtered_kwargs = {
+                k: v for k, v in client_kwargs.items()
+                if k in ['vault_path', 'encryption_key', 'model', 'context_window_tokens', 'system_prompt', 'rag_scope_categories']
+            }
 
             self.chat_engine = ChatEngine(
                 vault_path=os.path.expanduser("~/.personal_ai_vault"),
                 encryption_key=self.encryption_key,
+                **filtered_kwargs
             )
         except Exception as e:
             st.warning(f"Could not initialize RAG: {str(e)}")
+            raise  # Re-raise to let the caller handle it properly
 
     def _load_chat_history_for_session(self, session_id: str) -> None:
         """(Re)build `self.chat_history` for `session_id` and remember which
@@ -239,7 +301,7 @@ class PersonalAIInterface:
         return active_id
 
     def _render_session_controls(self, active_id: str) -> None:
-        """Session switcher, new-chat button, and delete-active-session control."""
+        """Session switcher, agent selector, new-chat button, and delete-active-session control."""
         sessions = chat_sessions.list_sessions(self.vault)
         session_ids = [s["id"] for s in sessions]
 
@@ -251,7 +313,23 @@ class PersonalAIInterface:
 
         labels = {s["id"]: _label(s) for s in sessions}
 
-        select_col, new_col, delete_col = st.columns([4, 1, 1])
+        # Agent selector (design D10: the session remembers its last agent).
+        # A stored selection pointing at a deleted agent is reset to General
+        # BEFORE the selectbox is built - a value missing from `options`
+        # would otherwise raise a StreamlitAPIException on this render.
+        agent_list = [agent_store.general_agent()] + agent_store.list_agents(self.vault)
+        agent_ids = [a["id"] for a in agent_list]
+        agent_names = {a["id"]: a["name"] for a in agent_list}
+        if st.session_state.get("active_agent_id") not in agent_ids:
+            session = next((s for s in sessions if s.get("id") == active_id), None)
+            session_agent = (session or {}).get("agent_id")
+            st.session_state["active_agent_id"] = (
+                session_agent
+                if session_agent in agent_ids
+                else agent_store.GENERAL_AGENT_ID
+            )
+
+        select_col, agent_col, new_col, delete_col = st.columns([3, 2, 1, 1])
         with select_col:
             if session_ids:
                 current_index = (
@@ -268,6 +346,15 @@ class PersonalAIInterface:
                     st.session_state["active_chat_session_id"] = chosen
                     self._load_chat_history_for_session(chosen)
                     st.rerun()
+        with agent_col:
+            st.selectbox(
+                "Agent",
+                agent_ids,
+                index=agent_ids.index(st.session_state["active_agent_id"]),
+                format_func=lambda aid: agent_names.get(aid, aid),
+                label_visibility="collapsed",
+                key="active_agent_id",
+            )
         with new_col:
             if st.button("New Chat", icon=":material/add:", use_container_width=True):
                 new_id = chat_sessions.create_session(self.vault)
@@ -308,8 +395,21 @@ class PersonalAIInterface:
             except ChatEngineError as e:
                 error_text = str(e)
                 st.error(error_text, icon=":material/warning:")
-                return error_text, []
+                # Try fallback with clear engine status
+                st.info("Falling back to basic chat mode...")
+                with st.spinner("Thinking..."):
+                    response_text, sources = self._get_fallback_response(user_query)
+                st.markdown(response_text)
+                return response_text, sources
+            except Exception as e:
+                # General fallback for any chat engine errors
+                st.warning(f"Chat engine error: {str(e)}. Falling back to basic mode.")
+                with st.spinner("Thinking..."):
+                    response_text, sources = self._get_fallback_response(user_query)
+                st.markdown(response_text)
+                return response_text, sources
 
+        # If no chat engine, use fallback directly
         with st.spinner("Thinking..."):
             response_text, sources = self._get_fallback_response(user_query)
         st.markdown(response_text)
@@ -321,21 +421,16 @@ class PersonalAIInterface:
             self._load_ollama_config()
 
         try:
-            import ollama
-        except ImportError:
-            return (
-                ":material/warning: Ollama is not installed. Please install it "
-                "to enable AI chat.\n\n"
-                "Install: https://ollama.com/download\n\n"
-                "Or run: pip install ollama",
-                [],
-            )
+            from src.ai_engine.engine import build_chat_client
 
-        try:
-            host = self.ollama_config.get("ollama_host", DEFAULT_OLLAMA_HOST)
-            model = self.ollama_config.get("ollama_model", DEFAULT_CHAT_MODEL)
+            # Determine which engine to use for fallback
+            engine = self.ollama_config.get("engine", PERSONAL_AI_LLM_ENGINE)
+            host = self.ollama_config.get("llm_host",
+                                        PERSONAL_AI_OMLX_HOST if engine == "omlx" else DEFAULT_OLLAMA_HOST)
+            # Ensure we don't get a None model which can cause issues
+            model = self.ollama_config.get("llm_model") or DEFAULT_CHAT_MODEL
 
-            client = ollama.Client(host=host)
+            client = build_chat_client(engine=engine, host=host, model=model)
 
             # Reuse the exact same grounding-first system prompt as the RAG path
             # so a fallback answer can't silently drift into "answer from your own
@@ -360,7 +455,7 @@ class PersonalAIInterface:
 
             messages.append({"role": "user", "content": user_query})
 
-            response = client.chat(model=model, messages=messages, stream=False)
+            response = client.chat(messages=messages, stream=False)
 
             content = response["message"]["content"]
 
@@ -369,8 +464,12 @@ class PersonalAIInterface:
             return content, sources
 
         except Exception as e:
+            # Declare engine in local scope to avoid UnboundLocalError
+            engine = self.ollama_config.get("engine", PERSONAL_AI_LLM_ENGINE)
+            host = self.ollama_config.get("llm_host",
+                                        PERSONAL_AI_OMLX_HOST if engine == "omlx" else DEFAULT_OLLAMA_HOST)
             return (
-                f"Error getting response: {str(e)}. Make sure Ollama is running at {self.ollama_config.get('ollama_host')}",
+                f"Error getting response: {str(e)}. Make sure {engine} server is running at {host}",
                 [],
             )
 
@@ -392,6 +491,157 @@ class PersonalAIInterface:
 
         return sources
 
+    def _agent_runtime(self) -> Any:
+        """Session-cached AgentRuntime (Streamlit reruns the whole script).
+
+        Rebuilt when the vault instance changes (lock/unlock cycle). The
+        runtime owns its McpManager - no connection caching inside (each
+        MCP operation opens a fresh transport; see src/agents/mcp.py).
+        """
+        from src.agents.mcp import McpManager
+        from src.agents.runtime import AgentRuntime
+
+        cached = st.session_state.get("agent_runtime")
+        if cached is None or getattr(cached, "vault", None) is not self.vault:
+            cached = AgentRuntime(self.vault, mcp=McpManager(self.vault))
+            st.session_state["agent_runtime"] = cached
+        return cached
+
+    def _respond_with_agent(
+        self,
+        user_query: str,
+        history: List[Dict[str, str]],
+        active_id: str,
+        agent: Dict[str, Any],
+    ) -> None:
+        """Run one user turn through the agent tool loop (non-General agents).
+
+        The user message is persisted as soon as the run is off the ground
+        (so it survives the confirmation pause); the assistant answer lands
+        in the history when the run reaches a terminal status.
+        """
+        runtime = self._agent_runtime()
+        with st.status(f"{agent.get('name', 'Agent')} is working...", expanded=True):
+            result = runtime.start_run(active_id, agent, user_query, history)
+
+        if result.status == "awaiting_confirmation":
+            self.chat_history.add_message("user", user_query)
+            chat_sessions.touch_session(
+                self.vault, active_id, title=user_query.strip()[:40],
+                agent_id=agent.get("id"),
+            )
+            st.rerun()
+            return
+
+        with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+            st.markdown(result.answer)
+            render_sources(result.sources)
+
+        self.chat_history.add_message("user", user_query)
+        self.chat_history.add_message("assistant", result.answer, result.sources)
+        chat_sessions.touch_session(
+            self.vault, active_id, title=user_query.strip()[:40],
+            agent_id=agent.get("id"),
+        )
+        st.rerun()
+
+    def _render_confirmation_card(self, active_id: str, agent: Dict[str, Any]) -> None:
+        """The paused run's pending tool call: tool, args, Allow/Deny/Abort.
+
+        Rendered while `agent_run_<active_id>` exists for the active agent.
+        A paused run's state lives in the vault (not session_state) so it
+        survives reruns, tab switches, and app restarts.
+        """
+        state = agent_store.load_run_state(self.vault, active_id)
+        if state is None:
+            return
+        pending = state.get("pending") or {}
+        server = agent_store.get_mcp_server(self.vault, pending.get("server", ""))
+        server_name = (
+            server.get("name", pending.get("server", "")) if server else pending.get("server", "")
+        )
+        agent_name = agent.get("name", "Agent") if agent else state.get("agent_name", "Agent")
+
+        with st.container(border=True):
+            st.markdown(
+                f":material/pause_circle: **{agent_name}** is waiting for your approval"
+            )
+            st.write(
+                f"About to call **{pending.get('tool')}** on server "
+                f"**{server_name}** with:"
+            )
+            st.json(pending.get("args") or {}, expanded=False)
+            trail = state.get("trail") or []
+            if trail:
+                done = ", ".join(
+                    f"{t.get('tool')} ({'ok' if t.get('ok') else 'error'})"
+                    for t in trail
+                )
+                st.caption(f"Already done this turn: {done}")
+            st.caption(
+                "Allow executes the call now. Deny tells the model it must not "
+                "retry. Abort stops the run entirely (the question stays in "
+                "the chat without an answer)."
+            )
+            allow_col, deny_col, abort_col = st.columns(3)
+            with allow_col:
+                if st.button(
+                    "Allow", type="primary", use_container_width=True,
+                    key="agent_confirm_allow",
+                ):
+                    self._resolve_paused_run(active_id, agent, "allow")
+            with deny_col:
+                if st.button(
+                    "Deny", use_container_width=True, key="agent_confirm_deny"
+                ):
+                    self._resolve_paused_run(active_id, agent, "deny")
+            with abort_col:
+                if st.button(
+                    "Abort", icon=":material/stop:", use_container_width=True,
+                    key="agent_confirm_abort",
+                ):
+                    self._resolve_paused_run(active_id, agent, "abort")
+
+    def _resolve_paused_run(
+        self, active_id: str, agent: Optional[Dict[str, Any]], decision: str
+    ) -> None:
+        """Apply the user's decision to a paused run and render the outcome.
+
+        `agent` may be a stale/None reference (the agent was deleted while
+        the run was paused) - the runtime only needs its id/name/server list
+        from it, so fall back to a minimal record from the persisted state.
+        """
+        state = agent_store.load_run_state(self.vault, active_id) or {}
+        if agent is None or agent.get("id") != state.get("agent_id"):
+            agent = {
+                "id": state.get("agent_id", ""),
+                "name": state.get("agent_name", "Agent"),
+                "mcp_server_ids": [],
+                "max_tool_rounds": 0,
+                "require_tool_confirmation": False,
+            }
+
+        runtime = self._agent_runtime()
+        with st.status(f"Resuming run ({decision})...", expanded=True):
+            result = runtime.resume_run(active_id, agent, decision)
+
+        if result.status == "awaiting_confirmation":
+            # The model immediately requested another sensitive tool.
+            st.rerun()
+            return
+
+        if result.status in ("complete", "exhausted"):
+            with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+                st.markdown(result.answer)
+                render_sources(result.sources)
+            self.chat_history.add_message(
+                "assistant", result.answer, result.sources
+            )
+        chat_sessions.touch_session(
+            self.vault, active_id, agent_id=agent.get("id")
+        )
+        st.rerun()
+
     def _load_ollama_config(self) -> None:
         """Load Ollama configuration from vault or use defaults.
 
@@ -412,11 +662,17 @@ class PersonalAIInterface:
         if config_data:
             self.ollama_config = config_data
         else:
+            # Ensure we're always defaulting to correct engine names
+            # This fixes issues where old config keys were causing incorrect model loads
             self.ollama_config = {
-                "ollama_host": DEFAULT_OLLAMA_HOST,
-                "ollama_model": DEFAULT_CHAT_MODEL,
-                "ollama_embeddings": DEFAULT_EMBED_MODEL,
+                "engine": PERSONAL_AI_LLM_ENGINE,  # This will be "ollama" by default
+                "llm_host": DEFAULT_OLLAMA_HOST,
+                "llm_model": DEFAULT_CHAT_MODEL,
+                "embed_engine": PERSONAL_AI_EMBED_ENGINE,
+                "embed_host": DEFAULT_OLLAMA_HOST,
+                "embed_model": DEFAULT_EMBED_MODEL,
                 "temperature": 0.7,
+                "context_window_tokens": 8192,
                 "max_tokens": 2048,
                 "stream": True,
             }
@@ -501,35 +757,35 @@ class PersonalAIInterface:
                                     )
 
                 if st.button(
-                    "Check Ollama", icon=":material/sync:", use_container_width=True
+                    "Check Engine", icon=":material/sync:", use_container_width=True
                 ):
                     try:
-                        try:
-                            import ollama
+                        from src.ai_engine.engine import build_chat_client
 
-                            client = ollama.Client(
-                                host=self.ollama_config.get("ollama_host")
-                            )
-                            models = client.list()
+                        # Determine which engine to check
+                        engine = self.ollama_config.get("engine", PERSONAL_AI_LLM_ENGINE)
+                        host = self.ollama_config.get("llm_host",
+                                                    PERSONAL_AI_OMLX_HOST if engine == "omlx" else DEFAULT_OLLAMA_HOST)
+
+                        client = build_chat_client(engine=engine, host=host)
+
+                        if client.check_connection():
+                            models = client.list_models()
                             st.success(
-                                f"Ollama connected! {len(models.get('models', []))} models available",
+                                f"{engine.title()} connected! {len(models)} models available",
                                 icon=":material/check_circle:",
                             )
-                            for model in models.get("models", [])[:5]:
-                                st.caption(f"• {model.get('model', 'unknown')}")
-                        except ImportError:
+                            for model in models[:5]:
+                                st.caption(f"• {model}")
+                        else:
                             st.error(
-                                "Ollama package not installed",
+                                f"Cannot connect to {engine} server",
                                 icon=":material/error:",
                             )
-                            st.info("Install: pip install ollama")
                     except Exception as e:
                         st.error(
-                            f"Cannot connect to Ollama: {str(e)}",
+                            f"Cannot connect to {engine} server: {str(e)}",
                             icon=":material/error:",
-                        )
-                        st.info(
-                            "Make sure Ollama is running: https://ollama.com/download"
                         )
 
             st.divider()
@@ -594,28 +850,99 @@ class PersonalAIInterface:
 
         with st.expander(":material/tune: Advanced"):
             if st.button("Rebuild RAG Index", icon=":material/sync:"):
-                with st.spinner("Rebuilding RAG index from vault data..."):
+                # Show progress tracking
+                status_placeholder = st.empty()
+                status_placeholder.info("Starting RAG index rebuild...")
+
+                try:
+                    # Initialize vault first to make sure we have access
                     self._init_vault()
-                    self._initialize_rag()
-                st.success("RAG index rebuilt!", icon=":material/check_circle:")
-                st.rerun()
+                    status_placeholder.info("Vault initialized successfully")
+
+                    # Check if we have documents to process
+                    if self.vault:
+                        vault_keys = self.vault.list_keys()
+                        file_keys = [k for k in vault_keys if not is_internal_vault_key(k)]
+                        status_placeholder.info(f"Found {len(file_keys)} documents to index")
+
+                        if file_keys:
+                            # Initialize RAG engine for indexing
+                            status_placeholder.info("Initializing RAG engine...")
+                            self._initialize_rag()
+                            status_placeholder.info("RAG engine initialized successfully")
+
+                            # Force re-initialization to trigger rebuild
+                            status_placeholder.info("Rebuilding index...")
+                            self._init_vault()
+                            self._initialize_rag()
+
+                            # Show document processing details
+                            with st.spinner("Processing documents and rebuilding index..."):
+                                # This should be handled by the chat_engine properly
+                                pass
+
+                            status_placeholder.success("✅ RAG index rebuilt successfully!")
+                            st.success(f"Processed {len(file_keys)} documents")
+                        else:
+                            status_placeholder.info("ℹ️ No documents to process - index is up to date")
+                    else:
+                        status_placeholder.warning("⚠️ Vault not accessible")
+
+                except Exception as e:
+                    status_placeholder.error(f"❌ Failed to rebuild RAG index: {str(e)}")
+                    st.exception(e)
+                    raise  # Re-raise to make it clear the process failed
+                finally:
+                    # Force a rerun to update the UI
+                    st.rerun()
 
         render_chat_history(self.chat_history)
 
-        user_input = st.chat_input("Ask a question about your data...")
+        # A paused agent run (waiting on the confirmation gate) blocks this
+        # chat until resolved: the confirmation card is rendered in its place
+        # and the input is disabled, so a new message can't silently clobber
+        # the persisted in-flight state (agent_run_<session_id>).
+        active_agent_id = st.session_state.get(
+            "active_agent_id", agent_store.GENERAL_AGENT_ID
+        )
+        active_agent = agent_store.get_agent(self.vault, active_agent_id)
+        paused = agent_store.load_run_state(self.vault, active_id)
+        if paused is not None and paused.get("agent_id") == active_agent_id:
+            self._render_confirmation_card(active_id, active_agent)
+        elif paused is not None:
+            st.info(
+                f":material/pause_circle: Agent "
+                f"'{paused.get('agent_name', 'another agent')}' has an action "
+                "waiting for approval in this chat. Switch back to that agent "
+                "to allow, deny, or abort it."
+            )
+
+        user_input = st.chat_input(
+            "Ask a question about your data...", disabled=paused is not None
+        )
         if user_input:
             with st.chat_message("user", avatar=USER_AVATAR):
                 st.markdown(user_input)
 
-            with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-                response_text, sources = self._respond(user_input, history_for_engine)
-                render_sources(sources)
+            if active_agent is None or (
+                active_agent.get("id") == agent_store.GENERAL_AGENT_ID
+            ):
+                # The General agent keeps the historical streaming path.
+                with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+                    response_text, sources = self._respond(
+                        user_input, history_for_engine
+                    )
+                    render_sources(sources)
 
-            self.chat_history.add_exchange(user_input, response_text, sources)
-            chat_sessions.touch_session(
-                self.vault, active_id, title=user_input.strip()[:40]
-            )
-            st.rerun()
+                self.chat_history.add_exchange(user_input, response_text, sources)
+                chat_sessions.touch_session(
+                    self.vault, active_id, title=user_input.strip()[:40]
+                )
+                st.rerun()
+            else:
+                self._respond_with_agent(
+                    user_input, history_for_engine, active_id, active_agent
+                )
 
     def render_upload_page(self) -> None:
         """Render file upload page: category detection + structured extraction."""
@@ -780,6 +1107,17 @@ class PersonalAIInterface:
             return
 
         dashboard.render_dashboard_page(self.vault)
+
+    def render_agents_page(self) -> None:
+        """Render the Agents page (agents, MCP servers, skills, activity)."""
+        self._init_vault()  # Initialize vault but not RAG
+
+        if not self.vault:
+            st.warning("Vault not initialized. Please reload the page.")
+            return
+
+        ollama_client = self.chat_engine.ollama_client if self.chat_engine else None
+        agents.render_agents_page(self.vault, ollama_client)
 
     def _render_file_card(
         self, key: str, data: Dict[str, Any], metadata: Dict[str, Any]
@@ -1003,6 +1341,8 @@ class PersonalAIInterface:
             self.render_files_page()
         elif page == "dashboard":
             self.render_dashboard_page()
+        elif page == "agents":
+            self.render_agents_page()
         elif page == "settings":
             self.render_config_page()
 

@@ -43,21 +43,29 @@ class OllamaClient:
 
     def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         stream: bool = False,
         format: Optional[Union[str, Dict[str, Any]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Send a chat message to Ollama.
 
         `format` accepts "json" or a JSON schema dict (e.g.
         `SomePydanticModel.model_json_schema()`) to constrain the model to
         structured output - used by src/data_extraction/extractor.py.
+
+        `tools` (OpenAI-style function schemas) enables Ollama's native
+        tool calling for models that support it; the response message then
+        may carry `tool_calls` and follow-up messages use `role: "tool"`.
+        Only passed when non-empty, so tool-less calls are byte-identical
+        to before.
         """
         response = self.client.chat(
             model=self.model,
             messages=messages,
             stream=stream,
             format=format,
+            tools=tools or None,
             options={
                 "temperature": self.temperature,
                 "num_predict": self.max_tokens,
@@ -86,6 +94,36 @@ class OllamaClient:
         except Exception as e:
             print(f"Error listing models: {e}")
             return []
+
+    def model_details(self) -> Dict[str, Dict[str, Any]]:
+        """Map model name -> details dict (capabilities, context_length,
+        family, ...) as reported by Ollama's /api/tags. Empty dict on any
+        failure - callers treat "unknown" as "no information"."""
+        try:
+            response = self.client.list()
+            details: Dict[str, Dict[str, Any]] = {}
+            for model in getattr(response, "models", None) or []:
+                name = getattr(model, "model", None)
+                raw = getattr(model, "details", None)
+                if not name or not isinstance(raw, dict):
+                    continue
+                details[name] = dict(raw)
+            return details
+        except Exception:
+            return {}
+
+    def model_capabilities(self) -> Dict[str, List[str]]:
+        """Map model name -> capability list (e.g. ["tools", "vision"]) as
+        reported by Ollama's /api/tags. Empty dict on any failure - callers
+        treat "unknown" as "no tools" and surface a notice rather than
+        guessing."""
+        return {
+            name: [str(c) for c in (details.get("capabilities") or [])]
+            for name, details in self.model_details().items()
+        }
+
+    def model_supports_tools(self, model_name: str) -> bool:
+        return "tools" in self.model_capabilities().get(model_name, [])
 
     def check_connection(self) -> bool:
         """Check if Ollama is running and accessible."""

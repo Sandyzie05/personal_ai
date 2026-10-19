@@ -80,8 +80,14 @@ def create_session(vault: Any, title: str = DEFAULT_TITLE) -> str:
     return session_id
 
 
-def touch_session(vault: Any, session_id: str, title: Optional[str] = None) -> None:
-    """Bump `updated_at` for `session_id`; adopt `title` if still default.
+def touch_session(
+    vault: Any,
+    session_id: str,
+    title: Optional[str] = None,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Bump `updated_at` for `session_id`; adopt `title` if still default;
+    record the last agent that acted in this chat (`agent_id`, design D10).
 
     No-op if `session_id` isn't found in the index (e.g. it was deleted
     concurrently in another tab).
@@ -93,6 +99,8 @@ def touch_session(vault: Any, session_id: str, title: Optional[str] = None) -> N
             session["updated_at"] = datetime.now().isoformat()
             if title and session.get("title") == DEFAULT_TITLE:
                 session["title"] = title
+            if agent_id is not None:
+                session["agent_id"] = agent_id
             _save_index(vault, index)
             return
 

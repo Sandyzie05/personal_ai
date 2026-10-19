@@ -162,11 +162,74 @@ actually accept, or vice versa, either wasting headroom or overflowing).
 reads `self.ollama_client.context_window_tokens` directly rather than the
 module-level default, so it can't drift from what's really sent to Ollama.
 
-**Dashboard widget preferences are a new internal vault key.** The Dashboard
-page (`src/interface/dashboard.py`) persists which widgets a user has
-enabled to `dashboard_config` - just `{"enabled_widgets": [...]}`, a list of
-widget-registry keys. No sensitive data, but noted here for completeness
-since it's a new entry in `INTERNAL_VAULT_KEYS`.
+ **Dashboard widget preferences are a new internal vault key.** The Dashboard
+ page (`src/interface/dashboard.py`) persists which widgets a user has
+ enabled to `dashboard_config` - just `{"enabled_widgets": [...]}`, a list of
+ widget-registry keys. No sensitive data, but noted here for completeness
+ since it's a new entry in `INTERNAL_VAULT_KEYS`.
+
+## Multi-agent and MCP integration (2026-10-13)
+
+The app gained a multi-agent layer (`src/agents/`, UI page "Agents"; full
+design in `docs/multi_agent_design.md`). Six security-relevant deltas:
+
+**New network egress: remote MCP servers.** The previous trust boundary was
+"nothing leaves the machine except calls to the local Ollama process". An
+agent attached to a *remote* MCP server (e.g. Robinhood's trading endpoint)
+sends the user's chat messages, the tool arguments the model constructs,
+and - when the agent has RAG enabled - retrieved vault context, to that
+server over the internet; tool results come back the same way. This is an
+**explicit, per-agent opt-in**: an agent only gets a server's tools if the
+user attached that server on the Agents page, and the agent form shows a
+data-egress warning (naming the remote server) whenever RAG is on plus a
+remote server is attached. Mitigations already in place: the app remains
+localhost-only (the Streamlit server still binds 127.0.0.1); per-agent RAG
+category scoping (`rag_scope_categories`) limits which documents can be
+retrieved into an agent's context; `rag_enabled: false` removes vault
+context from the agent's turns entirely. **Accepted risk**, same class as
+the `.chroma` plaintext index: the user knowingly chose this destination.
+
+**OAuth tokens are encrypted vault records, not a plaintext sidecar.**
+Remote MCP servers using OAuth 2.1 (authorization-code + PKCE) get their
+access/refresh tokens and dynamically-registered client info stored under
+`mcp_oauth_<server_id>` inside the encrypted vault by
+`VaultTokenStorage` (`src/agents/mcp.py`) - the `mcp` SDK's `TokenStorage`
+protocol, vault-backed. This contrasts with opencode, which caches MCP
+tokens in plaintext `~/.local/share/opencode/mcp-auth.json`; this app does
+not read or reuse those tokens and creates its own client registration.
+Token refresh is transparent (SDK); a failed refresh surfaces as
+`needs_auth` and the UI offers "Connect & Authorize" again. Deleting an MCP
+server on the Agents page also deletes its `mcp_oauth_<id>` key.
+
+**Confirmation gate enforced by the runtime, not the prompt.** Sensitive
+(state-mutating) tool calls - MCP `readOnlyHint=false` when the server
+annotates, else a name-prefix heuristic (`place_`, `create_`, `cancel_`,
+`update_`, `delete_`, ...) - pause the agent loop and persist the full
+in-flight state to `agent_run_<session_id>` in the vault; the model can
+only proceed after the user clicks Allow/Deny/Abort in the UI. The gate
+lives in `AgentRuntime` (`src/agents/runtime.py`), so it cannot be bypassed
+by prompt injection, and a paused run survives reruns/tab closes/app
+restarts (vault-backed, never only `st.session_state`). Every tool call -
+including denied ones - is audited in `agent_activity_log` (args digest
+capped at 200 chars, outcome, duration), capped at 500 entries.
+
+**Skills are plaintext instruction files.** Agent skills
+(`~/.personal_ai/skills/<slug>.md`, overridable via
+`PERSONAL_AI_SKILLS_DIR`) are plain markdown on disk - they are
+*instructions* (no personal data by construction), the same accepted
+tradeoff as the `.chroma` index. They are injected into the agent's system
+prompt at run time.
+
+**New internal vault keys.** `agents_index`, `mcp_servers`, and
+`agent_activity_log` were added to `INTERNAL_VAULT_KEYS`, and
+`is_internal_vault_key()` now also recognizes the `agent_run_` and
+`mcp_oauth_` prefixes - so OAuth tokens and paused-run state never appear
+in the Files page, the sidebar document count, or the RAG index.
+
+**Stdio MCP servers are user-typed local commands.** A "stdio" server entry
+spawns the exact command/args the user typed on the Agents page as a child
+process and talks MCP over its stdio. This is the same trust level as any
+CLI the user runs locally; nothing is enabled by default.
 
 ## Model configuration
 
@@ -254,9 +317,18 @@ without catching `DataVaultError`. Fixed: all three now catch it, show a
 decrypt" label per file) instead of crashing the page. The Files page loop
 already had this pattern; it was just inconsistently applied.
 
-**If you hit `Decryption failed` errors after setting a new vault
-password**, it means `~/.personal_ai_vault/vault.db` predates your current
-password and its old entries are unrecoverable without the old key. There is
-no recovery tool - back up the directory if you want to keep it, then
-delete `~/.personal_ai_vault` to start clean under the new password.
+ **If you hit `Decryption failed` errors after setting a new vault
+ password**, it means `~/.personal_ai_vault/vault.db` predates your current
+ password and its old entries are unrecoverable without the old key. There is
+ no recovery tool - back up the directory if you want to keep it, then
+ delete `~/.personal_ai_vault` to start clean under the new password.
+
+ **Deleting an MCP server removes its OAuth credentials too** (multi-agent
+ layer, 2026-10-13): the delete action on the Agents page removes both the
+ `mcp_servers` entry and the `mcp_oauth_<server_id>` token record, so no
+ orphaned credentials linger for a server that no longer exists. (Related:
+ deleting a *chat session* removes its history key but not a paused
+ `agent_run_<session_id>` record if one happened to exist at that moment -
+ it stays encrypted and inert in the vault, and is overwritten if the same
+ session id were ever reused, which it won't be since ids are random.)
 

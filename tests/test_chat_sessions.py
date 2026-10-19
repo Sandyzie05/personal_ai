@@ -74,6 +74,19 @@ def test_touch_session_noop_for_unknown_id(vault):
     assert sessions[0]["title"] == "New Chat"
 
 
+def test_touch_session_records_agent_id_when_given(vault):
+    session_id = chat_sessions.create_session(vault)
+
+    chat_sessions.touch_session(vault, session_id, agent_id="trader-agent-id")
+
+    sessions = chat_sessions.list_sessions(vault)
+    assert sessions[0]["agent_id"] == "trader-agent-id"
+
+    # A touch without an agent_id must not clear a previously recorded one.
+    chat_sessions.touch_session(vault, session_id)
+    assert chat_sessions.list_sessions(vault)[0]["agent_id"] == "trader-agent-id"
+
+
 def test_delete_session_removes_from_index_and_deletes_history(vault):
     session_id = chat_sessions.create_session(vault)
     history_key = chat_sessions.history_key_for(session_id)

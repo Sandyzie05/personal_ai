@@ -16,6 +16,13 @@ DEFAULT_OLLAMA_HOST = os.environ.get(
 DEFAULT_CHAT_MODEL = os.environ.get("PERSONAL_AI_CHAT_MODEL", "llama3.2:latest")
 DEFAULT_EMBED_MODEL = os.environ.get("PERSONAL_AI_EMBED_MODEL", "nomic-embed-text")
 
+# Engine selection for LLM inference (ollama|omlx)
+PERSONAL_AI_LLM_ENGINE = os.environ.get("PERSONAL_AI_LLM_ENGINE", "ollama")
+PERSONAL_AI_OMLX_HOST = os.environ.get("PERSONAL_AI_OMLX_HOST", "http://127.0.0.1:8000")
+PERSONAL_AI_OMLX_CHAT_MODEL = os.environ.get("PERSONAL_AI_OMLX_CHAT_MODEL", "Qwen3.8-27B-4bit")
+PERSONAL_AI_EMBED_ENGINE = os.environ.get("PERSONAL_AI_EMBED_ENGINE", "omlx")
+PERSONAL_AI_OMLX_EMBED_MODEL = os.environ.get("PERSONAL_AI_OMLX_EMBED_MODEL", "mlx-community/Qwen3-VL-Embedding-2B-8bit")
+
 # Default generation temperature for grounded QA. 0.7 (the old default) is too
 # free-wheeling for an assistant that must answer strictly from retrieved
 # context: higher temperature makes a small local model more likely to
@@ -82,4 +89,48 @@ DEFAULT_CHUNK_OVERLAP_CHARS = int(
 # ~2048 output tokens.
 DEFAULT_EXTRACTION_TEXT_CHARS = int(
     os.environ.get("PERSONAL_AI_EXTRACTION_TEXT_CHARS", "20000")
+)
+
+# Context window tokens for different embedding models
+EMBED_MODEL_CONTEXT_TOKENS = {
+    "nomic-embed-text": 2048,
+    "mlx-community/Qwen3-VL-Embedding-2B-8bit": 32768,
+    "mlx-community/Qwen3-Embedding-0.6B": 8192
+}
+
+# Override the EMBED_MODEL_CONTEXT_TOKENS with environment variables if set
+if "PERSONAL_AI_EMBED_MODEL_CONTEXT_TOKENS" in os.environ:
+    try:
+        # Parse environment variable as JSON dict
+        import json
+        EMBED_MODEL_CONTEXT_TOKENS.update(json.loads(os.environ["PERSONAL_AI_EMBED_MODEL_CONTEXT_TOKENS"]))
+    except Exception:
+        pass  # If parsing fails, use the defaults
+
+# --- Multi-agent layer (see docs/multi_agent_design.md) ---
+
+# Skills are plain instruction files (not personal data), so they live in a
+# directory rather than the encrypted vault - same accepted tradeoff as the
+# .chroma index. Override if you keep them elsewhere.
+SKILLS_DIR = os.environ.get(
+    "PERSONAL_AI_SKILLS_DIR", "~/.personal_ai/skills"
+)
+
+# Default cap on LLM<->tool round-trips per agent run (bounds latency and
+# cost on a local model; an exhausted run ends with a notice, not a crash).
+DEFAULT_AGENT_MAX_TOOL_ROUNDS = int(
+    os.environ.get("PERSONAL_AI_AGENT_MAX_TOOL_ROUNDS", "6")
+)
+
+# How long the local OAuth callback listener waits for the user to finish
+# authorizing a remote MCP server in the browser.
+MCP_OAUTH_TIMEOUT_SECONDS = int(
+    os.environ.get("PERSONAL_AI_MCP_OAUTH_TIMEOUT", "300")
+)
+
+# A tool's result is truncated to this many characters before it re-enters
+# the model's context (a single tool can return large payloads - e.g. a
+# whole order book - which would eat the context budget in one turn).
+MCP_TOOL_RESULT_MAX_CHARS = int(
+    os.environ.get("PERSONAL_AI_MCP_TOOL_RESULT_MAX_CHARS", "8000")
 )

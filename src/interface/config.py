@@ -8,7 +8,25 @@ from src.config import (
     DEFAULT_CHAT_MODEL,
     DEFAULT_EMBED_MODEL,
     DEFAULT_CHAT_TEMPERATURE,
+    PERSONAL_AI_LLM_ENGINE,
+    PERSONAL_AI_OMLX_HOST,
+    PERSONAL_AI_OMLX_CHAT_MODEL,
+    PERSONAL_AI_EMBED_ENGINE,
+    PERSONAL_AI_OMLX_EMBED_MODEL,
 )
+from src.ai_engine.engine import build_chat_client, build_embed_client
+
+
+def _get_available_models(engine: str, host: str) -> list:
+    """Get list of available models for the selected engine and host."""
+    try:
+        if engine == "omlx":
+            client = build_chat_client(engine="omlx", host=host)
+        else:
+            client = build_chat_client(engine="ollama", host=host)
+        return client.list_models()
+    except Exception:
+        return []
 
 
 def render_config_page(current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -22,27 +40,105 @@ def render_config_page(current: Optional[Dict[str, Any]] = None) -> Dict[str, An
     """
     current = current or {}
 
-    col1, col2 = st.columns(2)
+    # Engine selection
+    st.subheader("Engine")
 
-    with col1:
-        st.subheader("Connection")
-        ollama_host = st.text_input(
-            "Ollama host",
-            value=current.get("ollama_host", DEFAULT_OLLAMA_HOST),
-            help="URL of your Ollama instance",
-        )
-        ollama_model = st.text_input(
-            "Chat model",
-            value=current.get("ollama_model", DEFAULT_CHAT_MODEL),
-            help="Model used for chat interactions",
-        )
-        ollama_embeddings = st.text_input(
-            "Embeddings model",
-            value=current.get("ollama_embeddings", DEFAULT_EMBED_MODEL),
-            help="Model used for vector embeddings",
+    # Determine which engine to select based on current config or default
+    engine = current.get("engine", PERSONAL_AI_LLM_ENGINE)
+    embed_engine = current.get("embed_engine", PERSONAL_AI_EMBED_ENGINE)
+
+    engine_radio = st.radio(
+        "LLM engine",
+        options=["ollama", "omlx"],
+        index=0 if engine == "ollama" else 1,
+        help="Choose which inference engine to use (Ollama or oMLX)",
+    )
+
+    embed_engine_radio = st.radio(
+        "Embeddings engine",
+        options=["ollama", "omlx"],
+        index=0 if embed_engine == "ollama" else 1,
+        help="Choose which inference engine to use for embeddings",
+    )
+
+    # Engine-specific settings
+    with st.expander("LLM Settings", expanded=True):
+        # Get the host based on the selected engine
+        if engine_radio == "omlx":
+            default_host = PERSONAL_AI_OMLX_HOST
+        else:
+            default_host = DEFAULT_OLLAMA_HOST
+
+        llm_host = st.text_input(
+            "LLM host",
+            value=current.get("llm_host", default_host),
+            help="URL of your LLM instance",
         )
 
-    with col2:
+        # Get available models based on engine and host
+        available_models = _get_available_models(engine_radio, llm_host)
+
+        if available_models:
+            # Model selection with fallback to text input
+            default_model = current.get("llm_model",
+                                       PERSONAL_AI_OMLX_CHAT_MODEL if engine_radio == "omlx"
+                                       else DEFAULT_CHAT_MODEL)
+            selected_model = st.selectbox(
+                "Chat model",
+                options=available_models,
+                index=available_models.index(default_model) if default_model in available_models else 0,
+                help="Model used for chat interactions",
+            )
+        else:
+            # Show text input if models can't be fetched
+            default_model = current.get("llm_model",
+                                       PERSONAL_AI_OMLX_CHAT_MODEL if engine_radio == "omlx"
+                                       else DEFAULT_CHAT_MODEL)
+            selected_model = st.text_input(
+                "Chat model",
+                value=default_model,
+                help="Model used for chat interactions (no live model list)",
+            )
+
+    with st.expander("Embeddings Settings", expanded=True):
+        # Get the embed host based on the selected embed engine
+        if embed_engine_radio == "omlx":
+            default_embed_host = PERSONAL_AI_OMLX_HOST
+        else:
+            default_embed_host = DEFAULT_OLLAMA_HOST
+
+        embed_host = st.text_input(
+            "Embeddings host",
+            value=current.get("embed_host", default_embed_host),
+            help="URL of your embedding instance",
+        )
+
+        # Get available embeddings models based on engine and host
+        available_embed_models = _get_available_models(embed_engine_radio, embed_host)
+
+        if available_embed_models:
+            # Model selection with fallback to text input
+            default_embed_model = current.get("embed_model",
+                                              PERSONAL_AI_OMLX_EMBED_MODEL if embed_engine_radio == "omlx"
+                                              else DEFAULT_EMBED_MODEL)
+            selected_embed_model = st.selectbox(
+                "Embeddings model",
+                options=available_embed_models,
+                index=available_embed_models.index(default_embed_model) if default_embed_model in available_embed_models else 0,
+                help="Model used for vector embeddings",
+            )
+        else:
+            # Show text input if models can't be fetched
+            default_embed_model = current.get("embed_model",
+                                              PERSONAL_AI_OMLX_EMBED_MODEL if embed_engine_radio == "omlx"
+                                              else DEFAULT_EMBED_MODEL)
+            selected_embed_model = st.text_input(
+                "Embeddings model",
+                value=default_embed_model,
+                help="Model used for vector embeddings (no live model list)",
+            )
+
+    with st.expander("Generation Settings", expanded=True):
         st.subheader("Generation")
         temperature = st.slider(
             "Temperature",
@@ -52,6 +148,14 @@ def render_config_page(current: Optional[Dict[str, Any]] = None) -> Dict[str, An
             step=0.1,
             help="Randomness of responses (higher = more creative). Lower "
             "values keep answers tightly grounded in your data.",
+        )
+        context_window = st.number_input(
+            "Context window (tokens)",
+            min_value=1024,
+            max_value=128000,
+            value=int(current.get("context_window_tokens", 8192)),
+            step=1024,
+            help="Context window size for the selected LLM (larger windows allow longer prompts)",
         )
         max_tokens = st.slider(
             "Max tokens",
@@ -68,10 +172,14 @@ def render_config_page(current: Optional[Dict[str, Any]] = None) -> Dict[str, An
         )
 
     return {
-        "ollama_host": ollama_host,
-        "ollama_model": ollama_model,
-        "ollama_embeddings": ollama_embeddings,
+        "engine": engine_radio,
+        "llm_host": llm_host,
+        "llm_model": selected_model,
+        "embed_engine": embed_engine_radio,
+        "embed_host": embed_host,
+        "embed_model": selected_embed_model,
         "temperature": temperature,
+        "context_window_tokens": context_window,
         "max_tokens": max_tokens,
         "stream": stream,
     }

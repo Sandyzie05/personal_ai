@@ -1,6 +1,7 @@
 from typing import Iterator, Optional, List, Dict, Any, Tuple
 
 from .ollama_client import OllamaClient, OllamaClientError
+from .engine import build_chat_client
 from .query_analysis import (
     detect_category_from_query,
     detect_provider_from_query,
@@ -58,8 +59,47 @@ class ChatEngine:
         ollama_client: Optional[OllamaClient] = None,
         vault_path: Optional[str] = None,
         encryption_key: Optional[bytes] = None,
+        model: Optional[str] = None,
+        context_window_tokens: Optional[int] = None,
+        system_prompt: Optional[str] = None,
+        rag_scope_categories: Optional[List[str]] = None,
     ):
-        self.ollama_client = ollama_client or OllamaClient()
+        """Build the chat engine.
+
+        The last four parameters are optional per-agent overrides for the
+        multi-agent layer (docs/multi_agent_design.md D6). With all of them
+        omitted, behavior is exactly the historical single-assistant one:
+        default Ollama client, `ChatEngine.SYSTEM_PROMPT`, unscoped RAG.
+
+        - `model` / `context_window_tokens`: generation settings. Applied to
+          a provided `ollama_client` (in place) or used to build a new one.
+        - `system_prompt`: replaces the grounding system prompt (the runtime
+          passes agent instructions + skills assembled here).
+        - `rag_scope_categories`: restricts both the structured-record scan
+          and the ChromaDB `where` clause to these document categories
+          (None/[] = unrestricted, today's behavior).
+        """
+        if ollama_client is None:
+            client_kwargs: Dict[str, Any] = {}
+            if model is not None:
+                client_kwargs["model"] = model
+            if context_window_tokens:
+                client_kwargs["context_window_tokens"] = context_window_tokens
+            # Use the engine factory to get the correct client
+            self.ollama_client = build_chat_client(**client_kwargs)
+        else:
+            self.ollama_client = ollama_client
+            if model is not None:
+                self.ollama_client.model = model
+            if context_window_tokens:
+                self.ollama_client.context_window_tokens = context_window_tokens
+        self.model = getattr(
+            self.ollama_client, "model", None
+        ) or self.DEFAULT_MODEL
+        self.system_prompt = system_prompt or ChatEngine.SYSTEM_PROMPT
+        self.rag_scope_categories: List[str] = (
+            list(rag_scope_categories) if rag_scope_categories else []
+        )
 
         self.vault = DataVault(vault_path=vault_path, encryption_key=encryption_key)
         self.rag_engine: Optional[RAGEngine] = None
@@ -70,19 +110,23 @@ class ChatEngine:
         """Ensure the chat model is available."""
         if lazy and self._model_loaded:
             return
-        if not self.ollama_client.model_exists(self.DEFAULT_MODEL):
-            if lazy:
-                # Don't pull in lazy mode, just warn
-                self._model_loaded = True
-                return
-            try:
-                self.ollama_client.pull_model(self.DEFAULT_MODEL)
-            except OllamaClientError as e:
-                if not lazy:
-                    raise ChatEngineError(
-                        f"Cannot chat without {self.DEFAULT_MODEL} model. "
-                        f"Please pull it manually: ollama pull {self.DEFAULT_MODEL}"
-                    ) from e
+        # Use the appropriate client for model existence checking
+        if hasattr(self.ollama_client, 'model_exists'):
+            if not self.ollama_client.model_exists(self.model):
+                if lazy:
+                    # Don't pull in lazy mode, just warn
+                    self._model_loaded = True
+                    return
+                try:
+                    self.ollama_client.pull_model(self.model)
+                except OllamaClientError as e:
+                    if not lazy:
+                        # Determine if we're using oMLX or Ollama for error message
+                        engine_name = "oMLX" if hasattr(self.ollama_client, 'host') and 'omlx' in self.ollama_client.host.lower() else "Ollama"
+                        raise ChatEngineError(
+                            f"Cannot chat without {self.model} model. "
+                            f"Please load it manually on the {engine_name} server."
+                        ) from e
         self._model_loaded = True
 
     def _load_vault_data_for_rag(self) -> List[Tuple[str, Dict[str, Any]]]:
@@ -192,6 +236,10 @@ class ChatEngine:
                 continue
 
             metadata = data.get("metadata", {}) or {}
+            if self.rag_scope_categories and (
+                metadata.get("category") not in self.rag_scope_categories
+            ):
+                continue
             if category and metadata.get("category") != category:
                 continue
 
@@ -377,10 +425,20 @@ class ChatEngine:
             self.initialize_rag()
 
         where: Optional[Dict[str, Any]] = None
-        if category and provider:
-            where = {"category": category, "provider": provider}
-        elif category:
-            where = {"category": category}
+        if category:
+            # Per-agent scope (rag_scope_categories) intersects with the
+            # query-detected category: a named in-scope category narrows to
+            # exactly that category; a named out-of-scope one falls back to
+            # the whole scope so retrieval stays inside the agent's data
+            # boundary (the grounding prompt then refuses honestly).
+            if self.rag_scope_categories and category not in self.rag_scope_categories:
+                where = {"category": {"$in": list(self.rag_scope_categories)}}
+            else:
+                where = {"category": category}
+                if provider:
+                    where["provider"] = provider
+        elif self.rag_scope_categories:
+            where = {"category": {"$in": list(self.rag_scope_categories)}}
         context = self.rag_engine.get_context_for_query(query, where=where)
 
         total_budget_chars = self._total_budget_chars(query)
@@ -428,7 +486,7 @@ class ChatEngine:
             )
 
         messages = (
-            [{"role": "system", "content": self.SYSTEM_PROMPT}]
+            [{"role": "system", "content": self.system_prompt}]
             + history
             + [{"role": "user", "content": prompt}]
         )
@@ -463,7 +521,7 @@ class ChatEngine:
             "missing rather than guessing."
         )
         messages = (
-            [{"role": "system", "content": self.SYSTEM_PROMPT}]
+            [{"role": "system", "content": self.system_prompt}]
             + fitted_history
             + [{"role": "user", "content": prompt}]
         )
@@ -483,11 +541,11 @@ class ChatEngine:
         reply/headroom reserve `_total_budget_chars` carves out), not the
         raw window size - RESERVED_TOKENS is headroom the conversation
         never gets to fill, not content that's already "used". Folding it
-        into `used_tokens` instead used to put a ~1024-token floor under
-        the meter, so a brand-new chat with zero messages showed ~13%
+        into `used_tokens` instead used to put a ~1024-token floor under the
+        meter, so a brand-new chat with zero messages showed ~13%
         "used" before the user had typed anything.
         """
-        used_tokens = estimate_tokens(self.SYSTEM_PROMPT)
+        used_tokens = estimate_tokens(self.system_prompt)
         used_tokens += sum(
             estimate_tokens(message.get("content", "")) for message in history
         )
@@ -511,8 +569,8 @@ class ChatEngine:
         history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Query the encrypted vault using chat model."""
-        if not self.ollama_client.model_exists(self.DEFAULT_MODEL):
-            raise ChatEngineError(f"Model '{self.DEFAULT_MODEL}' not available.")
+        if not self.ollama_client.model_exists(self.model):
+            raise ChatEngineError(f"Model '{self.model}' not available.")
 
         built = self._build_prompt(query, use_rag, history=history)
 
@@ -536,13 +594,13 @@ class ChatEngine:
         """Stream a chat response chunk by chunk.
 
         RAG retrieval and the model-availability check happen eagerly
-        (before returning) so callers see a `ChatEngineError` immediately
+        (        before returning) so callers see a `ChatEngineError` immediately
         instead of partway through rendering a partial answer. `.sources` on
         the returned object is available right away; iterating it yields
         text deltas as they arrive from Ollama.
         """
-        if not self.ollama_client.model_exists(self.DEFAULT_MODEL):
-            raise ChatEngineError(f"Model '{self.DEFAULT_MODEL}' not available.")
+        if not self.ollama_client.model_exists(self.model):
+            raise ChatEngineError(f"Model '{self.model}' not available.")
 
         built = self._build_prompt(query, use_rag, history=history)
         sources = built["sources"]
