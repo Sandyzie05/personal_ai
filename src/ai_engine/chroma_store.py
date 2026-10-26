@@ -1,12 +1,18 @@
 """ChromaDB vector store for RAG embeddings."""
 
+import hashlib
 import os
 import re
 from typing import List, Dict, Any, Optional
 import uuid
 
 from .embeddings import EmbeddingsGenerator
+from .hybrid import LexicalIndex, rrf
 from ..config import (
+    RAG_HYBRID_ENABLED,
+    RAG_MIN_QUERY_COVERAGE,
+    RAG_RRF_K,
+    CHUNKER_VERSION,
     DEFAULT_EMBED_CHUNK_TOKENS,
     DEFAULT_MIN_RELATIVE_SCORE,
     DEFAULT_MAX_PER_DOCUMENT,
@@ -25,6 +31,60 @@ DEFAULT_CHROMA_DIR = os.path.expanduser("~/.personal_ai_vault/.chroma")
 # safe even for base64 (which tokenizes ~1 char/token) against nomic-embed-text's
 # real 2048-token context.
 HARD_CHUNK_CHAR_CAP = 2000
+
+
+CANDIDATES = 20
+
+
+def _rank_key(d: Dict[str, Any]):
+    """Best score first; exact ties broken by document/chunk so ordering is reproducible."""
+    m = d.get("metadata") or {}
+    return (-round(d["score"], 6), str(m.get("storage_key", "")), str(m.get("chunk", "")))
+
+
+def dedupe_versions(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse re-uploads and superseded versions, keeping the newest upload.
+
+    Same `content_hash` = the same file uploaded again. Same provider + period + account (account must be
+    present on both, so two cards from one issuer are never merged) but different content = a later corrected
+    statement replacing the earlier one."""
+    def stamp(m):
+        return (str(m.get("upload_timestamp", "")), str(m.get("storage_key", "")))
+
+    def family(m):
+        if m.get("provider") and m.get("period_start") and m.get("period_end") and m.get("account_label"):
+            return ("v", m["provider"], m["period_start"], m["period_end"], m["account_label"])
+        return None
+
+    best: Dict[Any, Any] = {}
+    for d in docs:
+        m = d.get("metadata") or {}
+        for key in (("h", m["content_hash"]) if m.get("content_hash") else None, family(m)):
+            if key and (key not in best or stamp(m) > stamp(best[key])):
+                best[key] = m
+    out = []
+    for d in docs:
+        m = d.get("metadata") or {}
+        keys = [k for k in (("h", m.get("content_hash")) if m.get("content_hash") else None, family(m)) if k]
+        if all(best[k].get("storage_key") == m.get("storage_key") for k in keys):
+            out.append(d)
+    return out
+
+
+def contextual_header(meta: Dict[str, Any]) -> str:
+    """'Provider: X | Category: Y | Account: Z | Period: a..b | Document: t' from metadata.
+
+    Embedded with, and stored in, every chunk so a fragment still says whose bill and which period it
+    is. Missing fields are omitted, never guessed."""
+    parts = [f"{label}: {meta[key]}" for label, key in
+             (("Provider", "provider"), ("Category", "category"), ("Account", "account_label")) if meta.get(key)]
+    if meta.get("period_start") or meta.get("period_end"):
+        parts.append(f"Period: {meta.get('period_start') or '?'}..{meta.get('period_end') or '?'}")
+    if meta.get("title"):
+        parts.append(f"Document: {meta['title']}")
+    if meta.get("page"):
+        parts.append(f"Page {meta['page']}")
+    return " | ".join(parts)
 
 
 def distance_to_similarity(cosine_distance: float) -> float:
@@ -77,36 +137,46 @@ def _chunk_text(
     cap = max(chunk_chars, 1)
     overlap = max(0, min(overlap_chars, cap - 1))
 
-    # Prefer paragraph, then line, then word boundaries.
-    pieces = text.split("\n")
-    pieces = [p for p in (p.strip() for p in pieces) if p]
-    if not pieces:
-        pieces = [text.strip()]
+    # Pack consecutive lines into one chunk up to `cap` (a bill is ~1 chunk, not
+    # one chunk per line). Only an oversized line is word-split, and only
+    # those splits carry overlap.
+    pieces = [p for p in (p.strip() for p in text.split("\n")) if p]
 
     chunks: List[str] = []
+    buf = ""
     for piece in pieces:
         if len(piece) <= cap:
-            chunks.append(piece)
+            if buf and len(buf) + 1 + len(piece) <= cap:
+                buf += "\n" + piece
+            else:
+                if buf:
+                    chunks.append(buf)
+                buf = piece
             continue
-        words = piece.split()
+        if buf:
+            chunks.append(buf)
+            buf = ""
         current = ""
-        for word in words:
-            if not current:
+        for word in piece.split():
+            if len(word) > cap:  # pathological token: hard-split
+                if current:
+                    chunks.append(current)
+                    current = ""
+                chunks.extend(word[i : i + cap] for i in range(0, len(word), cap))
+            elif not current:
                 current = word
             elif len(current) + 1 + len(word) <= cap:
                 current += " " + word
             else:
                 chunks.append(current)
-                tail = current[-overlap:] if overlap else ""
-                current = f"{tail} {word}".strip() if tail else word
-        # A single word/pathological token can still exceed cap; hard-split it.
-        if len(current) > cap:
-            step = cap
-            while len(current) > step:
-                chunks.append(current[:step])
-                current = current[step:]
+                # overlap must still leave room for the word within the cap
+                room = max(0, min(overlap, cap - len(word) - 1))
+                tail = current[-room:] if room else ""
+                current = f"{tail} {word}" if tail else word
         if current:
             chunks.append(current)
+    if buf:
+        chunks.append(buf)
 
     return chunks
 
@@ -295,12 +365,20 @@ def _chunk_markdown(text: str, chunk_chars: int, overlap_chars: int = DEFAULT_CH
     return chunks
 
 
+def _chunk_doc(text: str, chunk_chars: int) -> List[str]:
+    """Markdown-aware when the text has markdown structure, else line-packing."""
+    if text and re.search(r"^(#{1,6}\s|\|.*\|$|```)", text, re.MULTILINE):
+        return _chunk_markdown(text, chunk_chars)
+    return _chunk_text(text, chunk_chars)
+
+
 def chunk_text(text: str, embed_context_tokens: int = 2048) -> List[str]:
     """Intelligently chunk text, preferring markdown-aware chunks when possible."""
     # Calculate chunk size based on embedding model's context
     chunk_chars = min(
         DEFAULT_EMBED_CHUNK_TOKENS * CHARS_PER_TOKEN_ESTIMATE,
-        max(HARD_CHUNK_CHAR_CAP, int(embed_context_tokens * CHARS_PER_TOKEN_ESTIMATE * 0.25))
+        HARD_CHUNK_CHAR_CAP,
+        int(embed_context_tokens * CHARS_PER_TOKEN_ESTIMATE * 0.25),
     )
 
     # Use markdown-aware chunking if the text seems to contain markdown
@@ -339,12 +417,24 @@ class ChromaStore:
         # old collection is simply abandoned on disk (safe to delete manually to
         # reclaim space) since the vault, not Chroma, is the source of truth
         # and initialize_rag() rebuilds the index from it every session.
-        collection_name: str = "personal_ai_vault_v3",
+        collection_name: str = "personal_ai_vault_v4",
         persist_directory: Optional[str] = None,
         min_relevance: float = DEFAULT_MIN_RELATIVE_SCORE,
         max_per_document: int = DEFAULT_MAX_PER_DOCUMENT,
+        chunker=None,
+        header: bool = True,
+        hybrid: bool = RAG_HYBRID_ENABLED,
+        dedupe_versions: bool = True,
+        min_coverage: float = RAG_MIN_QUERY_COVERAGE,
     ):
         self.embedding_generator = embedding_generator
+        # Overridable only so evals/rag can A/B the legacy per-line chunker.
+        self.chunker = chunker or _chunk_doc
+        self.header = header
+        self.hybrid = hybrid
+        self.dedupe_versions = dedupe_versions
+        self.min_coverage = min_coverage
+        self._lex: Optional[LexicalIndex] = None
         self.collection_name = collection_name
         self.persist_directory = persist_directory or DEFAULT_CHROMA_DIR
         self.collection = None
@@ -355,6 +445,7 @@ class ChromaStore:
         self.min_relevance = min_relevance
         self.max_per_document = max(1, max_per_document)
         self._last_retrieval: List[Dict[str, Any]] = []
+        self._dim: Optional[int] = None
 
     def _ensure_initialized(self) -> None:
         """Initialize ChromaDB client and collection lazily."""
@@ -375,11 +466,41 @@ class ChromaStore:
             )
 
             self.collection = self._client.get_or_create_collection(
-                name=self.collection_name, metadata={"hnsw:space": "cosine"}
+                name=self.collection_name, metadata=self._stamp()
             )
             self._initialized = True
         except Exception as e:
             raise ChromaStoreError(f"Failed to initialize ChromaDB: {str(e)}")
+
+    def _model_id(self) -> str:
+        client = getattr(self.embedding_generator, "client", None)
+        return str(getattr(client, "model", "") or "")
+
+    def _stamp(self) -> Dict[str, Any]:
+        """Collection metadata: what built this index (see stale_reason)."""
+        stamp: Dict[str, Any] = {"hnsw:space": "cosine", "chunker_version": CHUNKER_VERSION}
+        if self._model_id():
+            stamp["embed_model"] = self._model_id()
+        return stamp
+
+    def stale_reason(self) -> Optional[str]:
+        """Why this (possibly persisted) index must be rebuilt, or None. Never mixes vectors silently."""
+        self._ensure_initialized()
+        meta = self.collection.metadata or {}
+        if meta.get("chunker_version") not in (None, CHUNKER_VERSION):
+            return f"index built with chunker {meta['chunker_version']}, current is {CHUNKER_VERSION}"
+        if self._model_id() and meta.get("embed_model") not in (None, self._model_id()):
+            return f"index built with embedding model {meta['embed_model']}, current is {self._model_id()}"
+        return None
+
+    def delete_document(self, storage_key: str) -> None:
+        """Drop every chunk of one source document (before re-adding an edited one)."""
+        self._ensure_initialized()
+        try:
+            self._lex = None
+            self.collection.delete(where={"storage_key": storage_key})
+        except Exception as e:
+            raise ChromaStoreError(f"Failed to delete document: {e}")
 
     def add_documents(
         self, documents: List[str], metadatas: List[Dict[str, Any]] = None
@@ -410,8 +531,10 @@ class ChromaStore:
             chunked_docs: List[str] = []
             chunked_metas: List[Dict[str, Any]] = []
             for doc, meta in zip(documents, metadatas):
-                for i, chunk in enumerate(_chunk_text(doc, chunk_chars)):
-                    chunked_docs.append(chunk)
+                head = contextual_header(meta or {}) if self.header else ""
+                body_cap = max(chunk_chars - len(head) - 1, chunk_chars // 2)
+                for i, chunk in enumerate(self.chunker(doc, body_cap)):
+                    chunked_docs.append(f"{head}\n{chunk}" if head else chunk)
                     # `chunk` key also guarantees ChromaDB never sees the
                     # zero-key metadata dict it rejects on add().
                     chunked_metas.append(dict(meta or {}, chunk=str(i + 1)))
@@ -420,23 +543,32 @@ class ChromaStore:
                 return []
 
             if self.embedding_generator:
-                # Get prefixes from embedding generator
-                query_prefix = getattr(self.embedding_generator, 'document_prefix', "")
-                # Prefix only the text sent for embedding, not the stored/
-                # returned `chunked_docs` - the LLM should see the raw chunk,
-                # not the task instruction.
-                embeddings = [
-                    self.embedding_generator.generate_embedding(
-                        query_prefix + doc
-                    )
-                    for doc in chunked_docs
-                ]
+                # Prefix only the text sent for embedding, not the stored chunk: the LLM sees the raw chunk.
+                prefix = getattr(self.embedding_generator, "document_prefix", "")
+                embeddings = self.embedding_generator.generate_embeddings(
+                    [prefix + d for d in chunked_docs], salt=CHUNKER_VERSION
+                )
+                dim = len(embeddings[0])
+                if self._dim not in (None, dim):  # fail closed: never mix vector spaces
+                    raise ChromaStoreError(f"embedding dimension changed {self._dim} -> {dim}: rebuild the index")
+                self._dim = dim
             else:
                 embeddings = None
 
-            ids = [f"doc_{uuid.uuid4().hex[:8]}" for _ in chunked_docs]
+            # Deterministic ids: re-adding the same chunk is idempotent and retrieval ties break the same way every run.
+            ids = []
+            for doc, meta in zip(chunked_docs, chunked_metas):
+                base = "c_" + hashlib.sha256(
+                    f"{meta.get('storage_key', '')}|{meta.get('chunk')}|{doc}".encode()
+                ).hexdigest()[:16]
+                cid, n = base, 0
+                while cid in ids:
+                    n += 1
+                    cid = f"{base}_{n}"
+                ids.append(cid)
 
-            self.collection.add(
+            self._lex = None
+            self.collection.upsert(
                 embeddings=embeddings,
                 documents=chunked_docs,
                 metadatas=chunked_metas,
@@ -481,7 +613,8 @@ class ChromaStore:
             self.max_per_document if max_per_document is None else max_per_document
         )
         try:
-            query_kwargs: Dict[str, Any] = {"n_results": k}
+            # Over-fetch so per-document dedupe still leaves k chunks, and so the ANN's tie order cannot decide the cut.
+            query_kwargs: Dict[str, Any] = {"n_results": max(k * 4, CANDIDATES)}
             if where:
                 query_kwargs["where"] = where
 
@@ -499,10 +632,12 @@ class ChromaStore:
 
             docs: List[Dict[str, Any]] = []
             distances = results.get("distances", [None])[0] or []
+            ids = results.get("ids", [[]])[0] or []
             for i, doc in enumerate(results["documents"][0] or []):
                 distance = distances[i] if i < len(distances) else 0.0
                 docs.append(
                     {
+                        "id": ids[i] if i < len(ids) else None,
                         "content": doc,
                         "metadata": (
                             results["metadatas"][0][i]
@@ -518,14 +653,49 @@ class ChromaStore:
 
             if threshold >= 0:
                 docs = [d for d in docs if d["score"] >= threshold]
-            docs = self._dedupe_by_document(docs, per_doc)
-            docs.sort(key=lambda d: d["score"], reverse=True)
+            lex = None
+            if self.hybrid:
+                lex, docs = self._fuse_lexical(query, where, docs)
+            docs.sort(key=_rank_key if not self.hybrid else lambda d: (-d.get("rrf", 0.0), *_rank_key(d)[1:]))
+            if self.dedupe_versions:
+                docs = dedupe_versions(docs)
+            docs = self._dedupe_by_document(docs, per_doc)[:k]
+            if lex is not None and docs and self.min_coverage > 0:
+                if max(lex.coverage(query, d["id"]) for d in docs) < self.min_coverage:
+                    docs = []  # nothing in the index covers what was asked: abstain
 
             self._last_retrieval = docs
             return docs
 
         except Exception as e:
             raise ChromaStoreError(f"Failed to retrieve documents: {str(e)}")
+
+    def _lexical(self) -> LexicalIndex:
+        """BM25 index over every chunk, in memory only; rebuilt after any add/delete/reset."""
+        if self._lex is None:
+            got = self.collection.get(include=["documents"])
+            self._lex = LexicalIndex(got["ids"], got["documents"])
+        return self._lex
+
+    def _fuse_lexical(self, query: str, where, dense: List[Dict[str, Any]]):
+        """RRF over the dense and BM25 rankings (BM25 respects the same metadata filter)."""
+        lex = self._lexical()
+        allowed = set(self.collection.get(where=where, include=[])["ids"]) if where else None
+        lex_ids = lex.search(query, allowed, CANDIDATES)
+        by_id = {d["id"]: d for d in dense}
+        fused = rrf([[d["id"] for d in dense], lex_ids], RAG_RRF_K)
+        missing = [i for i in lex_ids if i not in by_id]
+        if missing:
+            got = self.collection.get(ids=missing, include=["documents", "metadatas"])
+            for cid, doc, meta in zip(got["ids"], got["documents"], got["metadatas"]):
+                # lexical-only hit: no dense score (0.0), it earned its place by exact terms
+                by_id[cid] = {"id": cid, "content": doc, "metadata": meta or {}, "distance": 1.0, "score": 0.0}
+        out = []
+        for cid, r in fused.items():
+            d = dict(by_id[cid])
+            d["rrf"] = r
+            out.append(d)
+        return lex, out
 
     @staticmethod
     def _dedupe_by_document(
@@ -562,6 +732,7 @@ class ChromaStore:
         """Delete all documents from the collection."""
         self._ensure_initialized()
         try:
+            self._lex = None
             self.collection.delete(where={"id": {"$ne": ""}})
             return True
         except Exception as e:
@@ -589,6 +760,21 @@ class ChromaStore:
 
         except Exception as e:
             raise ChromaStoreError(f"Failed to get documents: {str(e)}")
+
+    def reset(self) -> None:
+        """Drop and recreate the collection (e.g. after an embedding-model change).
+
+        delete_all() filters on a metadata key and is not a reliable wipe."""
+        self._ensure_initialized()
+        try:
+            self._client.delete_collection(self.collection_name)
+            self.collection = self._client.get_or_create_collection(
+                name=self.collection_name, metadata=self._stamp()
+            )
+            self._dim = None
+            self._lex = None
+        except Exception as e:
+            raise ChromaStoreError(f"Failed to reset store: {str(e)}")
 
     def clear(self) -> bool:
         """Clear all data from the store."""

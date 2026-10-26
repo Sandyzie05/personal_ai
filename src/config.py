@@ -13,14 +13,25 @@ import os
 DEFAULT_OLLAMA_HOST = os.environ.get(
     "PERSONAL_AI_OLLAMA_HOST", "http://localhost:11434"
 )
-DEFAULT_CHAT_MODEL = os.environ.get("PERSONAL_AI_CHAT_MODEL", "llama3.2:latest")
 DEFAULT_EMBED_MODEL = os.environ.get("PERSONAL_AI_EMBED_MODEL", "nomic-embed-text")
 
-# Engine selection for LLM inference (ollama|omlx)
-PERSONAL_AI_LLM_ENGINE = os.environ.get("PERSONAL_AI_LLM_ENGINE", "ollama")
+# Resolved after the engine below: oMLX model unless PERSONAL_AI_CHAT_MODEL is set.
+# Ollama is disabled by default: inference and embeddings run on oMLX. Set
+# PERSONAL_AI_OLLAMA_ENABLED=true to bring it back (code path is kept intact).
+OLLAMA_ENABLED = os.environ.get("PERSONAL_AI_OLLAMA_ENABLED", "false").lower() in ("1", "true", "yes")
+
+# Engine selection for LLM inference (omlx|ollama)
+PERSONAL_AI_LLM_ENGINE = os.environ.get("PERSONAL_AI_LLM_ENGINE", "omlx")
 PERSONAL_AI_OMLX_HOST = os.environ.get("PERSONAL_AI_OMLX_HOST", "http://127.0.0.1:8000")
 PERSONAL_AI_OMLX_CHAT_MODEL = os.environ.get("PERSONAL_AI_OMLX_CHAT_MODEL", "Qwen3.8-27B-4bit")
+DEFAULT_CHAT_MODEL = os.environ.get("PERSONAL_AI_CHAT_MODEL") or (
+    PERSONAL_AI_OMLX_CHAT_MODEL if PERSONAL_AI_LLM_ENGINE == "omlx" else "llama3.2:latest"
+)
 PERSONAL_AI_EMBED_ENGINE = os.environ.get("PERSONAL_AI_EMBED_ENGINE", "omlx")
+# oMLX /v1/models exposes no capability flags, so tool support is declared here.
+OMLX_SUPPORTS_TOOLS = os.environ.get("PERSONAL_AI_OMLX_TOOLS", "true").lower() in ("1", "true", "yes")
+# Optional LLM planner for the Coordinator (off: rule-based plan_for). Its output still passes validate_plan.
+PERSONAL_AI_LLM_PLANNER = os.environ.get("PERSONAL_AI_LLM_PLANNER", "false").lower() in ("1", "true", "yes")
 PERSONAL_AI_OMLX_EMBED_MODEL = os.environ.get("PERSONAL_AI_OMLX_EMBED_MODEL", "mlx-community/Qwen3-VL-Embedding-2B-8bit")
 
 # Default generation temperature for grounded QA. 0.7 (the old default) is too
@@ -69,6 +80,28 @@ DEFAULT_EMBED_CHUNK_TOKENS = int(
 # still surface.
 DEFAULT_MAX_PER_DOCUMENT = int(
     os.environ.get("PERSONAL_AI_MAX_CHUNKS_PER_DOCUMENT", "3")
+)
+
+# Texts per embeddings HTTP call (oMLX accepts a list `input`); cached vectors are never re-requested.
+EMBED_BATCH_SIZE = int(os.environ.get("PERSONAL_AI_EMBED_BATCH_SIZE", "32"))
+
+# Bump when chunking/header format changes: stamps the index and salts the embedding cache.
+CHUNKER_VERSION = "v2-packed-header"
+
+# Sampling temperature for document Q&A (answers must quote the context, not improvise).
+RAG_QA_TEMPERATURE = float(os.environ.get("PERSONAL_AI_RAG_QA_TEMPERATURE", "0.1"))
+
+# Hybrid retrieval: dense + in-memory BM25 fused with RRF. A query whose distinctive terms (IDF-weighted) are
+# less than this share covered by the best chunk is answered "not found" without calling the model.
+# Calibrated on evals/rag (never lower it to make an answer appear).
+RAG_HYBRID_ENABLED = os.environ.get("PERSONAL_AI_RAG_HYBRID", "true").lower() == "true"
+RAG_MIN_QUERY_COVERAGE = float(os.environ.get("PERSONAL_AI_RAG_MIN_COVERAGE", "0.5"))
+RAG_RRF_K = 60
+
+# Qwen3 embedding models expect queries (not documents) in this instruction format.
+QWEN_QUERY_INSTRUCTION = (
+    "Instruct: Given a question about the user's own bills and statements, "
+    "retrieve the passages that answer it\nQuery: "
 )
 
 # Overlap (chars) carried from the tail of one chunk into the start of the

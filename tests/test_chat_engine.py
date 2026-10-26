@@ -462,9 +462,9 @@ def test_build_prompt_scopes_rag_by_provider_when_no_structured_records(engine):
         "what did I spend on my Chase credit card?", use_rag=True
     )
 
+    # Chroma rejects a flat two-key filter (and RAGEngine swallowed that as "no results"): must be $and.
     assert engine.rag_engine.last_where == {
-        "category": "credit_card",
-        "provider": "Chase",
+        "$and": [{"category": "credit_card"}, {"provider": "Chase"}]
     }
     assert built["context_used"] == "chase card text"
 
@@ -579,3 +579,20 @@ def test_estimate_usage_accounts_for_pending_context(engine):
     with_context = engine.estimate_usage(history=[], pending_context="z" * 400)
 
     assert with_context["used_tokens"] > without_context["used_tokens"]
+
+
+def test_build_prompt_adds_period_filter_for_named_month(tmp_path):
+    engine = make_engine(tmp_path)
+    engine.rag_engine = FakeRagEngine(context="x")
+    engine._build_prompt("what was my electricity bill for March 2026?", use_rag=True)
+    assert engine.rag_engine.last_where == {"$and": [
+        {"category": "electricity"},
+        {"period_end_n": {"$gte": 20260301}}, {"period_start_n": {"$lte": 20260331}}]}
+
+
+def test_rag_metadata_carries_period_title_and_hash(engine):
+    meta = engine._rag_metadata_for("k", {"text_content": "hello", "metadata": {
+        "category": "gas", "provider": "P", "period_start": "2026-03-01", "period_end": "2026-03-31",
+        "original_filename": "f.pdf"}})
+    assert meta["period_start_n"] == 20260301 and meta["period_end_n"] == 20260331
+    assert meta["title"] == "f.pdf" and len(meta["content_hash"]) == 16

@@ -153,6 +153,15 @@ INTERNAL_VAULT_KEYS = {
     "agents_index",
     "mcp_servers",
     "agent_activity_log",
+    # Core Memory (pending proposals are UNAPPROVED, possibly untrusted-derived: must never be
+    # indexed into RAG or shown as documents) and the scheduler.
+    "core_memory",
+    "core_memory_pending",
+    "agent_schedule",
+    # Ingestion pipeline (rag_design S-R3): manifest, expected-bills ledger, portal recipes.
+    "ingest_manifest",
+    "ingest_expectations",
+    "portal_recipes",
 }
 
 
@@ -163,6 +172,7 @@ def is_internal_vault_key(key: str) -> bool:
         or key.startswith("chat_history")
         or key.startswith("agent_run_")
         or key.startswith("mcp_oauth_")
+        or key.startswith("portal_cred_")
         or key.startswith("forecast_snapshot_")
         or key.startswith("forecast_outcome_")
         or key in INTERNAL_VAULT_KEYS

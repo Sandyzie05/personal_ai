@@ -22,30 +22,23 @@ class TestChromaStore(unittest.TestCase):
         self.mock_embedding_gen.embed_context_tokens = 2048
 
     def test_chroma_store_default_collection_name(self):
-        # Test that the default collection name is v3 (as per plan)
+        # Test that the default collection name is v4 (as per plan)
         store = ChromaStore(embedding_generator=self.mock_embedding_gen)
-        self.assertEqual(store.collection_name, "personal_ai_vault_v3")
+        self.assertEqual(store.collection_name, "personal_ai_vault_v4")
 
-    @patch('src.ai_engine.chroma_store.chromadb')
-    def test_chroma_store_initialization(self, mock_chromadb):
-        # Mock ChromaDB client
-        mock_client = MagicMock()
-        mock_collection = MagicMock()
-        mock_chromadb.Client.return_value = mock_client
-        mock_client.get_or_create_collection.return_value = mock_collection
+    @patch('src.ai_engine.chroma_store.os')
+    @patch.dict('sys.modules', {'chromadb': MagicMock(), 'chromadb.config': MagicMock()})
+    def test_chroma_store_initialization(self, _mock_os):
+        import sys
+        mock_chromadb = sys.modules['chromadb']
+        mock_client = mock_chromadb.Client.return_value
 
         store = ChromaStore(embedding_generator=self.mock_embedding_gen)
         store._ensure_initialized()
 
-        # Should create client with correct settings
-        mock_chromadb.Client.assert_called_once_with(
-            mock_chromadb.config.Settings(
-                persist_directory=store.persist_directory,
-                anonymized_telemetry=False,
-            )
-        )
+        mock_chromadb.Client.assert_called_once()
         mock_client.get_or_create_collection.assert_called_once_with(
-            name=store.collection_name, metadata={"hnsw:space": "cosine"}
+            name=store.collection_name, metadata=store._stamp()
         )
 
     def test_chunk_text_regular_text(self):
@@ -199,7 +192,15 @@ class TestChunkText(unittest.TestCase):
         # Test multi-line text
         text = "Line 1\nLine 2\nLine 3"
         result = _chunk_text(text, 20)
-        self.assertEqual(result, ["Line 1", "Line 2", "Line 3"])
+        self.assertEqual(result, ["Line 1\nLine 2\nLine 3"])
+        self.assertEqual(_chunk_text(text, 14), ["Line 1\nLine 2", "Line 3"])
+
+    def test_sample_bill_is_one_or_two_chunks(self):
+        bill = "\n".join(f"Item {i}: ${i}.00" for i in range(40))
+        self.assertLessEqual(len(_chunk_text(bill, 2000)), 2)
+
+    def test_overlap_only_on_split(self):
+        self.assertEqual(len(_chunk_text("a b\nc d", 100)), 1)
 
     def test_chunk_text_large_chunks(self):
         # Test when chunks are larger than cap

@@ -1,5 +1,6 @@
 """RAG (Retrieval-Augmented Generation) engine."""
 
+import hashlib
 import logging
 import uuid
 from typing import List, Dict, Any, Optional
@@ -8,10 +9,41 @@ from .embeddings import EmbeddingsGenerator
 from ..config import DEFAULT_MIN_RELATIVE_SCORE, DEFAULT_MAX_PER_DOCUMENT
 from ..ai_engine.chroma_store import (
     ChromaStore as _ChromaStore,
+    contextual_header,
     ChromaStoreError as _ChromaStoreError,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def evidence_key(doc: Dict[str, Any]) -> str:
+    meta = doc.get("metadata") or {}
+    return str(meta.get("storage_key") or hashlib.sha256(doc["content"].encode()).hexdigest())
+
+
+def evidence_id(key: str) -> str:
+    """Stable citation handle for a source document: ev_ + 8 hex of sha256(storage key)."""
+    return "ev_" + hashlib.sha256(key.encode()).hexdigest()[:8]
+
+
+def _int(v: Any) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _period(meta: Dict[str, Any]) -> str:
+    start, end = meta.get("period_start"), meta.get("period_end")
+    if start and end:
+        return start if start[:7] == end[:7] else f"{start}..{end}"
+    return start or end or ""
+
+
+def _strip_header(content: str, meta: Dict[str, Any]) -> str:
+    """The contextual header is embedded for retrieval; the block label already says it, so don't repeat it."""
+    head = contextual_header(meta)
+    return content[len(head) + 1 :] if head and content.startswith(head + "\n") else content
 
 
 class RAGEngineError(Exception):
@@ -65,7 +97,10 @@ class RAGEngine:
             if doc_id is None:
                 doc_id = f"doc_{uuid.uuid4().hex[:8]}"
 
-            self._get_chroma_store().add_documents([content], [metadata or {}])
+            store = self._get_chroma_store()
+            if (metadata or {}).get("storage_key"):  # edited/re-uploaded doc: replace, don't pile up stale chunks
+                store.delete_document(metadata["storage_key"])
+            store.add_documents([content], [metadata or {}])
             return doc_id
         except _ChromaStoreError as e:
             raise RAGEngineError(f"Failed to add document: {str(e)}")
@@ -117,35 +152,35 @@ class RAGEngine:
     def get_context_for_query(
         self, query: str, where: Optional[Dict[str, Any]] = None, k: int = None
     ) -> str:
-        """Get context text for a query, optionally scoped by metadata.
+        """Context text for a query: one labelled block per source document.
 
-        Respects `self.top_k` (a hardcoded `k=3` previously ignored it) and
-        labels each chunk with its source so the model can tell chunks apart and
-        a hallucination can be traced back to a specific chunk + score.
-        """
+        Block = `[Source n | provider | category | period | id=ev_xxxxxxxx]` + that document's retrieved chunks in
+        page/chunk order. `n` is the relevance rank (1 = best) so a budget can drop the highest numbers first;
+        blocks are *shown* newest period first. `id` is a stable evidence handle the answer must cite."""
         if k is None:
             k = self.top_k
         docs = self.retrieve_relevant(query, k=k, where=where)
-        if docs:
-            labeled = [
-                f"[Source {i}: {self._source_label(doc, i)}]\n{doc['content']}"
-                for i, doc in enumerate(docs, 1)
-            ]
-            return "\n\n".join(labeled)
-        return ""
+        if not docs:
+            return ""
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for d in docs:  # docs arrive best-first
+            groups.setdefault(evidence_key(d), []).append(d)
+        blocks = []
+        for rank, (key, chunks) in enumerate(groups.items(), 1):
+            meta = chunks[0].get("metadata") or {}
+            chunks.sort(key=lambda c: _int((c.get("metadata") or {}).get("chunk")))
+            body = "\n".join(_strip_header(c["content"], c.get("metadata") or {}) for c in chunks)
+            fields = [meta.get("provider") or meta.get("title"), meta.get("category"), _period(meta)]
+            label = " | ".join(str(f) for f in [f"Source {rank}", *fields] if f) + f" | id={evidence_id(key)}"
+            blocks.append((meta.get("period_end") or "", rank, f"[{label}]\n{body}"))
+        blocks.sort(key=lambda b: (b[0] == "", [-ord(c) for c in b[0]], b[1]))
+        return "\n\n".join(b[2] for b in blocks)
 
     def _source_label(self, doc: Dict[str, Any], index: int) -> str:
-        """Short human/citation label for a retrieved chunk."""
+        """Short label for a retrieved chunk in diagnostics."""
         meta = doc.get("metadata") or {}
-        provider = (
-            meta.get("provider")
-            or meta.get("original_filename")
-            or meta.get("category")
-        )
-        label = f"chunk #{index}"
-        if provider:
-            label = f"{label} · {provider}"
-        return label
+        provider = meta.get("provider") or meta.get("original_filename") or meta.get("category")
+        return f"chunk #{index} · {provider}" if provider else f"chunk #{index}"
 
     def _log_retrieval(self, query: str, docs: List[Dict[str, Any]]) -> None:
         """Diagnostic log of what was (or wasn't) found, to debug hallucination.

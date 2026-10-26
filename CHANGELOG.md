@@ -4,6 +4,49 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-10-25 - feat: RAG R0-R6, ingestion R7-R10, orchestration backlog B1-B16
+
+- RAG: chunk-per-line fix, contextual headers, batched/cached embeddings (encrypted vault cache), hybrid dense+BM25 with RRF, evidence-id context, abstention without a model call, deterministic grounding check; collection `personal_ai_vault_v4` (rebuild index). `make eval-rag`: recall@5 0.445 to 1.0, context precision 0.11 to 0.93 (stand-in embedder). Fixed provider-scoped retrieval returning nothing (flat `where`).
+- Ingestion: `validate_pdf`, manifest/ledger/dedupe/supersede, headless `run_ingest`, Sync panel, Gmail attachment fetcher (read-only), Playwright portal recipe framework (mock-portal tested; no real provider recipes).
+- Platform: Scheduled tab + flock, Gmail/brokerage workers, single-use approval tokens, selectable specialists, optional LLM planner (off), verifier, cancel tokens, expense accuracy (partial quarters), forecaster high/low/volume, oMLX client fixes (streamed tool calls, json_schema), `make eval-live`, `evals/userguide.py`.
+- Tests: 635 pass; `make eval` and `make eval-rag` PASS. Not verified on live oMLX.
+
+## (pending) - 2026-10-25 - docs: consolidation, user testing guide
+
+- `docs/` consolidated: `system_architecture.md` + `development_planning.md` merged into `architecture.md`; `ai_engine.md` rewritten oMLX-first
+  (removed the stale llama-index/Ollama setup and an example that stored a password in the vault); `forecasting_system.md` updated to the real
+  modules; `multi_agent_design.md` trimmed to the runtime reference (superseded planning sections replaced by pointers); `security_design.md` gained
+  an at-a-glance table and contents; new `docs/README.md` index. Broken README links fixed.
+- New `docs/user_testing_guide.md` (RAG, agents, predictions, security spot checks) and `scripts/make_test_bills.py` (9 synthetic PDFs incl. a
+  conflicting bill and a hostile PDF).
+- Found while writing the guide: `expense_worker` mixes categories and does not flag partial quarters (backlog B15).
+- Removed three leftover agent worktrees/branches.
+
+## (pending) - 2026-10-25 - docs: RAG diagnosis, design and plan (`docs/rag_design.md`)
+
+- Documented the actual encoder, chunking, similarity and context assembly, with the root causes of inaccurate/hallucinated answers
+  (chunk-per-line fragmentation, no contextual headers, no Qwen query instruction, dense-only retrieval, permissive 0.20 threshold,
+  no grounding check, no incremental indexing, no retrieval eval). Plan R0-R11 includes Gmail attachment ingestion and a constrained
+  browser-agent design for portal bill downloads (deterministic recipes, credentials never given to an LLM, human-in-the-loop 2FA).
+  Decision recorded: Advanced RAG inside the document retriever, Modular only at coordinator level (platform_plan D8, rag_design §8.1).
+  Added `.idea/capstone-week-3.md` (retrieval checkpoint). No code changed for this entry.
+
+## (pending) - 2026-10-25 - feat: multi-agent platform, stock_predictor merge, oMLX-only
+
+- oMLX default; Ollama gated by `PERSONAL_AI_OLLAMA_ENABLED`; OpenAI-shape tool-call adapter; saved Ollama configs migrate;
+  "Rebuild RAG Index" now truly drops and re-embeds (`ChromaStore.reset`).
+- Ported stock_predictor logic as pure services: `forecaster/{technical,recommend,screens,news,report,health}.py`; Forecast
+  page sections (Recommendations, Validation, Events, Drilldown, Screens). Price-only proxies; no fundamentals/volume.
+- `src/agents/orchestration/`: typed schemas, scoped bus, quarantine, Core Memory gate, parallel coordinator, workers,
+  Gmail read-only + portal interface, scheduler, request policy (refusals), built-in agent templates + `skills/` pack.
+- `evals/` + `make eval`; fixes found by it: quarantine accepted plain-English injections, stale data served as fresh,
+  conflicting records produced confident output, duplicate statements double-counted, ungrounded budget claim.
+- Docs: `docs/platform_plan.md` (executable plan), `docs/capstone_feedback_response.md`, security_design changelog.
+- Independent audit (24 findings) fixed with regression tests; see `docs/platform_plan.md` §6.2. Highlights: Core Memory keys
+  were RAG-indexable (now internal), free text from untrusted sources can no longer reach summaries, per-step coordinator
+  timeouts with immutable results, oMLX loopback-only, Ollama gate not bypassable, vault only touched on the calling thread.
+- Known: 3 pre-existing failures in `tests/test_chroma_store.py`; oMLX untested against a live server; no live portal scraping.
+
 ## (pending) - 2026-08-30 - feat: multi-account disambiguation for credit card/checking uploads + smarter upload form
 
 Ahead of importing multiple credit cards and two checking accounts: the

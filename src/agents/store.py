@@ -113,6 +113,15 @@ def list_agents(vault: Any) -> List[Dict[str, Any]]:
 def get_agent(vault: Any, agent_id: str) -> Optional[Dict[str, Any]]:
     if agent_id == GENERAL_AGENT_ID:
         return general_agent()
+    if not agent_id:
+        return None
+    if agent_id.startswith("builtin-"):
+        import copy
+
+        from src.agents.orchestration.templates import BUILTIN_AGENTS
+
+        found = BUILTIN_AGENTS.get(agent_id)
+        return copy.deepcopy(found) if found else None
     for agent in list_agents(vault):
         if agent.get("id") == agent_id:
             return agent

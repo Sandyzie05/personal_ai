@@ -21,6 +21,10 @@ from src.config import (
 class TestEngineFactory(unittest.TestCase):
 
     def setUp(self):
+        # These cases cover the (opt-in) Ollama path; disabled-path tests live below.
+        patcher = patch("src.ai_engine.engine.OLLAMA_ENABLED", True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         for name in ("PERSONAL_AI_LLM_ENGINE", "PERSONAL_AI_EMBED_ENGINE"):
             patcher = patch(f"src.ai_engine.engine.{name}", "ollama")
             patcher.start()
@@ -248,3 +252,32 @@ class TestEngineFactory(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class TestOllamaDisabled(unittest.TestCase):
+    def setUp(self):
+        for name, val in (("OLLAMA_ENABLED", False), ("PERSONAL_AI_LLM_ENGINE", "omlx"),
+                          ("PERSONAL_AI_EMBED_ENGINE", "omlx")):
+            p = patch(f"src.ai_engine.engine.{name}", val)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_explicit_ollama_raises(self):
+        from src.ai_engine.engine import EngineDisabledError
+        with self.assertRaises(EngineDisabledError):
+            build_chat_client(engine="ollama")
+        with self.assertRaises(EngineDisabledError):
+            build_embed_client(engine="ollama")
+
+    def test_defaults_build_omlx(self):
+        self.assertEqual(type(build_chat_client()).__name__, "OmlxClient")
+        self.assertEqual(type(build_embed_client()).__name__, "OmlxClient")
+
+    def test_saved_ollama_config_migrates_and_drops_ollama_host_model(self):
+        kw = client_kwargs_from_config({
+            "engine": "ollama", "llm_host": "http://localhost:11434", "llm_model": "llama3.2:latest",
+            "embed_engine": "ollama", "embed_model": "nomic-embed-text",
+        })
+        self.assertEqual((kw["engine"], kw["embed_engine"]), ("omlx", "omlx"))
+        self.assertIsNone(kw["host"]); self.assertIsNone(kw["model"]); self.assertIsNone(kw["embed_model"])
+        client = build_chat_client(**{k: kw[k] for k in ("engine", "host", "model")})
+        self.assertEqual(client.model, PERSONAL_AI_OMLX_CHAT_MODEL)

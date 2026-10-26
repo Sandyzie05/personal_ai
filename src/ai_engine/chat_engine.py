@@ -1,21 +1,31 @@
+import hashlib
+import re
+from contextlib import contextmanager
 from typing import Iterator, Optional, List, Dict, Any, Tuple
 
 from .ollama_client import OllamaClient, OllamaClientError
 from .engine import build_chat_client
 from .query_analysis import (
+    build_rag_filter,
     detect_category_from_query,
     detect_provider_from_query,
+    iso_to_int,
     parse_relative_date_range,
 )
-from .rag_engine import RAGEngine
+from .embeddings import VaultEmbeddingCache
+from .grounding import check as check_grounding, note as grounding_note
+from .rag_engine import RAGEngine, evidence_id, evidence_key
 
 from src.data_vault import DataVault, DataVaultError, is_internal_vault_key
-from src.config import DEFAULT_CHAT_MODEL, CHARS_PER_TOKEN_ESTIMATE
+from src.config import DEFAULT_CHAT_MODEL, CHARS_PER_TOKEN_ESTIMATE, RAG_QA_TEMPERATURE
 
 # Reserve headroom for the system prompt, the user's question, and the
 # model's own reply so RAG context alone can't push the request over the
 # model's context window.
 RESERVED_TOKENS = 1024
+
+# Templated answer when retrieval finds nothing: the model is not asked to improvise one.
+NOT_FOUND = "I cannot find this information in your vault."
 
 
 def estimate_tokens(text: str) -> int:
@@ -156,12 +166,21 @@ class ChatEngine:
         institution instead of falling back to the filename."""
         metadata = data.get("metadata", {}) or {}
         rag_metadata: Dict[str, Any] = {"storage_key": key}
-        category = metadata.get("category")
-        if category:
-            rag_metadata["category"] = category
-        provider = metadata.get("provider")
-        if provider:
-            rag_metadata["provider"] = provider
+        for src, dst in (("category", "category"), ("provider", "provider"), ("account_label", "account_label"),
+                         ("period_start", "period_start"), ("period_end", "period_end"),
+                         ("original_filename", "title"), ("upload_timestamp", "upload_timestamp")):
+            if metadata.get(src):
+                rag_metadata[dst] = str(metadata[src])
+        # Chroma range filters need numbers (see query_analysis.build_rag_filter).
+        for k in ("period_start", "period_end"):
+            if k in rag_metadata and re.fullmatch(r"\d{4}-\d{2}-\d{2}", rag_metadata[k]):
+                rag_metadata[f"{k}_n"] = iso_to_int(rag_metadata[k])
+        # Unknown period = "could be any period" (never excluded by a period filter, ranked by relevance).
+        rag_metadata.setdefault("period_start_n", 0)
+        rag_metadata.setdefault("period_end_n", 99991231)
+        text = data.get("text_content")
+        if isinstance(text, str) and text:
+            rag_metadata["content_hash"] = hashlib.sha256(text.encode()).hexdigest()[:16]
         return rag_metadata
 
     def _data_to_text(self, data: Dict[str, Any]) -> str:
@@ -185,13 +204,50 @@ class ChatEngine:
                 text_parts.append(f"{key}: {value}")
         return " ".join(filter(None, text_parts))
 
+    def _new_rag_engine(self) -> RAGEngine:
+        # Colocate the search index with the vault; embeddings are cached inside the encrypted vault so an
+        # unchanged document is never re-embedded (app open with no changes = 0 embed calls).
+        engine = RAGEngine(persist_directory=str(self.vault.vault_path / ".chroma"))
+        engine.embedding_generator.cache = VaultEmbeddingCache(self.vault)
+        return engine
+
+    def rag_index_stale(self) -> Optional[str]:
+        """Reason the index no longer matches the embedding model/chunker (UI shows a rebuild prompt), or None."""
+        if self.rag_engine is None or not hasattr(self.rag_engine, "_get_chroma_store"):
+            return None
+        try:
+            return self.rag_engine._get_chroma_store().stale_reason()
+        except Exception:
+            return None
+
+    def rebuild_rag_index(self) -> int:
+        """Wipe the vector index and re-embed every vault document with the current
+        embedding model. Returns the number of indexed documents."""
+        if self.rag_engine is not None:
+            self.rag_engine._get_chroma_store().reset()
+        else:
+            self.rag_engine = self._new_rag_engine()
+            self.rag_engine._get_chroma_store().reset()
+        self.rag_engine._initialized = True
+        items = self._load_vault_data_for_rag()
+        try:
+            if items:
+                self.rag_engine.add_documents(
+                    [t for t, _ in items], [m for _, m in items]
+                )
+        except Exception as exc:  # the collection was already dropped: say so instead of leaving a silent empty index
+            raise RuntimeError(
+                "Index was cleared but re-embedding failed "
+                f"({type(exc).__name__}); start the embedding server and run Rebuild RAG Index again."
+            ) from exc
+        return len(items)
+
     def initialize_rag(self) -> None:
         """Initialize RAG engine with vault data."""
         if self.rag_engine is None:
             # Colocate the (unencrypted) semantic search index with the vault
             # directory rather than the process cwd.
-            chroma_dir = str(self.vault.vault_path / ".chroma")
-            self.rag_engine = RAGEngine(persist_directory=chroma_dir)
+            self.rag_engine = self._new_rag_engine()
             self.rag_engine._initialized = True  # Skip lazy init checks
             items = self._load_vault_data_for_rag()
             if items:
@@ -267,7 +323,7 @@ class ChatEngine:
 
         return records
 
-    def _known_providers_for_category(self, category: str) -> List[str]:
+    def _known_providers_for_category(self, category: Optional[str]) -> List[str]:
         """Distinct `metadata.provider` values for vault documents in this
         category - independent of whether structured extraction succeeded.
 
@@ -289,7 +345,7 @@ class ChatEngine:
             if not data or not isinstance(data, dict):
                 continue
             metadata = data.get("metadata", {}) or {}
-            if metadata.get("category") != category:
+            if category and metadata.get("category") != category:
                 continue
             provider = metadata.get("provider")
             if isinstance(provider, str) and provider.strip():
@@ -325,10 +381,23 @@ class ChatEngine:
         """
         if len(context) <= budget_chars:
             return context
-        return (
-            context[:budget_chars]
-            + "\n\n[...context truncated to fit model context window...]"
-        )
+        marker = "\n\n[...context truncated to fit model context window...]"
+        blocks = re.split(r"\n\n(?=\[Source \d+)", context)
+        if len(blocks) > 1 and all(b.startswith("[Source ") for b in blocks):
+            # Drop whole blocks, least relevant (highest Source number) first: never cut a table in half.
+            rank = lambda b: int(re.match(r"\[Source (\d+)", b).group(1))
+            kept = sorted(blocks, key=rank)
+            while len(kept) > 1 and len("\n\n".join(kept)) > budget_chars:
+                kept.pop()
+            blocks_kept = [b for b in blocks if b in kept]
+            fitted = "\n\n".join(blocks_kept)
+            if len(fitted) <= budget_chars:
+                return fitted + marker
+            context = fitted  # a single over-budget block: cut it at a line boundary below
+        cut = context[:budget_chars]
+        if "\n" in cut:
+            cut = cut[: cut.rindex("\n")]
+        return cut + marker
 
     def _fit_history_to_budget(
         self, history: List[Dict[str, str]], budget_chars: int
@@ -424,21 +493,12 @@ class ChatEngine:
         if self.rag_engine is None:
             self.initialize_rag()
 
-        where: Optional[Dict[str, Any]] = None
-        if category:
-            # Per-agent scope (rag_scope_categories) intersects with the
-            # query-detected category: a named in-scope category narrows to
-            # exactly that category; a named out-of-scope one falls back to
-            # the whole scope so retrieval stays inside the agent's data
-            # boundary (the grounding prompt then refuses honestly).
-            if self.rag_scope_categories and category not in self.rag_scope_categories:
-                where = {"category": {"$in": list(self.rag_scope_categories)}}
-            else:
-                where = {"category": category}
-                if provider:
-                    where["provider"] = provider
-        elif self.rag_scope_categories:
-            where = {"category": {"$in": list(self.rag_scope_categories)}}
+        # Query-named category/provider/period become metadata filters (a named out-of-scope category
+        # falls back to the agent's whole scope; see build_rag_filter).
+        date_range = parse_relative_date_range(query)
+        if not category:
+            provider = detect_provider_from_query(query, self._known_providers_for_category(None))
+        where = build_rag_filter(category, provider, date_range, self.rag_scope_categories)
         context = self.rag_engine.get_context_for_query(query, where=where)
 
         total_budget_chars = self._total_budget_chars(query)
@@ -471,10 +531,11 @@ class ChatEngine:
             prompt = query
         elif context:
             prompt = (
-                f"Context from your data:\n{context}\n\n"
+                f"Context from your data (every source has an id):\n{context}\n\n"
                 f"Question: {query}\n\n"
-                f"Answer based on the context above. "
-                f"If the answer is not in the context, say 'I cannot find this information in your vault.'"
+                "Answer using ONLY the context above. Quote each figure or date exactly as written there and "
+                "cite the source id right after it, like [ev_0123abcd]. If sources disagree, show both and ask "
+                f"which is right. If the answer is not in the context, say '{NOT_FOUND}'"
             )
         else:
             prompt = (
@@ -573,17 +634,69 @@ class ChatEngine:
             raise ChatEngineError(f"Model '{self.model}' not available.")
 
         built = self._build_prompt(query, use_rag, history=history)
+        context = built["context_used"]
+        if use_rag and context == "":
+            # Nothing relevant retrieved: templated not-found, the model is not asked to improvise.
+            self._log_rag_turn(abstained=True)
+            return {"query": query, "response": NOT_FOUND, "context_used": context}
 
         try:
-            response = self.ollama_client.chat(messages=built["messages"])
-
-            return {
-                "query": query,
-                "response": response.get("message", {}).get("content", ""),
-                "context_used": built["context_used"],
-            }
+            with self._qa_temperature(bool(context)):
+                text = self.ollama_client.chat(messages=built["messages"]).get("message", {}).get("content", "")
+                grounding = None
+                if context and "[Source " in context:
+                    verdict = check_grounding(text, context)
+                    regenerated = not verdict.ok
+                    if regenerated:  # one bounded retry with the offending claims named
+                        retry = built["messages"] + [
+                            {"role": "assistant", "content": text},
+                            {"role": "user", "content": (
+                                "These parts of your answer are not supported by the context: "
+                                f"{'; '.join(verdict.flagged()[:6])}. Answer again using only figures quoted from the "
+                                f"context, each followed by its [ev_...] citation, or say '{NOT_FOUND}'")},
+                        ]
+                        text = self.ollama_client.chat(messages=retry).get("message", {}).get("content", "")
+                        verdict = check_grounding(text, context)
+                    if not verdict.ok:
+                        text += grounding_note(verdict)
+                    grounding = {"ok": verdict.ok, "flagged": verdict.flagged(), "regenerated": regenerated}
+                    self._log_rag_turn(verdict=verdict, regenerated=regenerated)
+            result = {"query": query, "response": text, "context_used": context}
+            if grounding is not None:
+                result["grounding"] = grounding
+            return result
         except OllamaClientError as e:
             raise ChatEngineError(f"Chat generation failed: {str(e)}")
+
+    @contextmanager
+    def _qa_temperature(self, active: bool):
+        """Document Q&A samples cold (RAG_QA_TEMPERATURE); restore the client's own setting afterwards."""
+        client = self.ollama_client
+        old = getattr(client, "temperature", None)
+        if active and old is not None:
+            client.temperature = RAG_QA_TEMPERATURE
+        try:
+            yield
+        finally:
+            if active and old is not None:
+                client.temperature = old
+
+    def _log_rag_turn(self, abstained: bool = False, verdict=None, regenerated: bool = False) -> None:
+        """Per-turn retrieval diagnostics to the encrypted activity log: ids, scores, flags only (no text)."""
+        try:
+            from src.agents.store import log_activity
+
+            store = getattr(self.rag_engine, "_get_chroma_store", None)
+            chunks = store().last_retrieval() if store else []
+            log_activity(self.vault, {
+                "kind": "rag_turn", "abstained": abstained,
+                "evidence_ids": sorted({evidence_id(evidence_key(c)) for c in chunks}),
+                "scores": [round(c.get("score", 0.0), 3) for c in chunks],
+                "grounded": None if verdict is None else verdict.ok,
+                "flagged": 0 if verdict is None else len(verdict.flagged()), "regenerated": regenerated,
+            })
+        except Exception:
+            pass  # diagnostics must never break a chat turn
 
     def query_vault_stream(
         self,
@@ -605,16 +718,30 @@ class ChatEngine:
         built = self._build_prompt(query, use_rag, history=history)
         sources = built["sources"]
 
+        context = built["context_used"]
+        if use_rag and context == "":
+            self._log_rag_turn(abstained=True)
+            return StreamingChatResponse(iter([NOT_FOUND]), sources)
+
         def _generate() -> Iterator[str]:
+            parts: List[str] = []
             try:
-                for chunk in self.ollama_client.chat(
-                    messages=built["messages"], stream=True
-                ):
-                    content = chunk.get("message", {}).get("content", "")
-                    if content:
-                        yield content
+                with self._qa_temperature(bool(context)):
+                    for chunk in self.ollama_client.chat(
+                        messages=built["messages"], stream=True
+                    ):
+                        content = chunk.get("message", {}).get("content", "")
+                        if content:
+                            parts.append(content)
+                            yield content
             except OllamaClientError as e:
                 raise ChatEngineError(f"Chat generation failed: {str(e)}") from e
+            if context and "[Source " in context:
+                # Already streamed, so no regenerate: append a visible note instead.
+                verdict = check_grounding("".join(parts), context)
+                self._log_rag_turn(verdict=verdict)
+                if not verdict.ok:
+                    yield grounding_note(verdict)
 
         return StreamingChatResponse(_generate(), sources)
 

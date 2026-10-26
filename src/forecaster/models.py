@@ -17,7 +17,7 @@ Horizon = Literal[5, 21]
 Exchange = Literal["XNYS", "XNAS"]
 PriceConvention = Literal["unadjusted_close", "split_dividend_adjusted_close"]
 SourceId = Literal[
-    "yahoo-chart", "alpha-vantage", "sec-edgar", "fred",
+    "yahoo-chart", "yahoo-news", "alpha-vantage", "sec-edgar", "fred",
     "curated-ai-infrastructure-theme",
 ]
 
@@ -162,6 +162,9 @@ class PriceBar(Contract):
     session: date
     close: Positive
     adjusted_close: Positive | None = None
+    high: Positive | None = None
+    low: Positive | None = None
+    volume: Annotated[int, Field(ge=0)] | None = None
     source_id: Literal["yahoo-chart", "alpha-vantage"]
     retrieved_at: datetime
 

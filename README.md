@@ -2,7 +2,8 @@
 
 A personal AI assistant that answers questions about your own data (notes,
 bills, health/financial documents, etc.) using local models via
-[Ollama](https://ollama.com) or oMLX, with an encrypted primary data vault.
+oMLX (default; [Ollama](https://ollama.com) is supported but disabled unless
+`PERSONAL_AI_OLLAMA_ENABLED=true`), with an encrypted primary data vault.
 
 **Local-first, not necessarily offline:** keep private model processing on
 approved local endpoints. Public market research requires network access;
@@ -14,7 +15,7 @@ index has a documented plaintext-at-rest limitation.
 
 - 🔒 Password-gated encrypted vault (AES-256-GCM, key derived from your
   password via PBKDF2 - see `docs/security_design.md`)
-- 💬 Local chat over your vault data using any Ollama chat model, with real
+- 💬 Local chat over your vault data using any local oMLX chat model, with real
   multi-turn conversation memory, a live context-window usage meter, and
   multiple named/switchable/deletable chat sessions (`src/interface/chat_sessions.py`)
 - 📂 File ingestion: PDF, DOCX, CSV, Apple Health XML, plus a category-driven
@@ -29,7 +30,21 @@ index has a documented plaintext-at-rest limitation.
   category, spend over time, recent uploads - built from the same structured
   extraction data, not a RAG summary
 - 🖥️ Streamlit web UI: chat, upload, files, dashboard, and settings pages
-- Forecast page: requested-US-stock research, optional parallel local
+- Multi-agent platform: a Coordinator delegates to specialist agents in parallel, merges
+  findings deterministically, escalates conflicts, quarantines untrusted email/portal
+  content, passes only scoped fields between agents, and changes Core Memory only after
+  your explicit approval. See `docs/platform_plan.md` (plan + status), `make eval`.
+- Grounded document Q&A: structure-aware chunking, contextual headers, hybrid dense + BM25
+  retrieval with RRF, evidence-id citations, templated "not found" abstention (no model call),
+  and a deterministic check that every figure in an answer appears in the cited context
+  (`docs/rag_design.md`, `make eval-rag`).
+- Bill freshness: Upload → Sync panel (hash dedupe, corrected-bill supersede, expected-bills
+  ledger with overdue flags, hostile-PDF rejection), read-only Gmail attachment fetcher and a
+  portal recipe framework (Playwright, human-in-the-loop 2FA). Real provider recipes and live
+  Gmail/portal runs are user-supervised. Agents → Scheduled runs jobs on app open; results are
+  Core Memory proposals needing your approval.
+- Forecast page: requested-US-stock research, recommendations (research lean), validation
+  report, events/news, drilldown and screens, optional parallel local
   specialist reviews, and explicitly saved encrypted forecasts/outcomes.
   Scores are heuristic, not calibrated probabilities or investment advice.
 
@@ -39,17 +54,22 @@ index has a documented plaintext-at-rest limitation.
 src/
 ├── security/        # Auth (password -> vault key), AES-256-GCM encryption
 ├── data_vault/       # Encrypted SQLite storage
-├── ai_engine/        # Ollama client, RAG engine, ChromaDB vector store,
+├── ai_engine/        # oMLX/Ollama clients, RAG engine, ChromaDB vector store,
 │                       chat history/context budgeting (chat_engine.py)
-├── data_ingestion/    # File upload handling + per-format parsers
+├── data_ingestion/    # Upload handling, parsers, PDF validation, ingest pipeline + ledger,
+│                       Gmail attachments, portal/ (Playwright recipes)
 ├── data_extraction/   # Category registry, classifier, LLM structured
 │                       extraction (categories.py, classifier.py, extractor.py)
+├── agents/            # Agent runtime, MCP, skills; orchestration/ = coordinator, bus,
+│                       quarantine, Core Memory gate, workers, policy, scheduler
 ├── forecaster/        # Public market evidence, research, specialist scenarios,
 │                       explicit-session forecast/outcome evaluation
 ├── interface/         # Streamlit UI: chat, chat_sessions, upload, files
 │                       (file_grouping.py), dashboard, forecast, settings
 └── config.py           # Central model/host/context-window configuration
 
+evals/                 # make eval / eval-rag / eval-live
+skills/                # Built-in agent skills (instructions only)
 scripts/               # Standalone tools (setup, context-overflow checker)
 docs/                  # Security design, system design notes, roadmap/history
 examples/              # CLI usage examples
@@ -64,9 +84,10 @@ data boundaries, parallel forecast specialists, approved encrypted memory
 and leakage-aware outcome evaluation. Trading and payments are outside the
 capstone scope.
 
-See [the high-level system design](docs/agentic_system_design.md) for existing
-foundations, proposed controls, migration stages and acceptance targets.
-The design does not claim that every capstone capability is implemented.
+See [docs/architecture.md](docs/architecture.md) for the overview and
+[docs/platform_plan.md](docs/platform_plan.md) for what is built, what is
+open and the rules for changing it. The docs do not claim that every capstone
+capability is implemented.
 
 ### Forecast workflow
 
@@ -100,13 +121,14 @@ out of source control; do not enter them into forecast prompts.
 
 - macOS, Linux, or Windows
 - Python 3.10+
-- [Ollama](https://ollama.com/download), installed and running (`ollama serve`)
+- An [oMLX](docs/ai_engine.md) server on `127.0.0.1:8000` with your chat and embedding models loaded
+  (Ollama is optional legacy: set `PERSONAL_AI_OLLAMA_ENABLED=true`)
 
 ## Setup
 
-Quickest path - one command does everything below (creates `./venv`,
-installs dependencies, checks Ollama is installed and running, pulls the
-configured chat + embedding models if you don't already have them):
+Quickest path - one command (creates `./venv`, installs dependencies; the
+model-pull/Ollama checks only apply to the legacy Ollama path, so use
+`--skip-models` with oMLX):
 
 ```bash
 git clone <repository-url>
@@ -116,8 +138,7 @@ make setup   # or: python3 scripts/setup.py
 
 It's safe to re-run - every step is skipped if already satisfied. Add
 `--skip-models` (e.g. `python3 scripts/setup.py --skip-models`) to skip the
-`ollama pull` step. If Ollama isn't installed or isn't running, it stops
-with a clear message telling you what to do next rather than guessing.
+`ollama pull` step.
 
 <details>
 <summary>Manual setup (equivalent, step by step)</summary>
@@ -134,9 +155,7 @@ source venv/bin/activate
 # 3. Install dependencies
 make install   # or: pip install -r requirements.txt
 
-# 4. Pull the models you'll use (defaults below; override via env vars, see Configuration)
-ollama pull qwen3:8b
-ollama pull nomic-embed-text
+# 4. Start oMLX with your chat + embedding models (see Configuration for env vars)
 ```
 
 </details>
@@ -159,22 +178,30 @@ make setup           # One-command bootstrap (see Setup above); safe to re-run
 make demo            # CLI walkthrough: register/login, store data, RAG query
 make check-context   # Sanity-check model context-window assumptions (see below)
 make test            # Run the test suite
+make eval            # Offline agent-platform evals (must print Overall: PASS)
+make eval-rag        # Offline retrieval/grounding evals; baseline + deltas in evals/results/rag_latest.md
+make eval-live       # Opt-in: injection corpus against the real local model (needs oMLX running)
 ```
+
+Portal automation (optional): `venv/bin/playwright install chromium-headless-shell`.
+After upgrading, run Chat → Advanced → **Rebuild RAG Index** (collection `personal_ai_vault_v4`).
 
 ## Configuration
 
-Model names and the Ollama host are centralized in `src/config.py` and
-overridable via environment variables instead of editing code:
+Inference is local via **oMLX** (Ollama is disabled unless `PERSONAL_AI_OLLAMA_ENABLED=true`).
+Models and hosts are centralized in `src/config.py` and overridable via environment variables;
+the full table is in `docs/platform_plan.md` §4:
 
 ```bash
-export PERSONAL_AI_OLLAMA_HOST=http://localhost:11434
-export PERSONAL_AI_CHAT_MODEL=qwen3:8b
-export PERSONAL_AI_EMBED_MODEL=nomic-embed-text
-export PERSONAL_AI_CONTEXT_WINDOW_TOKENS=8192   # must not exceed your chat model's real window
+export PERSONAL_AI_OMLX_HOST=http://127.0.0.1:8000   # must stay loopback
+export PERSONAL_AI_OMLX_CHAT_MODEL=Qwen3.8-27B-4bit
+export PERSONAL_AI_OMLX_EMBED_MODEL=mlx-community/Qwen3-VL-Embedding-2B-8bit   # changing it => rebuild index
+export OMLX_API_KEY=...                              # only if your server needs one
+export PERSONAL_AI_CONTEXT_WINDOW_TOKENS=8192        # must not exceed your chat model's real window
 ```
 
 Run `make check-context` after changing models to confirm the configured
-context window doesn't exceed what Ollama actually reports for that model -
+context window doesn't exceed what the server actually reports for that model -
 this catches silent truncation/overflow before it shows up as a bad answer
 or a runtime error.
 
@@ -182,25 +209,28 @@ or a runtime error.
 
 The vault is encrypted at rest (AES-256-GCM) with a key derived from your
 password; the key is never written to disk in plaintext, and repeated wrong
-passwords trigger a persistent lockout. The one known residual risk: the
-local semantic search index (ChromaDB) stores document text in plaintext
-under `~/.personal_ai_vault/.chroma` (locked to `0700` permissions) to
-support fast local search - it is not yet encrypted at rest.
+passwords trigger a persistent lockout. Known residual risks: the local
+semantic index (ChromaDB) is plaintext if persisted under
+`~/.personal_ai_vault/.chroma` (`0700`; currently it runs in-memory and is
+rebuilt each session), and portal automation briefly writes downloads to a
+`0700` temp dir and keeps session cookies in a `0700` profile dir. Details in the doc below.
 
 Full threat model, what's implemented vs. not, and why: **`docs/security_design.md`**.
 
 ## Documentation
 
-- `docs/security_design.md` - security architecture, threat model, residual risks
-- `docs/agentic_system_design.md` - unified assistant/forecaster capstone design,
-  privacy boundaries, migration scope and evaluation targets
-- `docs/multi_agent_design.md` - existing configurable agent/MCP architecture;
-  broader than the capstone's research-only scope
-- `docs/design_2026_08.md` - how the document pipeline, RAG vs. structured
-  datastore, chat context management, and dashboard fit together
-- `docs/roadmap.md` - original project plan and feature roadmap (historical; not current state)
-- `AGENTS.md` - checklist and conventions for making further changes to this repo
-- `INTERFACE_README.md` / `INTERFACE_SUMMARY.md` - Streamlit UI notes
+Index with reading order: [`docs/README.md`](docs/README.md).
+
+- [`docs/architecture.md`](docs/architecture.md) - system overview (start here)
+- [`docs/platform_plan.md`](docs/platform_plan.md) - rules, current status, backlog; also the brief for a coding agent
+- [`docs/rag_design.md`](docs/rag_design.md) - how retrieval works today, why answers go wrong, the fix plan, bill ingestion
+- [`docs/ai_engine.md`](docs/ai_engine.md) - oMLX, embeddings, re-indexing
+- [`docs/forecasting_system.md`](docs/forecasting_system.md) - stock research and outcome tracking
+- [`docs/multi_agent_design.md`](docs/multi_agent_design.md) - agent loop, MCP, skills (runtime reference)
+- [`docs/security_design.md`](docs/security_design.md) - security architecture, threat model, residual risks, audit log
+- [`docs/user_testing_guide.md`](docs/user_testing_guide.md) - hands-on test plan for RAG, agents and predictions
+- `AGENTS.md` - checklist and conventions for making changes to this repo
+- `CHANGELOG.md` - history
 
 ## Contributing & Maintenance
 

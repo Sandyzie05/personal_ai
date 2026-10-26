@@ -6,7 +6,9 @@ one session-cached `McpManager`. Conventions per AGENTS.md: one Save per
 form, no deep expander nesting, Material Symbols icons, no new theme colors.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
+
+import uuid
 
 import streamlit as st
 
@@ -45,7 +47,7 @@ def _ollama_client(ollama_client: Optional[Any], vault: Any) -> Any:
     calls - only list_models/model_details do)."""
     if ollama_client is not None:
         return ollama_client
-    from src.ai_engine.engine import build_chat_client
+    from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
     from src.interface.main import PersonalAIInterface
 
     # Try to get engine info from the current configuration
@@ -53,12 +55,8 @@ def _ollama_client(ollama_client: Optional[Any], vault: Any) -> Any:
     interface.vault = vault
     interface._load_ollama_config()
 
-    # Determine which engine to use for model listing
-    engine = interface.ollama_config.get("engine", "ollama")
-    host = interface.ollama_config.get("llm_host",
-                                      "http://127.0.0.1:8000" if engine == "omlx" else "http://localhost:11434")
-
-    return build_chat_client(engine=engine, host=host)
+    kw = client_kwargs_from_config(interface.ollama_config)
+    return build_chat_client(engine=kw["engine"], host=kw["host"], model=kw["model"])
 
 
 @st.dialog("Delete this agent?")
@@ -119,7 +117,11 @@ def _delete_skill_dialog(slug: str, skill_name: str) -> None:
 def _model_options(clients: Any, current: str) -> List[str]:
     """Installed models, keeping `current` selectable even if it was pulled
     away since the agent was saved."""
-    models = clients.list_models() or [DEFAULT_CHAT_MODEL]
+    try:
+        models = clients.list_models()
+    except Exception:  # inference server down: keep the form usable
+        models = []
+    models = models or [DEFAULT_CHAT_MODEL]
     if current and current not in models:
         models = models + [current]
     return models
@@ -630,7 +632,70 @@ def _render_activity_tab(vault: Any) -> None:
 # -- page --------------------------------------------------------------------------
 
 
-def render_agents_page(vault: Any, ollama_client: Optional[Any] = None) -> None:
+def _render_memory_tab(vault: Any) -> None:
+    """Only place Core Memory can change: an explicit click here (agents can only propose)."""
+    from src.agents.orchestration import memory
+
+    st.caption("Agents can only propose. Nothing is saved until you approve it here.")
+    pending = memory.list_pending(vault)
+    if not pending:
+        st.info("No pending proposals.")
+    for item in pending:
+        with st.container(border=True):
+            st.text(f"{item['key']} -> {item['value']}")  # plain text: values may derive from untrusted content
+            st.caption(f"Proposed by {item['proposer']} · evidence: {', '.join(item['evidence_ids']) or 'none'}")
+            untrusted = item["trust"] == "untrusted"
+            ack = untrusted and st.checkbox(
+                "This came from untrusted content (email/portal/web); I verified it",
+                key=f"ack_{item['id']}",
+            )
+            approve_col, reject_col = st.columns(2)
+            if approve_col.button("Approve", key=f"ok_{item['id']}", disabled=untrusted and not ack):
+                sid = st.session_state.setdefault("_approval_session", uuid.uuid4().hex)
+                memory.approve(vault, item["id"], token=memory.issue_approval_token(sid, item["id"]),
+                               session_id=sid, acknowledge_untrusted=bool(ack))
+                st.rerun()
+            if reject_col.button("Reject", key=f"no_{item['id']}"):
+                memory.reject(vault, item["id"])
+                st.rerun()
+    st.subheader("Saved")
+    for item in memory.list_core(vault):
+        st.text(f"{item['key']}: {item['value']} (approved {item['approved_at'][:10]})")
+
+
+def _render_schedule_tab(vault: Any, run_due: Optional[Callable[[], List[str]]] = None) -> None:
+    from src.agents.orchestration import schedule
+
+    st.caption("Jobs run when the app is opened (no background daemon) or when a cron/launchd caller runs "
+               "`schedule.run_due`. Results are Core Memory proposals; nothing is committed without your approval.")
+    for job in schedule.list_jobs(vault):
+        with st.container(border=True):
+            st.text(f"{job['name']} · every {job['every_minutes']} min · \"{job['query']}\"")
+            st.caption(f"Last run: {job['last_run'] or 'never'} · {job.get('last_result', '')}")
+            if st.button("Remove", key=f"sched_rm_{job['id']}"):
+                schedule.remove_job(vault, job["id"])
+                st.rerun()
+    with st.form("sched_add", clear_on_submit=True):
+        name = st.text_input("Name", max_chars=60)
+        query = st.text_input("Question for the Coordinator", max_chars=500)
+        every = st.number_input("Every (minutes)", min_value=schedule.MIN_INTERVAL_MIN, value=1440, step=60)
+        if st.form_submit_button("Add job") and name.strip() and query.strip():
+            from src.agents.orchestration.policy import screen
+            if screen(query):
+                st.error("That request is out of scope and would be refused.")
+            else:
+                schedule.add_job(vault, name.strip(), query.strip(), int(every))
+                st.rerun()
+    if run_due is not None and st.button("Run due jobs now"):
+        try:
+            lines = run_due()
+        except Exception:
+            lines = ["Scheduled run failed; nothing was changed."]
+        st.info("\n".join(lines) or "No jobs are due.")
+
+
+def render_agents_page(vault: Any, ollama_client: Optional[Any] = None,
+                       run_due: Optional[Callable[[], List[str]]] = None) -> None:
     """The Agents page: four tabs over the agent/MCP/skills/activity state."""
     st.header(":material/agent: Agents")
     st.caption(
@@ -640,12 +705,14 @@ def render_agents_page(vault: Any, ollama_client: Optional[Any] = None) -> None:
 
     clients = _ollama_client(ollama_client, vault)
 
-    tab_agents, tab_mcp, tab_skills, tab_activity = st.tabs(
+    tab_agents, tab_mcp, tab_skills, tab_activity, tab_memory, tab_sched = st.tabs(
         [
             ":material/smart_toy: Agents",
             ":material/hub: MCP Servers",
             ":material/note: Skills",
             ":material/receipt_long: Activity",
+            ":material/psychology: Core Memory",
+            ":material/schedule: Scheduled",
         ]
     )
     with tab_agents:
@@ -656,3 +723,7 @@ def render_agents_page(vault: Any, ollama_client: Optional[Any] = None) -> None:
         _render_skills_tab()
     with tab_activity:
         _render_activity_tab(vault)
+    with tab_memory:
+        _render_memory_tab(vault)
+    with tab_sched:
+        _render_schedule_tab(vault, run_due)

@@ -106,13 +106,14 @@ def parse_relative_date_range(
     today = today or date.today()
     lowered = query.lower()
 
-    month_year_match = _MONTH_YEAR_RE.search(lowered)
-    if month_year_match:
-        month = _MONTH_NAMES[month_year_match.group(1).lower()]
-        year = int(month_year_match.group(2))
-        start = date(year, month, 1)
-        end = date(year, month, _days_in_month(year, month))
-        return start.isoformat(), end.isoformat()
+    # Every explicit "<Month> <YYYY>" mentioned: one month, or the span covering
+    # several ("January 2026 or March 2026" -> Jan 1..Mar 31).
+    spans = [
+        (date(int(y), _MONTH_NAMES[mo], 1), date(int(y), _MONTH_NAMES[mo], _days_in_month(int(y), _MONTH_NAMES[mo])))
+        for mo, y in _MONTH_YEAR_RE.findall(lowered)
+    ]
+    if spans:
+        return min(s for s, _ in spans).isoformat(), max(e for _, e in spans).isoformat()
 
     month_match = _MONTH_RANGE_RE.search(lowered)
     if month_match:
@@ -143,3 +144,38 @@ def _shift_months(d: date, months: int) -> date:
 def _days_in_month(year: int, month: int) -> int:
     next_month = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
     return (next_month - timedelta(days=1)).day
+
+
+def iso_to_int(iso: str) -> int:
+    """'2026-03-01' -> 20260301: Chroma range filters need numbers, not strings."""
+    return int(iso.replace("-", ""))
+
+
+def build_rag_filter(
+    category: Optional[str],
+    provider: Optional[str],
+    date_range: Optional[Tuple[str, str]] = None,
+    scope_categories: Optional[List[str]] = None,
+) -> Optional[dict]:
+    """Chroma `where` for category / provider / period, intersected with an agent's category scope.
+
+    A named out-of-scope category falls back to the whole scope so retrieval stays inside the
+    agent's data boundary. The period clause keeps documents whose period overlaps the range;
+    documents without period metadata are indexed with an open-ended period (see ChatEngine._rag_metadata_for) so an
+    unknown period is never mistaken for a non-match."""
+    base: dict = {}
+    if category and not (scope_categories and category not in scope_categories):
+        base["category"] = category
+        if provider:
+            base["provider"] = provider
+    elif scope_categories:
+        base["category"] = {"$in": list(scope_categories)}
+    elif provider:
+        base["provider"] = provider
+    clauses = [{k: v} for k, v in base.items()]  # Chroma rejects multi-key flat filters: one operator per dict
+    if date_range:
+        start, end = date_range
+        clauses += [{"period_end_n": {"$gte": iso_to_int(start)}}, {"period_start_n": {"$lte": iso_to_int(end)}}]
+    if not clauses:
+        return None
+    return clauses[0] if len(clauses) == 1 else {"$and": clauses}

@@ -1,19 +1,13 @@
-# Multi-Agent Design — Personal AI System
+# Multi-agent runtime and MCP design (v1 reference)
 
-This is the design for turning the Personal AI System from a single
-RAG-grounded chat assistant into a **configurable multi-agent system** where
-the user defines agents (model + instructions + tools + skills + data scope),
-picks one in the chat UI, and the agent runs a tool-using loop backed by
-**Model Context Protocol (MCP)** servers — starting with the Robinhood
-trading platform.
+How user-defined agents, the tool loop, MCP servers, skills and the confirmation gate work (`src/agents/`).
+This is the **runtime reference**. The coordinator layer built on top of it (planner, parallel specialists, scoped bus,
+quarantine, Core Memory gate, scheduler, policy) is documented in [platform_plan.md](platform_plan.md); security in
+[security_design.md](security_design.md).
 
-It is written against the "Future Architecture of AI Agents" reference
-diagram (inputs → orchestration layer → agent core → knowledge layer →
-outputs → service layer → governance). Every element of that diagram is
-mapped in §4 to: what exists today, what **v1 (this build)** adds, and what
-is explicitly deferred with the interface that will carry it in v2.
-
-Status: **design final for v1; v1 implemented alongside this doc.**
+**Superseded since v1:** D1 below (Ollama-only) - the default engine is now oMLX with an OpenAI-shape tool adapter
+([ai_engine.md](ai_engine.md)); and the v1 non-goals "no planner / no sub-agent dispatch / no scheduled agents" (all built in
+`src/agents/orchestration/`). Section numbers are kept stable because source comments reference them.
 
 ---
 
@@ -41,148 +35,31 @@ Status: **design final for v1; v1 implemented alongside this doc.**
    loop) is pure-Python and unit-tested with fakes; UI is smoke-tested with
    `streamlit.testing.v1.AppTest`.
 
-### Non-goals (v1)
+### Non-goals (v1, all since addressed except the last)
 
-- No automatic agent-to-agent handoff / planner that dispatches sub-agents
-  (v2 — the runtime is shaped to support it, §10).
-- No multi-model provider backend (no OpenAI/Anthropic/oMLX clients).
-  v1 uses **Ollama only** — the machine already runs it with tool-capable
-  models, and the whole security model is "local-only inference".
-- No image/audio/video inputs, scheduled/autonomous agents, long-term
-  memory extraction, knowledge graph, or visualization generation from
-  agents. All mapped to the roadmap (§4, §10).
+Sub-agent dispatch, multi-provider backends, scheduled agents and long-term memory were deferred in v1; the coordinator layer now covers dispatch,
+scheduling and approval-gated memory. Still out of scope: image/audio/video input, knowledge graph.
 
 ---
 
-## 2. What exists today
+## 2. Building blocks the agent layer reuses
 
 | Piece | File | Role |
 |---|---|---|
-| Login gate + DEK lifecycle | `src/security/auth.py` | Password → wrapped DEK; DEK only in `st.session_state` |
-| Encrypted vault | `src/data_vault/` | AES-256-GCM values in SQLite at `~/.personal_ai_vault` |
-| RAG | `src/ai_engine/rag_engine.py`, `chroma_store.py` | ChromaDB index at `<vault>/.chroma` (plaintext, locked down — see `docs/security_design.md`) |
-| Chat engine | `src/ai_engine/chat_engine.py` | Query → (structured records \| category-scoped RAG \| plain RAG) → Ollama prompt; budgeted history; streaming |
-| Ollama client | `src/ai_engine/ollama_client.py` | Thin wrapper; `num_ctx`, temperature, structured output |
-| Sessions | `src/interface/chat_sessions.py` | N chat sessions in vault key `chat_sessions_index` |
-| UI | `src/interface/main.py` + pages | Chat / Upload / Files / Dashboard / Settings |
+| Login gate + key lifecycle | `src/security/auth.py` | Password to wrapped DEK; DEK only in `st.session_state` |
+| Encrypted vault | `src/data_vault/` | AES-256-GCM values in SQLite |
+| RAG + chat engine | `src/ai_engine/` | Per-agent context builder (D6) |
+| Sessions | `src/interface/chat_sessions.py` | Vault key `chat_sessions_index` |
+| MCP | `mcp` Python SDK | Streamable HTTP + stdio, OAuth 2.1 + PKCE with vault token storage (D2) |
 
-Key facts verified on this machine (2026-10-10):
+## 3-4. Architecture and reference-diagram mapping
 
-- Ollama (localhost:11434) serves tool-capable models:
-  `qwen3.8:27b-mlx`, `gemma4:31b-mlx`, `gpt-oss:20b`, `ornith-1.5:35b`
-  (all advertise `capabilities: ["...","tools","..."]` via `/api/tags`).
-- Ollama's `/api/chat` does **native function calling**: accepts
-  `tools: [...]`, returns `message.tool_calls`, and completes the loop when
-  `role: "tool"` result messages are appended (verified end-to-end with
-  `qwen3.8:27b-mlx`, including in streaming mode — `tool_calls` arrive in a
-  pre-`done` chunk).
-- The Robinhood MCP is a **remote streamable-HTTP MCP server** requiring
-  **OAuth 2.1 authorization-code + PKCE** (public client, dynamic client
-  registration, scope `internal`, no device-code grant — a browser flow is
-  mandatory). Discovered metadata:
-  - Protected-resource: `https://agent.robinhood.com/.well-known/oauth-protected-resource/mcp/trading`
-  - Authorization endpoint: `https://robinhood.com/oauth`
-  - Token endpoint: `https://api.robinhood.com/oauth2/token/`
-  - Registration endpoint: `https://agent.robinhood.com/oauth/trading/register`
-- The `mcp` Python SDK (v2.3.0) implements the full flow: metadata
-  discovery, dynamic registration, PKCE, refresh — the app only supplies a
-  `TokenStorage`, a `redirect_handler` (open browser), and a
-  `callback_handler` (return `AuthorizationCodeResult`).
-
----
-
-## 3. Target architecture
-
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│  INPUTS                                                                     │
-│  Text (chat)          Structured data (vault docs)      Images v2          │
-└──────────┬──────────────────────────┬──────────────────────────────────────┘
-           │                          │
-┌──────────▼──────────────────────────▼──────────────────────────────────────┐
-│  AGENT ORCHESTRATION LAYER                                                 │
-│  Agent Registry (vault: agents_index)        User Routing (chat selector)  │
-│  per-session agent binding                          v2: planner dispatch   │
-└──────────┬─────────────────────────────────────────────────────────────────┘
-           │
-┌──────────▼─────────────────────────────────────────────────────────────────┐
-│  AI AGENT CORE  (src/agents/runtime.py)                                    │
-│                                                                            │
-│  ┌──────────────┐  ┌──────────────────┐  ┌─────────────────────────────┐   │
-│  │ Planning &   │  │ Memory & State   │  │ Tool Use & Execution        │   │
-│  │ Reasoning:   │  │ system prompt +  │  │ Ollama native tool calling  │   │
-│  │ tool loop    │  │ instructions +   │  │ ⇄ McpManager ⇄ MCP servers  │   │
-│  │ w/ model     │  │ skills + RAG     │  │ confirmation gate for       │   │
-│  │ (prompt eng) │  │ context, budgeted│  │ sensitive tools             │   │
-│  └──────────────┘  │ history (vault)  │  └─────────────────────────────┘   │
-│                    └──────────────────┘  Self-learning: v2 (feedback)      │
-└──────────┬─────────────────────────────────────────────────────────────────┘
-           │                                    │
-┌──────────▼─────────────────┐     ┌────────────▼───────────────────────────┐
-│  KNOWLEDGE & DATA LAYER    │     │  SERVICE LAYER                          │
-│  Vector DB: ChromaDB       │     │  MCP servers (vault: mcp_servers)       │
-│  Document store: vault     │     │   remote: streamable HTTP + OAuth 2.1   │
-│  Long-term memory: vault   │     │   stdio: local command                  │
-│  (sessions, configs,      │     │  Auth tokens: vault (encrypted)          │
-│   activity log)           │     │  v2: other API integrations, channels    │
-└────────────────────────────┘     └─────────────────────────────────────────┘
-           │                                    │
-┌──────────▼────────────────────────────────────▼────────────────────────────┐
-│  OUTPUTS                                                                    │
-│  Text (chat stream)   Actions (MCP tool calls — trades, alerts)            │
-│  Dashboards (existing)   Alerts v2 (agent-created, surfaced in UI)          │
-└────────────────────────────────────────────────────────────────────────────┘
-┌────────────────────────────────────────────────────────────────────────────┐
-│  GOVERNANCE & FOUNDATION                                                    │
-│  Safety & Alignment: grounding prompts, confirmation gate, per-agent scope │
-│  Security & Privacy:  localhost-only app, vault-encrypted configs/tokens   │
-│  Ethics: "not financial advice" stance in default agent templates          │
-│  Monitoring: agent_activity_log (every tool call, args, outcome, duration) │
-│  Evaluation & Feedback: v2 (per-answer feedback button, loop into tuning)  │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 4. Element-by-element mapping (reference diagram → system)
-
-| # | Diagram element | Today | v1 (this build) | Roadmap |
-|---|---|---|---|---|
-| 1 | Inputs → Text | Chat page | Chat page, routed to selected agent | — |
-| 2 | Inputs → Images | — | — | v2: vision models (`qwen3.8`, `gemma4` already vision-capable locally); `st.file_uploader` in chat → base64 in Ollama message |
-| 3 | Inputs → Audio / Video | — | — | v3: local whisper transcription into text input |
-| 4 | Inputs → Structured Data | Vault docs + structured extraction | Reused unchanged as agent context source; per-agent category scoping | — |
-| 5 | Inputs → Streams | RAG retrieval | RAG retrieval per agent | Live data feeds as MCP servers |
-| 6 | Orchestration → Task Decomposition | — | — | v2: planner agent with an internal `dispatch_agent` tool |
-| 7 | Orchestration → Multi-Agent Coordination | Single assistant | **Agent registry** + user-selected routing; per-session agent binding | v2: planner auto-routes; parallel sub-agent runs |
-| 8 | Orchestration → Inter-Agent Communication | — | Shared vault (configs, activity log) is the substrate | v2: `agent_handoff_<session>` records; agents can read prior agent's summary in the session |
-| 9 | Core → Planning & Reasoning | Prompt construction in `ChatEngine` | **Tool loop** in `AgentRuntime`: LLM → tool_calls → results → LLM (bounded rounds, budgeted) | Replanning on tool failure (v2) |
-| 10 | Core → Memory & State | Session history in vault | Agent instructions + skills + RAG context + budgeted history; **run state** persisted for confirmation pauses | v2: long-term memory (extracted facts → vault, injected per agent) |
-| 11 | Core → Self-Learning & Reflection | — | — | v2: feedback button stores rating + note per answer; "reflection" agent summarizes patterns |
-| 12 | Core → Tool Use & Execution | — | **McpManager** (stdio + remote MCP) + Ollama native function calling + confirmation gate | Internal tools (dispatch, memory write) in v2 |
-| 13 | Knowledge → Vector DB | ChromaDB at `<vault>/.chroma` | Shared index; per-agent `where` scope by category | Per-agent indexes v2 if needed |
-| 14 | Knowledge → Knowledge Graph | — | — | v3 |
-| 15 | Knowledge → Document Store | Encrypted vault | Agent/MCP/skill-adjacent state also in vault (schemas §6) | — |
-| 16 | Knowledge → Long-term Memory | — | Activity log (audit-grade memory of tool use) | v2: curated memory |
-| 17 | Outputs → Text / Reports | Chat | Chat, streamed, with source citations + tool-use trail | Markdown export v2 |
-| 18 | Outputs → Visualizations | — | Tool results rendered as text/tables in chat | v2: chart tool (plotly → data URI) |
-| 19 | Outputs → Dashboards | Dashboard page (vault data) | Dashboard lists agent activity summary | — |
-| 20 | Outputs → Actions | — | **MCP tool calls** (e.g. place/cancel orders, create alerts) behind the confirmation gate | — |
-| 21 | Outputs → Alerts | — | Agent can create broker alerts via tools | v2: app-level alert hub reading broker alerts |
-| 22 | Service → APIs & Integrations | — | **MCP servers** (Robinhood first; any stdio/remote MCP) | More MCP servers = more integrations; v2 non-MCP APIs via a generic REST tool provider |
-| 23 | Service → Multi-Channel Delivery | Streamlit UI | Streamlit UI | v2: CLI/notifications |
-| 24 | Service → Automation & RPA | — | — | v2: scheduled agent runs (cron-like) with their own session |
-| 25 | Governance → Safety & Alignment | Grounding-first system prompt | Confirmation gate; per-agent data scope; tool rounds cap; model-capability check | Policy engine v2 |
-| 26 | Governance → Security & Privacy | `docs/security_design.md` | **Δ: new network egress** to remote MCP servers — explicit per-agent opt-in, documented §9 | — |
-| 27 | Governance → Ethics & Fairness | — | Default templates carry "not financial advice; confirm every trade" language | — |
-| 28 | Governance → Monitoring & Observability | — | `agent_activity_log` (per tool call) + Agents→Activity tab | Dashboards for it v2 |
-| 29 | Governance → Evaluation & Feedback | — | — | v2: feedback loop |
-
----
+Removed here (they described the v1 plan and are now out of date). Current architecture: [architecture.md](architecture.md).
+Open items from that mapping (vision inputs, knowledge graph, voice) are tracked in [platform_plan.md](platform_plan.md) §6.1.
 
 ## 5. Core design decisions
 
-### D1 — Tool calling backend: Ollama-native function calling
+### D1 — Tool calling backend (superseded: now oMLX with an OpenAI-shape adapter; text below is the original Ollama decision)
 
 **Decision:** agents use Ollama's `/api/chat` `tools` parameter and
 `role: "tool"` result messages. No OpenAI-compatible side channel (oMLX etc.).
@@ -529,24 +406,11 @@ New in v1, recorded per the repo's security checklist:
    user-explicit (they type the command). Not enabled by default for
    anyone; same trust level as any CLI the user runs.
 
-## 10. v2 roadmap (interfaces already in place)
+## 10. v2 status
 
-- **Planner/orchestrator agent:** the tool loop accepts tools from any
-  provider — add an *internal* tool provider exposing
-  `dispatch_agent(agent_id, task)`, which runs a sub-agent's
-  `start_run` in its own transient session and returns the answer. Task
-  decomposition + inter-agent communication fall out of that one addition.
-- **Long-term memory:** periodic extraction of durable facts from
-  sessions into vault records, injected per agent like skills.
-- **Feedback/evaluation:** 👍/👎 + note per answer → vault; surface in
-  Agents→Activity; later, a "reflection" agent summarizes recurring issues.
-- **Scheduled agents:** a local scheduler (no new deps:
-  `while sleep` in the Streamlit process or a launchd plist) starts
-  `start_run` for configured agents on a cadence (e.g. morning portfolio
-  brief) into dedicated sessions.
-- **Outputs:** charting tool (plotly → static image) for "Outputs →
-  Visualizations"; broker alerts surfaced in an Alerts hub.
-- **Inputs:** image messages (vision models already local).
+Built: coordinator + parallel specialists (instead of a `dispatch_agent` tool), scheduled runs, approval-gated Core Memory (instead of automatic
+fact extraction), request policy, quarantine and scoped bus. Still open: per-answer feedback loop, charting tool, image input, scheduler UI
+([platform_plan.md](platform_plan.md) §6.1).
 
 ## 11. Testing strategy
 
@@ -558,20 +422,22 @@ New in v1, recorded per the repo's security checklist:
 | `ChatEngine` params | default behavior unchanged; scope filter restricts records+RAG | existing + new cases |
 | UI | `AppTest`: main.py renders Agents page (fake vault w/ seeded agent + MCP server), agent selector present on Chat, no exceptions | `streamlit.testing.v1` per AGENTS.md |
 
-## 12. File layout (v1)
+## 12. File layout
 
 ```
-src/agents/
-  __init__.py
-  store.py      # vault-backed CRUD: agents, mcp servers, activity, run state
-  skills.py     # skills directory: list/create/update/delete, frontmatter parse
-  mcp.py        # McpManager: connections, OAuth (vault token storage), tool mapping
-  runtime.py    # AgentRuntime: prompt build (via ChatEngine), tool loop, gate
-src/interface/
-  agents.py     # Agents page (tabs: Agents / MCP Servers / Skills / Activity)
-src/ai_engine/
-  ollama_client.py   # + tools param on chat(); model capability helper
-  chat_engine.py     # + optional ctor params (model, system prompt, rag scope)
-docs/multi_agent_design.md   # this file
-tests/test_agent_store.py, test_mcp_tools.py, test_agent_runtime.py
+src/agents/            store.py (vault CRUD) · skills.py · mcp.py (McpManager) · runtime.py (AgentRuntime, tool loop, gate)
+src/agents/orchestration/   coordinator, bus, quarantine, memory, policy, workers, ingest, schedule, templates, service, skill_pack
+src/interface/agents.py     Agents page (Agents / MCP Servers / Skills / Activity / Core Memory)
+skills/                built-in skill files, installed to ~/.personal_ai/skills
+tests/                 test_agent_store.py, test_mcp_tools.py, test_agent_runtime.py, test_orchestration*.py
 ```
+
+## Coordinator additions (platform_plan B3-B9, B15)
+
+- **Specialists** `builtin-expense|forecaster|market` are selectable in Chat; `service.run_query(only=role)` keeps just that role's steps.
+- **Optional LLM planner** (`PERSONAL_AI_LLM_PLANNER=true`, default off): `workers.llm_plan` proposes a `Plan`; the `Plan` schema and `validate_plan` gate it, any failure falls back to `plan_for`.
+- **Gmail/brokerage** workers (`email`, `brokerage`) exist only when an enabled MCP server named like Gmail / a broker is bound. MCP reads are prefetched on the calling thread (vault/OAuth, S15); workers get the result only. Holdings keep only validated tickers and reach `market` via the `coordinator→market` `HoldingsSummary` edge.
+- **Verifier** (`verifier.verify_claims`): figures must occur in cited record evidence; a model may only add an `unsupported` escalation for non-numeric claims.
+- **Cancellation:** timed-out steps get a cancel event; workers call `coordinator.check_cancel()` between provider calls. `MessageBus.send` dedupes identical re-sends (retries).
+- **Scheduler:** Agents → Scheduled tab; due jobs run once per session at app open (`service.run_scheduled`) or from cron; `flock` makes claim-and-run atomic across processes. Results are proposals only.
+- **Expense worker (B15):** category filter from the question, superseded records skipped, each (provider, period) counted once, delta `uncertain` on conflicts / partial quarters / mixed categories.

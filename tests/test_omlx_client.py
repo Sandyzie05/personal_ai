@@ -211,8 +211,7 @@ class TestOmlxClient(unittest.TestCase):
             self.client.pull_model("test-model")
 
     def test_model_supports_tools(self):
-        # oMLX currently doesn't support tools
-        self.assertFalse(self.client.model_supports_tools())
+        self.assertTrue(self.client.model_supports_tools("any"))
 
     def test_properties(self):
         self.assertEqual(self.client.host, "http://127.0.0.1:8000")

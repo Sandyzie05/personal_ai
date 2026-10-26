@@ -29,7 +29,7 @@ from src.data_vault import (
 )
 from src.agents import store as agent_store
 from src.interface import agents
-from src.interface import upload
+from src.interface import sync_panel, upload
 from src.interface import chat_sessions
 from src.interface import dashboard
 from src.interface.file_grouping import group_files_by_category
@@ -48,6 +48,7 @@ from src.config import (
     DEFAULT_EMBED_MODEL,
     PERSONAL_AI_LLM_ENGINE,
     PERSONAL_AI_OMLX_HOST,
+    PERSONAL_AI_OMLX_EMBED_MODEL,
     PERSONAL_AI_EMBED_ENGINE
 )
 
@@ -318,7 +319,11 @@ class PersonalAIInterface:
         # A stored selection pointing at a deleted agent is reset to General
         # BEFORE the selectbox is built - a value missing from `options`
         # would otherwise raise a StreamlitAPIException on this render.
-        agent_list = [agent_store.general_agent()] + agent_store.list_agents(self.vault)
+        agent_list = (
+            [agent_store.general_agent(), agent_store.get_agent(self.vault, "builtin-coordinator")]
+            + [agent_store.get_agent(self.vault, f"builtin-{r}") for r in ("expense", "forecaster", "market")]
+            + agent_store.list_agents(self.vault)
+        )
         agent_ids = [a["id"] for a in agent_list]
         agent_names = {a["id"]: a["name"] for a in agent_list}
         if st.session_state.get("active_agent_id") not in agent_ids:
@@ -425,13 +430,10 @@ class PersonalAIInterface:
             from src.ai_engine.engine import build_chat_client
 
             # Determine which engine to use for fallback
-            engine = self.ollama_config.get("engine", PERSONAL_AI_LLM_ENGINE)
-            host = self.ollama_config.get("llm_host",
-                                        PERSONAL_AI_OMLX_HOST if engine == "omlx" else DEFAULT_OLLAMA_HOST)
-            # Ensure we don't get a None model which can cause issues
-            model = self.ollama_config.get("llm_model") or DEFAULT_CHAT_MODEL
-
-            client = build_chat_client(engine=engine, host=host, model=model)
+            from src.ai_engine.engine import client_kwargs_from_config
+            kw = client_kwargs_from_config(self.ollama_config)
+            engine, host = kw["engine"], kw["host"]
+            client = build_chat_client(engine=engine, host=host, model=kw["model"])
 
             # Reuse the exact same grounding-first system prompt as the RAG path
             # so a fallback answer can't silently drift into "answer from your own
@@ -466,9 +468,9 @@ class PersonalAIInterface:
 
         except Exception as e:
             # Declare engine in local scope to avoid UnboundLocalError
-            engine = self.ollama_config.get("engine", PERSONAL_AI_LLM_ENGINE)
-            host = self.ollama_config.get("llm_host",
-                                        PERSONAL_AI_OMLX_HOST if engine == "omlx" else DEFAULT_OLLAMA_HOST)
+            from src.ai_engine.engine import client_kwargs_from_config
+            kw = client_kwargs_from_config(self.ollama_config)
+            engine, host = kw["engine"], kw["host"] or PERSONAL_AI_OMLX_HOST
             return (
                 f"Error getting response: {str(e)}. Make sure {engine} server is running at {host}",
                 [],
@@ -500,13 +502,44 @@ class PersonalAIInterface:
         MCP operation opens a fresh transport; see src/agents/mcp.py).
         """
         from src.agents.mcp import McpManager
+        from src.agents.orchestration.skill_pack import install_builtin_skills
         from src.agents.runtime import AgentRuntime
+
+        install_builtin_skills()
 
         cached = st.session_state.get("agent_runtime")
         if cached is None or getattr(cached, "vault", None) is not self.vault:
             cached = AgentRuntime(self.vault, mcp=McpManager(self.vault))
             st.session_state["agent_runtime"] = cached
         return cached
+
+    def _respond_coordinated(self, user_query: str, active_id: str, agent: Dict[str, Any]) -> None:
+        """Coordinator turn: plan -> parallel specialists -> deterministic merge -> escalation."""
+        from src.agents.orchestration import service
+        from src.agents.orchestration.workers import render_report
+        from src.interface.forecast import _scenario_factory
+
+        try:
+            coordinator = service.build_coordinator(
+                self.vault, self.chat_engine.get_structured_records, _scenario_factory(self.vault),
+                mcp=self._agent_runtime().mcp, quarantine_client=self.chat_engine.ollama_client)
+            with st.status("Coordinator delegating to specialists...", expanded=True):
+                report = service.run_query(
+                    coordinator, user_query, only=agent.get("role") if agent.get("id") != "builtin-coordinator" else None,
+                    planner_client=self.chat_engine.ollama_client)
+            service.propose_from_report(self.vault, report)
+            answer = render_report(report)
+            answer += "\n\n_Parallel specialists: " + ("overlapped" if report.parallel_overlap else "single step") + f", {report.wall_s:.1f}s._"
+        except ValueError as exc:  # refusals, nothing delegable
+            answer = str(exc)
+        except Exception:  # never surface a traceback (or internal detail) from an agent turn
+            answer = "The coordinator could not complete this request. Nothing was changed."
+        with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+            st.markdown(answer)
+        self.chat_history.add_message("user", user_query)
+        self.chat_history.add_message("assistant", answer, [])
+        chat_sessions.touch_session(self.vault, active_id, title=user_query.strip()[:40], agent_id=agent.get("id"))
+        st.rerun()
 
     def _respond_with_agent(
         self,
@@ -521,6 +554,8 @@ class PersonalAIInterface:
         (so it survives the confirmation pause); the assistant answer lands
         in the history when the run reaches a terminal status.
         """
+        if agent.get("id") == "builtin-coordinator" or agent.get("role") in ("expense", "forecaster", "market"):
+            return self._respond_coordinated(user_query, active_id, agent)
         runtime = self._agent_runtime()
         with st.status(f"{agent.get('name', 'Agent')} is working...", expanded=True):
             result = runtime.start_run(active_id, agent, user_query, history)
@@ -667,11 +702,11 @@ class PersonalAIInterface:
             # This fixes issues where old config keys were causing incorrect model loads
             self.ollama_config = {
                 "engine": PERSONAL_AI_LLM_ENGINE,  # This will be "ollama" by default
-                "llm_host": DEFAULT_OLLAMA_HOST,
+                "llm_host": PERSONAL_AI_OMLX_HOST,
                 "llm_model": DEFAULT_CHAT_MODEL,
                 "embed_engine": PERSONAL_AI_EMBED_ENGINE,
-                "embed_host": DEFAULT_OLLAMA_HOST,
-                "embed_model": DEFAULT_EMBED_MODEL,
+                "embed_host": PERSONAL_AI_OMLX_HOST,
+                "embed_model": PERSONAL_AI_OMLX_EMBED_MODEL,
                 "temperature": 0.7,
                 "context_window_tokens": 8192,
                 "max_tokens": 2048,
@@ -764,11 +799,10 @@ class PersonalAIInterface:
                         from src.ai_engine.engine import build_chat_client
 
                         # Determine which engine to check
-                        engine = self.ollama_config.get("engine", PERSONAL_AI_LLM_ENGINE)
-                        host = self.ollama_config.get("llm_host",
-                                                    PERSONAL_AI_OMLX_HOST if engine == "omlx" else DEFAULT_OLLAMA_HOST)
-
-                        client = build_chat_client(engine=engine, host=host)
+                        from src.ai_engine.engine import client_kwargs_from_config
+                        kw = client_kwargs_from_config(self.ollama_config)
+                        engine = kw["engine"]
+                        client = build_chat_client(engine=engine, host=kw["host"])
 
                         if client.check_connection():
                             models = client.list_models()
@@ -850,6 +884,9 @@ class PersonalAIInterface:
                 )
 
         with st.expander(":material/tune: Advanced"):
+            stale = self.chat_engine.rag_index_stale() if getattr(self, "chat_engine", None) else None
+            if stale:
+                st.warning(f"Search index is stale ({stale}). Rebuild it.")
             if st.button("Rebuild RAG Index", icon=":material/sync:"):
                 # Show progress tracking
                 status_placeholder = st.empty()
@@ -867,23 +904,11 @@ class PersonalAIInterface:
                         status_placeholder.info(f"Found {len(file_keys)} documents to index")
 
                         if file_keys:
-                            # Initialize RAG engine for indexing
-                            status_placeholder.info("Initializing RAG engine...")
                             self._initialize_rag()
-                            status_placeholder.info("RAG engine initialized successfully")
-
-                            # Force re-initialization to trigger rebuild
-                            status_placeholder.info("Rebuilding index...")
-                            self._init_vault()
-                            self._initialize_rag()
-
-                            # Show document processing details
-                            with st.spinner("Processing documents and rebuilding index..."):
-                                # This should be handled by the chat_engine properly
-                                pass
-
-                            status_placeholder.success("✅ RAG index rebuilt successfully!")
-                            st.success(f"Processed {len(file_keys)} documents")
+                            with st.spinner("Re-embedding documents with the current embedding model..."):
+                                count = self.chat_engine.rebuild_rag_index()
+                            status_placeholder.success("✅ RAG index rebuilt")
+                            st.success(f"Re-indexed {count} documents")
                         else:
                             status_placeholder.info("ℹ️ No documents to process - index is up to date")
                     else:
@@ -955,6 +980,7 @@ class PersonalAIInterface:
             ollama_client=ollama_client,
             on_uploaded=self._on_document_uploaded,
         )
+        sync_panel.render(self.vault, self._on_document_uploaded)
 
     def _on_document_uploaded(self, storage_key: str, data: Dict[str, Any]) -> None:
         """Index a newly-uploaded document into RAG so it's searchable immediately.
@@ -1109,6 +1135,16 @@ class PersonalAIInterface:
 
         dashboard.render_dashboard_page(self.vault)
 
+    def _run_scheduled(self) -> List[str]:
+        from src.agents.orchestration import service
+        from src.interface.forecast import _scenario_factory
+
+        self._init_vault()
+        if not (self.vault and self.chat_engine):
+            return []
+        return service.run_scheduled(self.vault, self.chat_engine.get_structured_records, _scenario_factory(self.vault),
+                                     mcp=self._agent_runtime().mcp, quarantine_client=self.chat_engine.ollama_client)
+
     def render_agents_page(self) -> None:
         """Render the Agents page (agents, MCP servers, skills, activity)."""
         self._init_vault()  # Initialize vault but not RAG
@@ -1118,7 +1154,7 @@ class PersonalAIInterface:
             return
 
         ollama_client = self.chat_engine.ollama_client if self.chat_engine else None
-        agents.render_agents_page(self.vault, ollama_client)
+        agents.render_agents_page(self.vault, ollama_client, self._run_scheduled)
 
     def render_forecast_page(self) -> None:
         from src.interface.forecast import render_forecast_page
@@ -1342,6 +1378,13 @@ class PersonalAIInterface:
         # paint in _setup_page, so they win by cascade order; light mode is a
         # no-op, so toggling back off cleanly returns to the light paint.
         theme.apply_app_shell()
+
+        if not st.session_state.get("_schedule_ran"):  # due scheduled jobs run once per session, at app open
+            st.session_state["_schedule_ran"] = True
+            try:
+                self._run_scheduled()
+            except Exception:
+                pass  # a failing job must never block the app
 
         if page == "chat":
             self.render_chat_page()

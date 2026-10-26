@@ -9,7 +9,7 @@ Read this before making changes. This is a **local-only personal AI
 assistant that will hold real health/financial/personal data**. Security
 mistakes here have real consequences for the user, not just this codebase.
 
-Full security architecture, threat model, and residual-risk decisions:
+Doc index: **`docs/README.md`**. Full security architecture, threat model, and residual-risk decisions:
 **`docs/security_design.md`**. Read it before touching `src/security/`,
 `src/data_vault/`, or anything that handles the encryption key. Don't
 re-derive that context by re-reading every file - it's already written down.
@@ -38,6 +38,30 @@ re-derive that context by re-reading every file - it's already written down.
    structured-record filtering (`ChatEngine.get_structured_records`) and the
    Dashboard/Files-page groupings. Don't hand-roll a separate
    classifier/extractor path for a new category.
+
+## Agent platform (read `docs/platform_plan.md` first - it is the executable plan)
+
+Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforced in code AND tested):
+
+- Untrusted text (email, portal, web, news) only enters via `quarantine.extract_facts` (tool-less, strict schema).
+  Never put raw untrusted text into a prompt, a `Finding.summary`, a memory proposal or `st.markdown`.
+- Inter-agent traffic only via `MessageBus.send` with a per-edge `extra="forbid"` schema in `schemas.EDGES`.
+  New data flow = new schema + test. Never widen a schema to "make it work".
+- Core Memory: agents `propose`; only the Core Memory UI tab calls `memory.approve`. No agent-facing commit path.
+- Out-of-scope asks (trade, pay, shell, diagnose, reveal secrets) are refused by `policy.screen` before planning.
+- Gmail/brokerage MCP access is read-only (`ingest.ReadOnlyMcp`); do not add write tools to agent templates.
+- Ollama is disabled by default; build LLM clients through `engine.build_chat_client`.
+- After any change here run `make test` AND `make eval` (must print `Overall: PASS`); update
+  `docs/platform_plan.md` §Status and `docs/security_design.md` changelog in the same change.
+
+## RAG changes (read `docs/rag_design.md` first)
+
+- Architecture decision (platform_plan D8): Advanced RAG inside the retriever, Modular only at coordinator level; no free-running
+  retrieve/reflect loops (one bounded re-retrieve on a failed grounding check at most).
+- Known P0: `chroma_store.add_documents` chunks per line; fix via card R0 and measure with the retrieval eval (card R1) **before** tuning
+  thresholds, `k`, chunk size or models. Never loosen `min_relevance` or the grounding check to make an answer appear.
+- Downloaded/attached files are untrusted (magic bytes, size/page caps, no JS/embedded-file PDFs, hash-named, encrypted before parsing);
+  browser agents never give credentials/one-time codes to an LLM and never pay or change settings (see `rag_design.md` §5-§6).
 
 ## Security checklist for any change touching security/ or data_vault/
 
@@ -133,6 +157,8 @@ Streamlit ships a headless test harness - use it instead of "looks fine to me":
   model, and optionally that a given file (`FILE=path`) fits the RAG context
   budget. Run this whenever you change models, context-window config, or
   prompt-assembly logic in `chat_engine.py`.
+- `make eval` - offline eval harness (golden set, faults, injection, disclosure, refusal); writes `evals/results/latest.md`.
+- `make install-skills` - copies built-in `skills/*.md` into `~/.personal_ai/skills` (never overwrites edits).
 - `make test` - runs `pytest tests/`. Covers `ChatHistory`/`ChatMessage`
   (`tests/test_chat.py`), `ChatEngine` prompt-building and streaming
   (`tests/test_chat_engine.py`, via fake Ollama/RAG doubles - no real Ollama

@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from src.config import (
     DEFAULT_OLLAMA_HOST,
+    OLLAMA_ENABLED,
     DEFAULT_CHAT_MODEL,
     DEFAULT_EMBED_MODEL,
     DEFAULT_CHAT_TEMPERATURE,
@@ -47,17 +48,20 @@ def render_config_page(current: Optional[Dict[str, Any]] = None) -> Dict[str, An
     engine = current.get("engine", PERSONAL_AI_LLM_ENGINE)
     embed_engine = current.get("embed_engine", PERSONAL_AI_EMBED_ENGINE)
 
+    engines = ["ollama", "omlx"] if OLLAMA_ENABLED else ["omlx"]
+    engine = engine if engine in engines else "omlx"
+    embed_engine = embed_engine if embed_engine in engines else "omlx"
     engine_radio = st.radio(
         "LLM engine",
-        options=["ollama", "omlx"],
-        index=0 if engine == "ollama" else 1,
+        options=engines,
+        index=engines.index(engine),
         help="Choose which inference engine to use (Ollama or oMLX)",
     )
 
     embed_engine_radio = st.radio(
         "Embeddings engine",
-        options=["ollama", "omlx"],
-        index=0 if embed_engine == "ollama" else 1,
+        options=engines,
+        index=engines.index(embed_engine),
         help="Choose which inference engine to use for embeddings",
     )
 

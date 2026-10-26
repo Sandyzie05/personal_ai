@@ -1,9 +1,28 @@
-# Security Design
+# Security design
 
-This document describes the actual security architecture of the Personal AI
-System as implemented (not the aspirational one in the root README), the
-residual risks that are deliberately accepted for now, and a changelog of the
-security-focused pass done on 2026-08-23.
+The security architecture of personal_ai as implemented, the risks accepted on purpose, and a dated log of security work.
+For the agent-specific rules and their tests see [platform_plan.md](platform_plan.md) §2 (invariants S1-S16).
+
+## At a glance
+
+| Area | Control |
+|---|---|
+| Data at rest | AES-256-GCM vault; key derived from your password; single key path (`AuthManager`); `store_data(encrypt=True)` fails without a key |
+| Network | App bound to localhost; local inference on loopback (oMLX); only fixed public market routes leave the machine (tickers/topics only) |
+| Untrusted content | Email/portal/web/news text goes only through a tool-less schema extractor; findings carry a trust flag; rendered output is escaped |
+| Agents | Typed per-edge message schemas, PII/canary scan, audit log (field names + hash only); read-only MCP by default; confirmation gate for write tools |
+| Memory | Agents can only *propose*; you approve in the UI; untrusted-derived items need extra acknowledgement |
+| Scope | Trading, payments, shell commands, diagnosis and secret disclosure are refused before planning |
+| Accepted risk | ChromaDB index is plaintext on disk (locked-down, colocated; see below); a malicious process under your own account while unlocked |
+
+## Contents
+
+[Threat model](#threat-model) · [Key management](#key-management-as-of-2026-08-23) · [Data vault](#data-vault-srcdata_vault) ·
+[RAG / ChromaDB](#rag--chromadb-accepted-residual-risk) · [Multi-session chat](#multi-session-chat-and-dashboard-2026-08-25) ·
+[Multi-agent and MCP](#multi-agent-and-mcp-integration-2026-10-13) · [Forecast integration](#requested-ticker-forecast-integration-2026-10-18) ·
+[Agent platform + audit](#agent-platform-coordinator-quarantine-scoped-bus-core-memory-gate-2026-10-25) ·
+[Planned ingestion hardening](#planned-bill-ingestion-and-rag-hardening-design-only-2026-10-25) · [Model configuration](#model-configuration) ·
+[Known limitation](#known-limitation-no-migration-path-across-a-vault-key-change)
 
 ## Threat model
 
@@ -287,6 +306,39 @@ This page's public-only/no-trading boundary does **not** change existing generic
 MCP agent capabilities or revoke user-configured trading tools. A broader
 capstone-specific runtime policy remains proposed, not implemented here.
 
+## Agent platform: coordinator, quarantine, scoped bus, Core Memory gate (2026-10-25)
+
+Code: `src/agents/orchestration/`. Tests: `tests/test_orchestration*.py` (+ `make eval`).
+
+- **Untrusted content never reaches a decision-maker.** Email/portal/news text goes only to `quarantine.extract_facts`:
+  zero-width/control chars stripped, length-capped, wrapped in `<untrusted>`, sent to a **tool-less** model call that must
+  return a strict schema whose strings use allowlist regexes (`SAFE_TEXT`). Injected prose fails validation and is dropped;
+  injection-looking input is audited (`injection_flagged`) but inert either way.
+- **Taint.** Findings derived from untrusted sources carry `trust="untrusted"`; merge propagates it. Core Memory approval
+  of an untrusted-derived item needs a separate acknowledgement.
+- **Least-disclosure bus.** Each (sender -> receiver) edge has a typed `extra="forbid"` schema; string fields are scanned for
+  PII patterns and seeded canary tokens; violations are blocked and audited (field names + hash only, never payloads).
+- **Core Memory.** Agents can only `propose`; `approve` requires a single-use UI-minted approval token and exists only behind the
+  Agents -> Core Memory UI. Corrections supersede (history retained).
+- **Gmail** is reached via `ReadOnlyMcp` (allowlist `search|get|list|read_*`, sensitive-prefix tools refused).
+- **Egress delta:** oMLX is local (127.0.0.1); Ollama disabled by default (`PERSONAL_AI_OLLAMA_ENABLED`). Forecaster public
+  providers gained one fixed route (`yahoo-search`, news) with bounded query/size; no private data is sent.
+- **Audit 2026-10-25 (independent reviewer, fixed):** unapproved Core Memory was reachable by RAG (keys now internal); free text
+  from email/portal could reach summaries/history (closed enums, tight allowlists, templated summaries, markdown escaping);
+  coordinator timeouts were not per-step and results could mutate after a timeout (per-future deadlines, immutable results);
+  conflicts between `ok` and `uncertain` findings were dropped; bus gaps (dashed cards, obfuscated emails, free-text symbols,
+  absurd amounts, no production canaries); Ollama gate bypass by spelling; oMLX host unvalidated (now loopback-only; token never
+  via redirect/proxy); vault used from worker threads (snapshots + calling-thread audit). Details and the open items: `docs/platform_plan.md` §6.1-6.2.
+- **Residual risks:** the regex PII scan is heuristic (schemas are the primary control); the quarantine model is itself an LLM
+  (schema validation, not model obedience, is the guarantee); portal fetching of real sites is not implemented (interface +
+  fixtures only); embedding model change requires a Chroma re-index (Chat -> Advanced -> Rebuild RAG Index now truly re-embeds).
+
+## Planned: bill ingestion and RAG hardening (design only, 2026-10-25)
+
+Not implemented. Requirements S-R1..S-R8 in `docs/rag_design.md` §6 (untrusted PDFs, Gmail read-only attachments, browser-agent
+constraints, no plaintext copies, ids-only retrieval logs, bounded idempotent ingestion). Any new index structure (BM25/FTS,
+manifest, expected-bills ledger) must land in the encrypted vault or be recorded here as plaintext-at-rest before merge.
+
 ## Model configuration
 
 Chat/embedding model names and the Ollama host were previously hardcoded to
@@ -387,3 +439,12 @@ already had this pattern; it was just inconsistently applied.
  `agent_run_<session_id>` record if one happened to exist at that moment -
  it stays encrypted and inert in the vault, and is overwritten if the same
  session id were ever reused, which it won't be since ids are random.)
+
+
+**RAG chunking fix (R0, 2026-10-25):** `chroma_store._chunk_text` now packs lines into chunks instead of one chunk per line; collection renamed `personal_ai_vault_v4` so the old per-line index is not reused (rebuild required). No change to the plaintext-Chroma residual risk; the old v3 collection directory remains on disk under `~/.personal_ai_vault/.chroma` until the index is rebuilt/cleared.
+
+**RAG retrieval and grounding (R1-R6, 2026-10-25):** BM25 index (`ai_engine/hybrid.py`) is memory-only, rebuilt from the live Chroma collection (no second on-disk text index, S-R3). Embedding cache lives in the encrypted vault as internal `vault_embcache_*` keys (never indexed/listed). Per-turn diagnostics (`agent_activity_log`, `kind=rag_turn`) hold evidence ids, scores and flags only, never question/chunk text. Chroma `where` uses `$and` + integer period fields. Answers are grounded deterministically (`grounding.py`); empty retrieval returns a templated not-found with no model call. Chroma currently runs in-memory (`.chroma` stays empty), so the plaintext-on-disk residual risk is smaller than documented; if persistence is enabled the old risk applies. Collection `personal_ai_vault_v4` is stamped (`embed_model`, `chunker_version`); mismatch is reported stale, never mixed.
+
+**Bill ingestion + portal agent (R7-R10, 2026-10-25):** S-R1: `files.validate_pdf` gates every downloaded/attached file (magic bytes, 15 MB/60-page caps, rejects JS/Launch/EmbeddedFile/RichMedia incl. `#XX`-obfuscated names and object streams, embedded files, encrypted PDFs); files stored encrypted as `ingest_<sha16>` before parsing, parsed in memory, remote filename never used. S-R3: `ingest_manifest`, `ingest_expectations`, `portal_recipes`, `portal_cred_*` are internal encrypted vault keys. Residual risk: Playwright downloads touch a 0700 temp dir briefly (deleted after read) and its persistent profile (`~/.personal_ai_vault/.portal_profiles`, 0700) holds session cookies in plaintext. S-R4: Gmail attachments via `ReadOnlyMcp` only, code-side sender allowlist, no body text read. S-R5: recipes are data with a closed action set, https + host allowlist, payment/settings deny list; off-allowlist navigation aborts the run; credentials only reach `fill_*` steps, never logs/errors/models; 2FA/CAPTCHA stops for the human; fetch only on explicit button press. S-R7: per-run file/time caps, idempotent hash dedupe, no archive recursion. Evals: hostile files accepted 0/10, credential leaks 0, unblocked off-allowlist redirects 0.
+
+**Agent platform hardening (2026-10-25):** Core Memory approval needs a single-use, session- and item-bound token minted only by the Core Memory button handler (`memory.issue_approval_token`; a test pins callers); forged/replayed/cross-item tokens fail closed (structural within the process, not cryptographic). Schedule and Core Memory read-modify-write take a cross-process `flock` (`~/.personal_ai/*.lock`, 0600); scheduled jobs are claimed atomically. Gmail/brokerage MCP reads are prefetched on the calling thread (S15); only validated tickers survive. Bus dedupes identical retried sends; timed-out workers get a cooperative cancel. Verifier can only add escalations. Optional LLM planner is off by default and gated by `Plan` + `validate_plan`. oMLX client: no invented tool-call ids, correct `json_schema` response format, streamed tool-call deltas accumulated. News failures carry `yahoo-news` source id.
