@@ -109,9 +109,8 @@ if "PERSONAL_AI_EMBED_MODEL_CONTEXT_TOKENS" in os.environ:
 
 # --- Multi-agent layer (see docs/multi_agent_design.md) ---
 
-# Skills are plain instruction files (not personal data), so they live in a
-# directory rather than the encrypted vault - same accepted tradeoff as the
-# .chroma index. Override if you keep them elsewhere.
+# Skills are plaintext user-written instructions, not encrypted vault records.
+# Keep personal data/secrets out of them; override the directory if needed.
 SKILLS_DIR = os.environ.get(
     "PERSONAL_AI_SKILLS_DIR", "~/.personal_ai/skills"
 )

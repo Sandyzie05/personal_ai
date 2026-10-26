@@ -5,17 +5,26 @@ This module provides AI capabilities for the Personal AI System, integrating loc
 ## Features
 
 - **Ollama Integration**: Connect to local Ollama instance for LLM inference
-- **Embeddings Generation**: Uses `nomic-embed-text` model for text embeddings
+- **Embeddings Generation**: Configurable Ollama or oMLX embedding backend
 - **RAG Engine**: Retrieval-Augmented Generation with ChromaDB vector storage
-- **Chat Engine**: Queries encrypted data vault using Llama-3.2 model
+- **Chat Engine**: Queries encrypted data vault using the configured chat model
 - **Security**: Full integration with existing AES-256-GCM encryption
 
 ## Dependencies
 
 See `requirements.txt` for full list:
 - `ollama` - Ollama Python client
-- `llama-index` - RAG framework
 - `chromadb` - Vector database
+
+RAG is implemented in this repository, not through LlamaIndex. Backend,
+host, model and context defaults come from `src/config.py`; saved Settings
+configure the application. The code defaults to Ollama chat and oMLX
+embeddings, so an Ollama-only setup must select Ollama embeddings explicitly.
+Chat and agent context builders share the saved embedding configuration.
+Collections are namespaced by the actual embedding backend, host and model;
+changing dimensions does not reuse an incompatible collection. Explicit
+rebuilds replace the active index from vault records; normal document
+mutations replace/remove only that source's chunks.
 
 ## Installation
 
@@ -26,17 +35,18 @@ ollama serve  # Start local Ollama in another terminal
 
 ## Setup
 
-1. Pull required models:
+1. For an Ollama-only setup, select its embedding backend and install only
+the configured models that are missing:
 ```bash
-ollama pull llama3.2
+export PERSONAL_AI_EMBED_ENGINE=ollama
+ollama pull llama3.2:latest
 ollama pull nomic-embed-text
 ```
 
-2. Ensure encryption key is available:
-```python
-from src.security.encryption import AEADEncryption
-encryption_key = AEADEncryption().key  # Loads existing key or creates new one
-```
+2. Use the application's registration/login flow. `AuthManager` is the only
+supported password-to-DEK path. Do not construct `AEADEncryption()` without
+an explicit key to bootstrap the application; its legacy raw-key helper is
+not the supported auth lifecycle.
 
 ## Usage
 
@@ -44,10 +54,11 @@ encryption_key = AEADEncryption().key  # Loads existing key or creates new one
 
 ```python
 from src.ai_engine.chat_engine import ChatEngine
-from src.security.encryption import AEADEncryption
+from getpass import getpass
+from src.security.auth import AuthManager
 
-# Initialize chat engine with encryption key
-encryption_key = AEADEncryption().key
+# Use an already registered vault; never put a password in source code.
+encryption_key = AuthManager().authenticate(getpass("Vault password: "))
 chat_engine = ChatEngine(encryption_key=encryption_key)
 
 # Add data to encrypted vault
@@ -73,9 +84,8 @@ from src.ai_engine.ollama_client import OllamaClient
 
 client = OllamaClient()
 client.list_models()  # List available models
-client.model_exists("llama-3.2")  # Check if model exists
-client.generate("llama-3.2", "Hello")  # Generate text
-client.chat("llama-3.2", [{"role": "user", "content": "Hi"}])  # Chat
+client.model_exists(client.model)  # Check configured model
+client.chat([{"role": "user", "content": "Hi"}])
 ```
 
 #### Embeddings Generator
@@ -94,30 +104,13 @@ from src.ai_engine.rag_engine import RAGEngine
 
 rag = RAGEngine()
 rag.add_document("Some text to index")
-results = rag.retrieve("search query")
+results = rag.query("search query")
 ```
 
-### Complete Example
-
-```python
-from src.ai_engine.chat_engine import ChatEngine
-from src.security.encryption import AEADEncryption
-
-# Initialize
-encryption_key = AEADEncryption().key
-chat = ChatEngine(encryption_key=encryption_key)
-
-# Store sensitive data securely
-chat.add_data_to_vault("password_entry", {
-    "url": "example.com",
-    "username": "user123",
-    "password": "secret123"
-})
-
-# Query with context
-result = chat.query_vault("What are my credentials for example.com?")
-print(result["response"])
-```
+The examples use the configured model endpoints and an existing vault.
+For experiments, use an isolated HOME and synthetic records rather than
+real credentials or personal documents. Do not put passwords in chat,
+documents, source code or diagnostic output.
 
 ## Error Handling
 
@@ -164,20 +157,32 @@ The module handles several error conditions:
 ## Security Notes
 
 - All data in the vault is encrypted with AES-256-GCM
-- Encryption keys are managed by `src.security.encryption.AEADEncryption`
-- Data is decrypted only during query processing
-- RAG index stores plaintext embeddings (consider encryption if needed)
+- AuthManager owns DEK creation/wrapping/unwrapping; encryption helpers
+  receive the resulting key explicitly
+- Decrypted data exists during ingestion, indexing, UI rendering and queries
+- Chroma stores plaintext document text, embeddings and metadata; its
+  directory is private, not encrypted
+- Model endpoints are configurable, not universally restricted to localhost;
+  use trusted local endpoints for private inference
+- MCP agents can send model-selected tool arguments to configured remote
+  servers; disabling RAG does not remove private user/history text
+- See [security_design.md](security_design.md) for residual risks
 
 ## Testing
 
 ```bash
-# Run the demo
-python examples/ai_engine_demo.py
+# Offline regressions (use isolated storage; see development plan)
+make test
 ```
+
+`make demo` is a live auth/vault/model smoke flow, not an offline test.
+Run `make check-context` after chat-path/model changes; an unavailable
+configured model/service is an explicit integration-check blocker.
 
 ## Troubleshooting
 
 1. **"Cannot connect to Ollama"**: Start Ollama server: `ollama serve`
-2. **"Model not found"**: Pull the model: `ollama pull llama3.2`
+2. **"Model not found"**: Check the selected backend's installed models,
+   then install the explicitly configured missing model
 3. **Encryption errors**: Ensure `encryption_key` parameter is provided
 4. **ChromaDB errors**: Install with `pip install chromadb`

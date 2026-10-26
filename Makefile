@@ -13,7 +13,7 @@ help:
 	@echo "  make demo           Run the CLI ai_engine demo (registers/logs in via AuthManager)"
 	@echo "  make check-context  Validate context-window/token-budget assumptions against Ollama"
 	@echo "                      Optional: FILE=path/to/text.txt  MODEL=some-model"
-	@echo "  make test           Run the test suite"
+	@echo "  make test           Run isolated offline tests (synthetic loopback callback allowed)"
 
 setup:
 	python3 scripts/setup.py
@@ -32,4 +32,4 @@ check-context:
 	PYTHONPATH=. $(PYTHON) scripts/check_context_overflow.py $(if $(FILE),--file $(FILE)) $(if $(MODEL),--model $(MODEL))
 
 test:
-	PYTHONPATH=. $(PYTEST) tests/ -v
+	PYTHONPATH=. PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $(PYTEST) tests/ -v

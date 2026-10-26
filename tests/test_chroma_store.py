@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import os
+import tempfile
 
 from src.ai_engine.chroma_store import (
     ChromaStore,
@@ -26,24 +27,27 @@ class TestChromaStore(unittest.TestCase):
         store = ChromaStore(embedding_generator=self.mock_embedding_gen)
         self.assertEqual(store.collection_name, "personal_ai_vault_v3")
 
-    @patch('src.ai_engine.chroma_store.chromadb')
-    def test_chroma_store_initialization(self, mock_chromadb):
-        # Mock ChromaDB client
+    @patch("chromadb.config.Settings")
+    @patch("chromadb.Client")
+    def test_chroma_store_initialization(self, mock_client_factory, mock_settings):
         mock_client = MagicMock()
         mock_collection = MagicMock()
-        mock_chromadb.Client.return_value = mock_client
+        mock_client_factory.return_value = mock_client
         mock_client.get_or_create_collection.return_value = mock_collection
 
-        store = ChromaStore(embedding_generator=self.mock_embedding_gen)
-        store._ensure_initialized()
-
-        # Should create client with correct settings
-        mock_chromadb.Client.assert_called_once_with(
-            mock_chromadb.config.Settings(
-                persist_directory=store.persist_directory,
-                anonymized_telemetry=False,
+        with tempfile.TemporaryDirectory() as directory:
+            store = ChromaStore(
+                embedding_generator=self.mock_embedding_gen,
+                persist_directory=directory,
             )
+            store._ensure_initialized()
+            self.assertEqual(os.stat(directory).st_mode & 0o777, 0o700)
+
+        mock_settings.assert_called_once_with(
+            persist_directory=store.persist_directory,
+            anonymized_telemetry=False,
         )
+        mock_client_factory.assert_called_once_with(mock_settings.return_value)
         mock_client.get_or_create_collection.assert_called_once_with(
             name=store.collection_name, metadata={"hnsw:space": "cosine"}
         )
@@ -178,6 +182,44 @@ More explanation of the code...
         self.assertEqual(store_qwen.embedding_generator.query_prefix, "")
         self.assertEqual(store_qwen.embedding_generator.document_prefix, "")
 
+    def test_clear_deletes_actual_ids_not_a_metadata_field(self):
+        store = ChromaStore(embedding_generator=self.mock_embedding_gen)
+        store._initialized = True
+        store.collection = MagicMock()
+        store.collection.get.return_value = {"ids": ["legacy-random-id", "chunk-id"]}
+        store._last_retrieval = [{"content": "synthetic text"}]
+
+        self.assertTrue(store.clear())
+
+        store.collection.get.assert_called_once_with(include=[])
+        store.collection.delete.assert_called_once_with(ids=["legacy-random-id", "chunk-id"])
+        self.assertEqual(store.last_retrieval(), [])
+
+    def test_clear_empty_collection_does_not_send_invalid_delete(self):
+        store = ChromaStore()
+        store._initialized = True
+        store.collection = MagicMock()
+        store.collection.get.return_value = {"ids": []}
+
+        self.assertTrue(store.clear())
+
+        store.collection.delete.assert_not_called()
+
+    def test_vault_chunk_ids_survive_rebuild_and_distinguish_sources(self):
+        store = ChromaStore(embedding_generator=self.mock_embedding_gen)
+        store._initialized = True
+        store.collection = MagicMock()
+        documents = ["synthetic text " * 400, "another synthetic document"]
+        metadata = [{"storage_key": "source-a"}, {"storage_key": "source-b"}]
+
+        first = store.add_documents(documents, metadata)
+        store.clear()
+        second = store.add_documents(documents, metadata)
+
+        self.assertEqual(first, second)
+        self.assertGreater(len(first), 2)
+        self.assertEqual(len(first), len(set(first)))
+
 
 class TestChunkText(unittest.TestCase):
 
@@ -210,6 +252,25 @@ class TestChunkText(unittest.TestCase):
         # All chunks should be <= cap
         for chunk in result:
             self.assertLessEqual(len(chunk), 100)
+
+    def test_overlap_and_midstream_long_words_never_exceed_cap(self):
+        for cap in (1, 10, 100):
+            with self.subTest(cap=cap):
+                text = "before " + "x" * (cap * 3 + 1) + " after"
+                chunks = _chunk_text(text, cap, overlap_chars=200)
+                self.assertTrue(chunks)
+                self.assertTrue(all(0 < len(chunk) <= cap for chunk in chunks))
+                self.assertEqual(
+                    "".join(_chunk_text("x" * (cap * 3 + 1), cap)),
+                    "x" * (cap * 3 + 1),
+                )
+
+    def test_oversized_markdown_rows_respect_embedding_cap(self):
+        text = "| heading |\n|---|\n| " + "x" * 5000 + " |"
+        chunks = chunk_text(text, embed_context_tokens=100)
+        self.assertTrue(chunks)
+        self.assertTrue(all(len(chunk) <= 100 for chunk in chunks))
+        self.assertIn("x" * 100, chunks)
 
 
 if __name__ == '__main__':

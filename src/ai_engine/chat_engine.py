@@ -1,7 +1,8 @@
 from typing import Iterator, Optional, List, Dict, Any, Tuple
 
 from .ollama_client import OllamaClient, OllamaClientError
-from .engine import build_chat_client
+from .engine import build_chat_client, build_embed_client, client_kwargs_from_config
+from .embeddings import EmbeddingsGenerator
 from .query_analysis import (
     detect_category_from_query,
     detect_provider_from_query,
@@ -63,10 +64,11 @@ class ChatEngine:
         context_window_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
         rag_scope_categories: Optional[List[str]] = None,
+        embedding_generator: Optional[EmbeddingsGenerator] = None,
     ):
         """Build the chat engine.
 
-        The last four parameters are optional per-agent overrides for the
+        The generation and RAG parameters are optional overrides for the
         multi-agent layer (docs/multi_agent_design.md D6). With all of them
         omitted, behavior is exactly the historical single-assistant one:
         default Ollama client, `ChatEngine.SYSTEM_PROMPT`, unscoped RAG.
@@ -78,6 +80,8 @@ class ChatEngine:
         - `rag_scope_categories`: restricts both the structured-record scan
           and the ChromaDB `where` clause to these document categories
           (None/[] = unrestricted, today's behavior).
+        - `embedding_generator`: optional configured embeddings for lazy RAG
+          initialization; omitted callers retain the default embedding client.
         """
         if ollama_client is None:
             client_kwargs: Dict[str, Any] = {}
@@ -103,6 +107,7 @@ class ChatEngine:
 
         self.vault = DataVault(vault_path=vault_path, encryption_key=encryption_key)
         self.rag_engine: Optional[RAGEngine] = None
+        self._embedding_generator = embedding_generator
         self._encryption_key = encryption_key
         self._model_loaded = False
 
@@ -146,7 +151,7 @@ class ChatEngine:
                     text = self._data_to_text(data)
                     items.append((text, self._rag_metadata_for(key, data)))
             except Exception:
-                continue
+                raise ChatEngineError("Failed to read a document for indexing") from None
         return items
 
     def _rag_metadata_for(self, key: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -186,18 +191,41 @@ class ChatEngine:
         return " ".join(filter(None, text_parts))
 
     def initialize_rag(self) -> None:
-        """Initialize RAG engine with vault data."""
-        if self.rag_engine is None:
+        """Replace the derived index with the current vault snapshot, including empty vaults."""
+        rag_engine = self.rag_engine
+        self.rag_engine = None
+        try:
             # Colocate the (unencrypted) semantic search index with the vault
             # directory rather than the process cwd.
-            chroma_dir = str(self.vault.vault_path / ".chroma")
-            self.rag_engine = RAGEngine(persist_directory=chroma_dir)
-            self.rag_engine._initialized = True  # Skip lazy init checks
+            if rag_engine is None:
+                if self._embedding_generator is None:
+                    config = self.vault.retrieve_data("ollama_config")
+                    if config:
+                        kwargs = client_kwargs_from_config(config)
+                        self._embedding_generator = EmbeddingsGenerator(
+                            client=build_embed_client(
+                                engine=kwargs["embed_engine"],
+                                host=kwargs["embed_host"],
+                                model=kwargs["embed_model"],
+                            )
+                        )
+                    else:
+                        self._embedding_generator = EmbeddingsGenerator()
+                chroma_dir = str(self.vault.vault_path / ".chroma")
+                rag_engine = RAGEngine(
+                    embedding_generator=self._embedding_generator,
+                    persist_directory=chroma_dir,
+                )
+            if not rag_engine.clear():
+                raise ChatEngineError("Failed to clear the previous RAG index")
             items = self._load_vault_data_for_rag()
             if items:
                 texts = [text for text, _ in items]
                 metadatas = [metadata for _, metadata in items]
-                self.rag_engine.add_documents(texts, metadatas)
+                rag_engine.add_documents(texts, metadatas)
+            self.rag_engine = rag_engine
+        except Exception:
+            raise ChatEngineError("Failed to rebuild the RAG index") from None
 
     def get_structured_records(
         self,
@@ -624,31 +652,37 @@ class ChatEngine:
             self.vault.store_data(key, data)
 
             if self.rag_engine:
-                text = self._data_to_text(data)
-                metadata = self._rag_metadata_for(key, data)
-                self.rag_engine.add_document(text, metadata=metadata)
+                self.index_document(key, data)
 
             return True
         except DataVaultError as e:
             raise ChatEngineError(f"Failed to store data: {str(e)}")
 
     def index_document(self, key: str, data: Dict[str, Any]) -> None:
-        """Add an already-stored document to the RAG index without re-storing it.
-
-        Used by the Upload page after FileUploadHandler writes a new document
-        directly to the vault, so it's searchable immediately. initialize_rag()
-        no-ops once already initialized, so a plain re-call after upload
-        would silently skip indexing the new document - this handles both
-        the not-yet-initialized case (defers to initialize_rag(), which will
-        pick up this document along with everything else) and the
-        already-initialized case (incremental add).
-        """
+        """Replace one persisted source without re-embedding unrelated documents."""
+        if is_internal_vault_key(key):
+            return
         if self.rag_engine is None:
             self.initialize_rag()
             return
-        text = self._data_to_text(data)
-        metadata = self._rag_metadata_for(key, data)
-        self.rag_engine.add_document(text, metadata=metadata)
+        try:
+            self.rag_engine._get_chroma_store().replace_document(
+                self._data_to_text(data), self._rag_metadata_for(key, data),
+            )
+        except Exception:
+            self.rag_engine = None
+            raise ChatEngineError("Failed to update the RAG index") from None
+
+    def remove_document(self, key: str) -> None:
+        """Remove a deleted vault source from the active embedding collection."""
+        if self.rag_engine is None:
+            self.initialize_rag()
+            return
+        try:
+            self.rag_engine._get_chroma_store().delete_document(key)
+        except Exception:
+            self.rag_engine = None
+            raise ChatEngineError("Failed to update the RAG index") from None
 
     def clear_vault(self) -> bool:
         """Clear all data from vault and RAG index."""
