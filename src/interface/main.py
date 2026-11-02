@@ -557,16 +557,17 @@ class PersonalAIInterface:
         """Coordinator turn: plan -> parallel specialists -> deterministic merge -> escalation."""
         from src.agents.orchestration import service
         from src.agents.orchestration.workers import render_report
+        from src.ai_engine.engine import worker_client
         from src.interface.forecast import _scenario_factory
 
         try:
             coordinator = service.build_coordinator(
                 self.vault, self.chat_engine.get_structured_records, _scenario_factory(self.vault),
-                mcp=self._agent_runtime().mcp, quarantine_client=self.chat_engine.ollama_client)
+                mcp=self._agent_runtime().mcp, quarantine_client=worker_client(self.chat_engine.ollama_client))
             with st.status("Coordinator delegating to specialists...", expanded=True):
                 report = service.run_query(
                     coordinator, user_query, only=agent.get("role") if agent.get("id") != "builtin-coordinator" else None,
-                    planner_client=self.chat_engine.ollama_client)
+                    planner_client=worker_client(self.chat_engine.ollama_client))
             service.propose_from_report(self.vault, report)
             answer = render_report(report)
             answer += "\n\n_Parallel specialists: " + ("overlapped" if report.parallel_overlap else "single step") + f", {report.wall_s:.1f}s._"
@@ -1155,13 +1156,14 @@ class PersonalAIInterface:
 
     def _run_scheduled(self) -> List[str]:
         from src.agents.orchestration import service
+        from src.ai_engine.engine import worker_client
         from src.interface.forecast import _scenario_factory
 
         self._init_vault()
         if not (self.vault and self.chat_engine):
             return []
         return service.run_scheduled(self.vault, self.chat_engine.get_structured_records, _scenario_factory(self.vault),
-                                     mcp=self._agent_runtime().mcp, quarantine_client=self.chat_engine.ollama_client)
+                                     mcp=self._agent_runtime().mcp, quarantine_client=worker_client(self.chat_engine.ollama_client))
 
     def render_agents_page(self) -> None:
         """Render the Agents page (agents, MCP servers, skills, activity)."""

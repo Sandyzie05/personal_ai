@@ -3,13 +3,19 @@ import urllib.request
 import urllib.error
 import os
 import math
+import threading
 import uuid
+from contextlib import contextmanager
 from typing import List, Dict, Any, Optional, Generator
 from ipaddress import ip_address
 from urllib.parse import urljoin, urlparse
 
 from .ollama_client import OllamaClientError
-from ..config import PERSONAL_AI_OMLX_HOST, PERSONAL_AI_OMLX_CHAT_MODEL, OMLX_SUPPORTS_TOOLS
+from ..config import (PERSONAL_AI_INFERENCE_CONCURRENCY, PERSONAL_AI_OMLX_HOST, PERSONAL_AI_OMLX_CHAT_MODEL,
+                      OMLX_SUPPORTS_TOOLS)
+
+# Process-wide: every agent, specialist and chat turn shares this one budget of in-flight local requests.
+_INFLIGHT = threading.BoundedSemaphore(PERSONAL_AI_INFERENCE_CONCURRENCY)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -155,6 +161,16 @@ class OmlxClient:
         except urllib.error.URLError as e:
             raise OllamaClientError(f"URL Error: {str(e)}")
 
+    @contextmanager
+    def _inference_slot(self):
+        """App-wide cap on in-flight chat requests (PERSONAL_AI_INFERENCE_CONCURRENCY); waits up to the request timeout."""
+        if not _INFLIGHT.acquire(timeout=self.request_timeout_seconds):  # None = wait (interactive chat)
+            raise OllamaClientError("Local inference is at its concurrency limit; try again shortly")
+        try:
+            yield
+        finally:
+            _INFLIGHT.release()
+
     def chat(self, messages: List[Dict], stream: bool = False, format: Optional[str] = None,
              tools: Optional[List[Dict]] = None) -> Any:
         """Send chat request to oMLX server."""
@@ -184,7 +200,8 @@ class OmlxClient:
 
         if not stream:
             # Non-streaming response
-            response = self._make_request("POST", "/v1/chat/completions", data)
+            with self._inference_slot():
+                response = self._make_request("POST", "/v1/chat/completions", data)
             # Convert to Ollama format
             choices = response.get("choices") or []
             if not choices:
@@ -205,7 +222,7 @@ class OmlxClient:
 
         calls: Dict[int, Dict] = {}  # tool-call deltas arrive in fragments keyed by index
         try:
-            with self._open(req) as response:
+            with self._inference_slot(), self._open(req) as response:
                 for line in response:
                     line = line.decode('utf-8')
                     if line.startswith('data: '):

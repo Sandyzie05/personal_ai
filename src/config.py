@@ -49,6 +49,13 @@ PERSONAL_AI_LLM_PLANNER = os.environ.get(
 PERSONAL_AI_OMLX_EMBED_MODEL = os.environ.get(
     "PERSONAL_AI_OMLX_EMBED_MODEL", "mlx-community/Qwen3-VL-Embedding-2B-8bit"
 )
+# Local-hardware guards (docs/ai_engine.md "Memory budget"). All agents share ONE local server, so agent count does not
+# load more models; concurrent requests do (each in-flight request holds its own KV cache in unified memory).
+# This caps in-flight chat requests across the whole app process.
+PERSONAL_AI_INFERENCE_CONCURRENCY = max(1, int(os.environ.get("PERSONAL_AI_INFERENCE_CONCURRENCY", "2")))
+# Optional smaller model for background roles (forecast specialists/ToT critics, quarantine extractor, verifier,
+# planner). Unset = reuse the chat model: one resident model is the smallest footprint.
+PERSONAL_AI_OMLX_WORKER_MODEL = os.environ.get("PERSONAL_AI_OMLX_WORKER_MODEL", "")
 
 # Default generation temperature for grounded QA. 0.7 (the old default) is too
 # free-wheeling for an assistant that must answer strictly from retrieved

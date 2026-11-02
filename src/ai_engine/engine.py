@@ -1,5 +1,6 @@
 """Factory for creating LLM clients with different engines."""
 
+import copy
 from typing import Optional, Dict, Any
 
 from .ollama_client import OllamaClient
@@ -15,6 +16,7 @@ from ..config import (
     PERSONAL_AI_OMLX_CHAT_MODEL,
     PERSONAL_AI_EMBED_ENGINE,
     PERSONAL_AI_OMLX_EMBED_MODEL,
+    PERSONAL_AI_OMLX_WORKER_MODEL,
     EMBED_MODEL_CONTEXT_TOKENS
 )
 
@@ -32,6 +34,15 @@ def _check_enabled(engine: str) -> str:
             "Ollama is disabled; use oMLX (or set PERSONAL_AI_OLLAMA_ENABLED=true)."
         )
     return engine
+
+
+def worker_client(client: Any) -> Any:
+    """Same endpoint and settings, smaller model for background roles when PERSONAL_AI_OMLX_WORKER_MODEL is set."""
+    if not (PERSONAL_AI_OMLX_WORKER_MODEL and isinstance(client, OmlxClient)):
+        return client
+    worker = copy.copy(client)
+    worker.model = PERSONAL_AI_OMLX_WORKER_MODEL
+    return worker
 
 
 def build_chat_client(engine: Optional[str] = None, host: Optional[str] = None,

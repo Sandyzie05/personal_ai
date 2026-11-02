@@ -9,7 +9,8 @@
 - Merge: `feat/agent-platform` forked before `main`'s 9d955f9 and lacked atomic/flocked auth writes, offline test isolation and the auth/vault-lock/RAG-privacy/ingestion regressions. Merged back. Wrapping format is unchanged (existing auth files still unlock). One fail-closed RAG rebuild path; source-identity chunk ids.
 - ToT: `src/forecaster/tot.py` adds a beam search over competing bull/base/bear theses. The beam keeps one branch per scenario, and the specialist swarm acts as a lazy shared critic. Pruning reasons are recorded; ties break conservatively; the search abstains when nothing is strong enough. The coordinator emits `thesis:<SYM>`, marked uncertain when the result is close, has no critic, or clashes with the heuristic. Design: `docs/reasoning_design.md`.
 - Gaps fixed: forecaster step timeout (30 s) was shorter than its own 45 s + 60 s budgets; the LLM planner could choose its own step timeouts; the swarm verdict and the heuristic outlook were never reconciled.
-- Evals: ToT 8/8 vs linear 6/8 vs critic-vote 7/8 on labeled synthetic cases; 5 of 8 converged with 0 LLM calls. Tests: 748 pass. Not run on live oMLX.
+- Hardware budget: app-wide cap on in-flight local requests (`PERSONAL_AI_INFERENCE_CONCURRENCY`, default 2, both streamed and non-streamed chat), plus an optional smaller `PERSONAL_AI_OMLX_WORKER_MODEL` for specialists, quarantine, verifier and planner. See the memory-budget section in `docs/ai_engine.md`.
+- Evals: ToT 8/8 vs linear 6/8 vs critic-vote 7/8 on labeled synthetic cases; 5 of 8 converged with 0 LLM calls. Tests: 752 pass. Not run on live oMLX.
 
 ## (pending) - 2026-10-25 - feat: RAG R0-R6, ingestion R7-R10, orchestration backlog B1-B16
 

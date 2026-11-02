@@ -396,3 +396,15 @@ class TestOllamaDisabled(unittest.TestCase):
         self.assertIsNone(kw["host"]); self.assertIsNone(kw["model"]); self.assertIsNone(kw["embed_model"])
         client = build_chat_client(**{k: kw[k] for k in ("engine", "host", "model")})
         self.assertEqual(client.model, PERSONAL_AI_OMLX_CHAT_MODEL)
+
+
+def test_worker_client_swaps_only_the_model(monkeypatch):
+    from src.ai_engine import engine
+    from src.ai_engine.omlx_client import OmlxClient
+
+    main = OmlxClient(host="http://127.0.0.1:8000", model="synthetic-large")
+    monkeypatch.setattr(engine, "PERSONAL_AI_OMLX_WORKER_MODEL", "")
+    assert engine.worker_client(main) is main
+    monkeypatch.setattr(engine, "PERSONAL_AI_OMLX_WORKER_MODEL", "synthetic-small")
+    worker = engine.worker_client(main)
+    assert (worker.model, worker.host, main.model) == ("synthetic-small", main.host, "synthetic-large")

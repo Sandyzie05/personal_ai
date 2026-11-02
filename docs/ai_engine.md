@@ -29,6 +29,8 @@ How retrieval quality is being improved: [rag_design.md](rag_design.md).
 | `PERSONAL_AI_OMLX_EMBED_MODEL` | `mlx-community/Qwen3-VL-Embedding-2B-8bit` | Embedding model (changing it requires a re-index) |
 | `OMLX_API_KEY` | unset | Bearer token, read from the environment only, never logged |
 | `PERSONAL_AI_OMLX_TOOLS` | `true` | Declare tool-calling support (oMLX exposes no capability flags) |
+| `PERSONAL_AI_INFERENCE_CONCURRENCY` | `2` | App-wide cap on in-flight chat requests to the local server (all agents share it); see "Memory budget" |
+| `PERSONAL_AI_OMLX_WORKER_MODEL` | unset (= chat model) | Optional smaller model for background roles: forecast specialists/ToT critics, quarantine extractor, verifier, planner |
 | `PERSONAL_AI_CONTEXT_WINDOW_TOKENS` | `8192` | Prompt budget |
 | `PERSONAL_AI_EMBED_BATCH_SIZE` | `32` | Texts per embeddings request |
 | `PERSONAL_AI_RAG_HYBRID` | `true` | Dense + BM25 fusion |
@@ -36,6 +38,61 @@ How retrieval quality is being improved: [rag_design.md](rag_design.md).
 | `PERSONAL_AI_RAG_QA_TEMPERATURE` | `0.1` | Sampling temperature for document Q&A |
 
 All defaults live in `src/config.py`; add new settings there, not inline. Saved settings that name Ollama migrate to oMLX on read.
+
+## Memory budget (single 128 GB Apple-silicon laptop)
+
+All of this runs on one machine with unified memory, so the hard limit is RAM, not the number of agents.
+
+**What consumes memory.** Every agent (coordinator workers, forecast specialists, quarantine extractor, verifier,
+planner, chat) sends requests to **one** local oMLX server. More agents do not load more models. Memory grows with:
+
+1. **Resident model weights.** A 27B model at 4 bits is roughly 15-17 GB. Each additional distinct model adds its
+   own weights: for example ~5 GB for an 8B model at 4 bits, and ~2-3 GB for the embedding model.
+2. **KV cache per in-flight request.** Per token this is 2 × layers × KV heads × head dim × bytes. For a typical
+   27B-class model with grouped-query attention, that is on the order of 0.25 MB per token at 16-bit, or about
+   2 GB for an 8k-token request. Four specialists in parallel on an ~5k-token evidence packet therefore add
+   several GB.
+3. **Server-side caching.** Prompt/KV caches that the server keeps between requests, plus MLX's buffer cache, can
+   hold memory after a request finishes. A 60-70 GB reading for a 27B model is mostly (2) and (3), not weights.
+   Check the server's own memory, cache and context-length settings in its documentation. The app cannot
+   control them.
+
+All figures above are estimates. Measure on the target laptop (below) before relying on them.
+
+**What the app controls.**
+
+- `PERSONAL_AI_INFERENCE_CONCURRENCY` (default 2) is a process-wide semaphore in `OmlxClient`. It covers both
+  streamed and non-streamed chat, so at most N requests hold KV cache at once, regardless of how many agents
+  or tickers are running.
+  - Calls with a timeout (specialists) wait for a slot only up to their remaining deadline. If no slot frees,
+    they fail visibly: the specialist is marked unavailable, the ToT node is tagged `critic unavailable`, and
+    the finding is `uncertain`.
+  - Interactive chat waits.
+- `PERSONAL_AI_OMLX_WORKER_MODEL` moves background roles to a smaller model. This costs extra weights but makes
+  each call several times faster, which matters because a cap of 2 runs the four specialists in two waves
+  inside the 60 s specialist deadline.
+- The Tree-of-Thought forecaster ([reasoning_design.md](reasoning_design.md)) makes no LLM calls when its first,
+  rule-based round is decisive. Otherwise it makes one shared critic round of at most 4 calls per ticker.
+
+**Suggested profiles.** These are starting points, not measurements.
+
+| Profile | Chat model | Worker model | Concurrency | Resident weights (est.) | Trade-off |
+|---|---|---|---|---|---|
+| Lean (default) | 27B 4-bit | unset | 2 | ~17 GB + embeddings | One model; specialists may time out on a 27B model |
+| **Recommended** | 27B 4-bit | ~8B 4-bit, same family | 2 | ~22 GB + embeddings | Fast critics; chat quality unchanged |
+| Small | ~14B 4-bit | unset or ~8B | 3 | ~9-14 GB + embeddings | Most headroom; weaker chat answers |
+
+Avoid two large models resident at the same time, and avoid raising concurrency to buy speed. Use the worker model
+for speed instead.
+
+**Measure before trusting a profile.** On the personal laptop:
+
+1. Open Activity Monitor and watch the Memory tab: the oMLX server process and the overall memory pressure.
+2. Run a document chat, a Coordinator question naming three tickers, and a Forecast-page specialist run.
+3. Record the peak memory for each run.
+
+A profile is acceptable when memory pressure stays out of red and swap does not grow. Record the result in
+[platform_plan.md](platform_plan.md) backlog B19.
 
 ## Using it
 

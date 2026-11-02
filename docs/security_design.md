@@ -476,7 +476,9 @@ Chunk ids are derived from the source document, so replace and delete stay exact
 the same call budget and deadline, and it calls the swarm at most once per symbol, or not at all when depth 1 converges.
 Thoughts are closed enums plus snapshot evidence ids. The `thesis:` finding summary is templated from enums and computed
 numbers, so no model or provider text enters it (S16). Step budgets are now set in code: the optional LLM planner can no
-longer set its own `timeout_s`.
+longer set its own `timeout_s`. The optional worker model (`PERSONAL_AI_OMLX_WORKER_MODEL`) changes only the model
+name, on the same loopback client and transport. The app-wide in-flight cap fails visibly when saturated; it never falls
+back to another endpoint.
 ## Foundation assessment and remaining boundaries (2026-10-19)
 
 The design review is source-level evidence, not proof that the application

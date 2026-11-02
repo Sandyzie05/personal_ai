@@ -53,7 +53,7 @@ def _save_preview(vault, state_key: str, prefix: str, label: str):
 
 
 def _scenario_factory(vault):
-    from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
+    from src.ai_engine.engine import build_chat_client, client_kwargs_from_config, worker_client
     from src.config import (
         DEFAULT_OLLAMA_HOST, FORECAST_SCENARIO_DEADLINE_SECONDS,
         PERSONAL_AI_LLM_ENGINE, PERSONAL_AI_OMLX_HOST,
@@ -80,10 +80,10 @@ def _scenario_factory(vault):
     kwargs["host"] = host
 
     def factory(*, remaining_seconds=FORECAST_SCENARIO_DEADLINE_SECONDS):
-        return build_chat_client(
+        return worker_client(build_chat_client(
             **kwargs, request_timeout_seconds=remaining_seconds,
             safe_local_transport=True,
-        )
+        ))
 
     return factory
 

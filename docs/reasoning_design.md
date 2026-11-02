@@ -94,6 +94,9 @@ critics already contribute through their score, and conservative tie-breaking su
 - ≤ 9 nodes.
 - ≤ 1 critic round (≤ 4 LLM calls, under the existing `FORECAST_MODEL_CALL_BUDGET = 8` and 60 s deadline).
 - Coordinator step timeout = research deadline + specialist deadline + 5 s.
+- App-wide in-flight request cap `PERSONAL_AI_INFERENCE_CONCURRENCY` (default 2). Critics can run on a smaller
+  `PERSONAL_AI_OMLX_WORKER_MODEL`. Several tickers or agents never add a second model or more than N concurrent KV
+  caches. See [ai_engine.md](ai_engine.md) "Memory budget".
 - The coordinator deadline covers that step plus one dependent wave.
 
 ## 5. Roles and implementation tools

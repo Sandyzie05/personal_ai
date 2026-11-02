@@ -40,7 +40,7 @@ ticker ─► validate ─► providers (public, fixed routes) ─► EvidenceSn
 
 ## Bounds and privacy
 
-Max 5 orchestration rounds, shared tool/model-call budgets, 45 s research and 60 s scenario deadlines, 4 specialist workers (`config.FORECAST_*`).
+Local inference is capped app-wide at `PERSONAL_AI_INFERENCE_CONCURRENCY` in-flight requests (default 2), and specialists can use the smaller `PERSONAL_AI_OMLX_WORKER_MODEL` (see [ai_engine.md](ai_engine.md) "Memory budget"). Max 5 orchestration rounds, shared tool/model-call budgets, 45 s research and 60 s scenario deadlines, 4 specialist workers (`config.FORECAST_*`).
 Only tickers, topics and fixed parameters leave the machine; specialists run on the local model. Saved forecasts and outcomes live in the encrypted vault,
 and saving needs an explicit click bound to the exact content shown.
 

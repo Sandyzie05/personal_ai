@@ -1,10 +1,10 @@
-# Eval results (2026-11-02T07:04:09+00:00)
+# Eval results (2026-11-02T17:39:38+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
-| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.406 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.67 | info |
+| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.396 | PASS |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.667 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |

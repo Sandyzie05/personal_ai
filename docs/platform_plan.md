@@ -136,6 +136,8 @@ market-research-brief, untrusted-content-handling, conflict-escalation, forecast
 | `PERSONAL_AI_OMLX_EMBED_MODEL` | `mlx-community/Qwen3-VL-Embedding-2B-8bit` | embeddings (changing it ⇒ rebuild index) |
 | `OMLX_API_KEY` / `omlx_api_key` | unset | bearer token for oMLX; read from env only |
 | `PERSONAL_AI_OMLX_TOOLS` | `true` | declare tool-calling support (oMLX reports no capabilities) |
+| `PERSONAL_AI_INFERENCE_CONCURRENCY` | `2` | App-wide cap on in-flight chat requests to the local server (all agents share it); see `ai_engine.md` "Memory budget" |
+| `PERSONAL_AI_OMLX_WORKER_MODEL` | unset (= chat model) | Optional smaller model for background roles: forecast specialists/ToT critics, quarantine extractor, verifier, planner |
 | `PERSONAL_AI_SKILLS_DIR` | `~/.personal_ai/skills` | skills install dir |
 | `PERSONAL_AI_FRED_API_KEY`, `..._ALPHA_VANTAGE_API_KEY`, `..._SEC_USER_AGENT` | unset | optional forecaster sources |
 
@@ -168,7 +170,7 @@ Answer to "benefit of coordination vs running each repo alone": cross-domain tas
 
 ## 6. Status and task cards
 
-Legend: DONE (code + tests + eval), PARTIAL, OPEN. A card is complete only when its **Accept** command passes. Test counts: 748 pass, 0 failures (2026-11-02); `make eval` and `make eval-rag` PASS (offline, synthetic; **nothing verified on live oMLX**); `make eval` all hard rows PASS.
+Legend: DONE (code + tests + eval), PARTIAL, OPEN. A card is complete only when its **Accept** command passes. Test counts: 752 pass, 0 failures (2026-11-02); `make eval` and `make eval-rag` PASS (offline, synthetic; **nothing verified on live oMLX**); `make eval` all hard rows PASS.
 
 | Phase | Status | Accept |
 |---|---|---|
@@ -208,7 +210,7 @@ Each card: **goal / files / accept**. Pick from the top; do not start a card who
 | B16 | **Frame the user testing results into evals.** Every Fail found with `docs/user_testing_guide.md` becomes a golden/eval case. | `evals/` | `make eval` | DONE 2026-10-25 (`evals/userguide.py`, 12 cases; add one per manual Fail) |
 | B17 | **News into ToT safely.** Headlines are untrusted, so `research.py`'s news term is always 0 today. Feed news only as quarantined, templated sentiment counts per topic (no text), as a `news` driver | `forecaster/research.py`, `tot.py`, `orchestration/quarantine.py` | tests + injection eval row unchanged at 0 | OPEN |
 | B18 | **Port gaps from stock_predictor** (see forecasting_system.md "Known limits"): `technical_score` should use ATR/volume; fundamentals provider for valuation; optional 63-session horizon | `forecaster/recommend.py`, `providers.py`, `models.py` | `pytest tests/test_forecaster_*` | OPEN |
-| B19 | **ToT live check + persistence.** Live oMLX run of one converged and one depth-2 ticker; save selected/runner-up node ids with forecasts so outcomes can compare ToT vs heuristic; optional LLM thought proposer behind `Thought` validation | `tot.py`, `outcomes.py`, `interface/forecast.py` | manual run recorded + tests | OPEN |
+| B19 | **ToT live check + persistence + memory profile.** Pick a profile from `ai_engine.md` "Memory budget" and record peak memory and memory pressure for chat, a three-ticker Coordinator run and a specialist run. Live oMLX run of one converged and one depth-2 ticker; save selected/runner-up node ids with forecasts so outcomes can compare ToT vs heuristic; optional LLM thought proposer behind `Thought` validation | `tot.py`, `outcomes.py`, `interface/forecast.py` | manual run recorded + tests | OPEN |
 | B12 | **Commit/PR hygiene:** branch `feat/agent-platform` is uncommitted; split into reviewable commits when the user asks. | git | user decision | OPEN |
 
 ### 6.2 Independent audit (2026-10-25) and resolution
@@ -271,6 +273,7 @@ regression test (`tests/test_audit_regressions.py`, `tests/test_orchestration.py
 - D9 Tree of Thought only in the forecaster (beam width 3, depth 2, scenario-diverse beam, deterministic thought generator, LLM specialists as a lazy shared critic). Records, planning and RAG stay linear by design. See [reasoning_design.md](reasoning_design.md).
 - D10 CrewAI/LangChain/MCP are mapped to ToT roles, not imported: no second orchestration framework, all inference stays on the loopback client, invariants stay in this repo's code.
 - D11 Step budgets come from code: forecaster steps get `FORECAST_STEP_TIMEOUT_SECONDS` (research + specialist deadlines + 5 s); the LLM planner cannot set `timeout_s`.
+- D12 Hardware budget (one 128 GB laptop): all agents share one local server. Memory scales with resident models and with in-flight requests, not with the number of agents, so concurrency is capped app-wide (`PERSONAL_AI_INFERENCE_CONCURRENCY=2`) and background roles can use a smaller `PERSONAL_AI_OMLX_WORKER_MODEL`. Speed comes from smaller worker models, not more parallelism.
 - D7 Latency target applied to the 5-step fan-out workload; B1 target to the cross-domain subset (see §5 notes).
 
 ## 9. Feedback traceability
