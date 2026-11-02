@@ -3,7 +3,7 @@
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from src.agents import store
-from src.config import PERSONAL_AI_LLM_PLANNER
+from src.config import FORECAST_STEP_TIMEOUT_SECONDS, PERSONAL_AI_LLM_PLANNER
 
 from . import memory, schedule
 from .bus import MessageBus
@@ -77,7 +77,7 @@ def build_coordinator(vault: Any, get_records: Callable[[], Sequence[Dict[str, A
     if broker:
         prefetch["brokerage"] = holdings_fetcher(ReadOnlyMcp(mcp, broker))
         workers["brokerage"] = brokerage_worker(cached("brokerage"))
-    coordinator = Coordinator(workers, deadline_s=90)
+    coordinator = Coordinator(workers, deadline_s=FORECAST_STEP_TIMEOUT_SECONDS + 30)  # forecaster + one dependent wave
     coordinator.bus, coordinator.audit_vault = bus, vault
     coordinator.prefetch, coordinator.fetched = prefetch, fetched
     coordinator.evidence = records_evidence(snapshot)

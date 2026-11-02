@@ -134,3 +134,71 @@ def test_verifier_flags_unsupported_numbers_and_only_downgrades():
     out = verify_claims({"g": good, "b": bad, "t": text}, ev, C())
     assert [e.detail.split(":")[0] for e in out] == ["b", "t"] and all(e.kind == "unsupported" for e in out)
     assert verify_claims({"g": good}, ev) == []
+
+
+def _research(snapshot, outlook="bullish"):
+    from src.forecaster.models import HorizonPrediction, ResearchPrediction
+
+    h = HorizonPrediction(horizon_sessions=21, heuristic_score=.6, downside_score=.3, coverage=1, outlook=outlook,
+                          expected_excess_return_pct=1.0, reasoning=("synthetic",))
+
+    class Research:
+        async def research(self, request):
+            return ResearchPrediction(snapshot=snapshot, status="completed", horizons=(h,), events=(),
+                                      theme_exposures=(), source_provenance=(), limitations=())
+    return Research()
+
+
+class _Swarm:
+    def __init__(self, scenarios):
+        self.scenarios, self.calls = scenarios, 0
+
+    async def analyze(self, snapshot):
+        from types import SimpleNamespace
+        self.calls += 1
+        ids = (snapshot.evidence[0].evidence_id,)
+        return SimpleNamespace(verdict="contradicts", coverage=1.0, disagreement_score=0.0, specialists=[
+            SimpleNamespace(opinion=SimpleNamespace(scenario=s, confidence=.8, evidence_ids=ids)) for s in self.scenarios])
+
+
+def _forecast(snapshot, swarm, outlook="bullish"):
+    from src.agents.orchestration.schemas import PlanStep
+    from src.agents.orchestration.workers import forecaster_worker
+
+    step = PlanStep(id="f", agent="forecaster", goal="g", symbol="SYN")
+    return {f.claim_key: f for f in forecaster_worker(_research(snapshot, outlook), swarm)(step, {})}
+
+
+def test_forecaster_thesis_skips_llm_critics_when_evidence_is_decisive():
+    from tests.test_forecaster_tot import UP, card, snap
+
+    swarm = _Swarm(["bearish"])
+    out = _forecast(snap(UP, card("macro", "positive"), card("filing", "positive"), card("curated", "positive")), swarm)
+    assert swarm.calls == 0 and "specialists:SYN" not in out
+    assert out["thesis:SYN"].value == "bullish" and out["thesis:SYN"].status == "ok"
+
+
+def test_forecaster_thesis_uses_critics_and_flags_clash_with_heuristic():
+    from tests.test_forecaster_tot import mixed
+
+    swarm = _Swarm(["bearish", "bearish", "bearish", "base"])
+    out = _forecast(mixed(), swarm, outlook="bullish")
+    thesis = out["thesis:SYN"]
+    assert swarm.calls == 1 and "specialists:SYN" in out
+    assert thesis.value == "bearish" and thesis.status == "uncertain"
+    assert "disagrees with heuristic outlook" in thesis.summary and thesis.evidence_ids
+
+
+def test_llm_planner_cannot_choose_its_own_budget():
+    import json
+    from src.agents.orchestration.workers import llm_plan
+    from src.config import FORECAST_STEP_TIMEOUT_SECONDS
+
+    plan = {"steps": [{"id": "f", "agent": "forecaster", "goal": "g", "symbol": "SYN", "timeout_s": 300},
+                      {"id": "e", "agent": "expense", "goal": "g", "timeout_s": 300}]}
+
+    class Client:
+        def chat(self, **_):
+            return {"message": {"content": json.dumps(plan)}}
+    steps = {s.agent: s.timeout_s for s in llm_plan("q", Client(), ["forecaster", "expense"]).steps}
+    assert steps == {"forecaster": FORECAST_STEP_TIMEOUT_SECONDS, "expense": 30}

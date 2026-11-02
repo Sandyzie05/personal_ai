@@ -465,6 +465,18 @@ already had this pattern; it was just inconsistently applied.
 **Bill ingestion + portal agent (R7-R10, 2026-10-25):** S-R1: `files.validate_pdf` gates every downloaded/attached file (magic bytes, 15 MB/60-page caps, rejects JS/Launch/EmbeddedFile/RichMedia incl. `#XX`-obfuscated names and object streams, embedded files, encrypted PDFs); files stored encrypted as `ingest_<sha16>` before parsing, parsed in memory, remote filename never used. S-R3: `ingest_manifest`, `ingest_expectations`, `portal_recipes`, `portal_cred_*` are internal encrypted vault keys. Residual risk: Playwright downloads touch a 0700 temp dir briefly (deleted after read) and its persistent profile (`~/.personal_ai_vault/.portal_profiles`, 0700) holds session cookies in plaintext. S-R4: Gmail attachments via `ReadOnlyMcp` only, code-side sender allowlist, no body text read. S-R5: recipes are data with a closed action set, https + host allowlist, payment/settings deny list; off-allowlist navigation aborts the run; credentials only reach `fill_*` steps, never logs/errors/models; 2FA/CAPTCHA stops for the human; fetch only on explicit button press. S-R7: per-run file/time caps, idempotent hash dedupe, no archive recursion. Evals: hostile files accepted 0/10, credential leaks 0, unblocked off-allowlist redirects 0.
 
 **Agent platform hardening (2026-10-25):** Core Memory approval needs a single-use, session- and item-bound token minted only by the Core Memory button handler (`memory.issue_approval_token`; a test pins callers); forged/replayed/cross-item tokens fail closed (structural within the process, not cryptographic). Schedule and Core Memory read-modify-write take a cross-process `flock` (`~/.personal_ai/*.lock`, 0600); scheduled jobs are claimed atomically. Gmail/brokerage MCP reads are prefetched on the calling thread (S15); only validated tickers survive. Bus dedupes identical retried sends; timed-out workers get a cooperative cancel. Verifier can only add escalations. Optional LLM planner is off by default and gated by `Plan` + `validate_plan`. oMLX client: no invented tool-call ids, correct `json_schema` response format, streamed tool-call deltas accumulated. News failures carry `yahoo-news` source id.
+
+**Merge of PR #17 hardening + Week 4 ToT (2026-11-02):** `feat/agent-platform` had forked before `main`'s 9d955f9, so it
+was missing the atomic, flocked auth-state writes, the offline test isolation (`tests/conftest.py`: temp HOME, dotenv off,
+socket/DNS denied) and the auth/vault-lock/RAG-privacy/ingestion regressions. They are merged back, with no change to the
+key-wrapping format, so existing `~/.personal_ai_auth` files stay readable. RAG rebuild has one fail-closed path: the engine
+is dropped on any failure, and an explicit rebuild recreates the collection when the chunker or model stamp is stale.
+Chunk ids are derived from the source document, so replace and delete stay exact. The ToT thesis search
+(`forecaster/tot.py`) adds **no new egress and no new model path**: it reuses the existing loopback specialist swarm under
+the same call budget and deadline, and it calls the swarm at most once per symbol, or not at all when depth 1 converges.
+Thoughts are closed enums plus snapshot evidence ids. The `thesis:` finding summary is templated from enums and computed
+numbers, so no model or provider text enters it (S16). Step budgets are now set in code: the optional LLM planner can no
+longer set its own `timeout_s`.
 ## Foundation assessment and remaining boundaries (2026-10-19)
 
 The design review is source-level evidence, not proof that the application

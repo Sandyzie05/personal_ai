@@ -9,6 +9,7 @@ Start here. Each doc has one job; where two overlap, the pointer says which one 
 | Understand or improve document retrieval (RAG), bill ingestion, freshness | [rag_design.md](rag_design.md) |
 | Work on local models, embeddings, oMLX, re-indexing | [ai_engine.md](ai_engine.md) |
 | Work on stock research, recommendations, outcome tracking | [forecasting_system.md](forecasting_system.md) |
+| Understand where the agents branch (Tree of Thought) vs reason linearly, and why | [reasoning_design.md](reasoning_design.md) |
 | Work on the agent loop, MCP servers, skills, confirmation gate | [multi_agent_design.md](multi_agent_design.md) |
 | Check security design, threat model, residual risks, audit log | [security_design.md](security_design.md) |
 | **Test the system by hand (RAG, agents, predictions)** | [user_testing_guide.md](user_testing_guide.md) |

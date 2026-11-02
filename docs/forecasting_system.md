@@ -8,10 +8,12 @@ save the forecast so it can be scored after its horizon. **It never trades and n
 ```
 ticker ─► validate ─► providers (public, fixed routes) ─► EvidenceSnapshot (immutable, hashed)
                                                               ├─► research prediction (heuristic, 5 / 21 sessions)
-                                                              └─► ScenarioSwarm: macro · valuation · event · downside (parallel, one-shot)
-      ─► deterministic aggregation (support, disagreement, fragility)  ─► [optional, you approve] save forecast ─► evaluate after horizon
+                                                              └─► ToT thesis search (tot.py): ≤6 theses ─► rubric ─► scenario-diverse beam (3)
+                                                                    └─ only if not decisive: ScenarioSwarm critics (macro · valuation · event · downside,
+                                                                       parallel, one shared review) ─► re-score / prune ─► select or abstain
+      ─► thesis:<SYM> finding (uncertain when close, critic-less, or contradicting the heuristic)
+      ─► [optional, you approve] save forecast ─► evaluate after horizon
 ```
-
 ## Modules
 
 | Module | Role |
@@ -20,6 +22,7 @@ ticker ─► validate ─► providers (public, fixed routes) ─► EvidenceSn
 | `models.py` | Immutable contracts (`ResearchRequest`, `EvidenceSnapshot`, `ResearchPrediction`, ...). |
 | `research.py` | `ResearchPredictionService`: parallel market/macro/filing fetch, scoring, `abstained`/`unsupported` states. |
 | `scenarios.py` | `ScenarioSwarmService`: 4 specialist reviews on the same frozen snapshot, bounded workers, deadline, model-call budget. |
+| `tot.py` | **Tree-of-Thought thesis search** ([reasoning_design.md](reasoning_design.md)): competing bull/base/bear theses per evidence family, deterministic rubric, beam with a diversity slot, specialist critics only when depth 1 is not decisive, pruning with recorded reasons, conservative tie-break, abstention. Coordinator path only for now; the Forecast page still shows the raw swarm verdict. |
 | `technical.py` | Deterministic indicators from closes (SMA/EMA/RSI/MACD/Bollinger, trend, support/resistance, volatility). ATR(14) and 20-bar volume ratio use `PriceBar.high/low/volume` (Yahoo/Alpha parsed; misaligned arrays dropped) and are reported as unavailable when absent. News failures carry their own `yahoo-news` SourceId. |
 | `recommend.py` | **Research lean** (bullish/neutral/bearish + confidence + risk) from technicals and evidence; ranking and diversified selection. Never buy/sell wording; `insufficient_evidence` when inputs are missing. |
 | `screens.py` | Period high/low, price-position (valuation proxy) and momentum screens over a bundled 50-name universe. States its window; no fundamentals. |
@@ -46,6 +49,19 @@ and saving needs an explicit click bound to the exact content shown.
 Section picker: **Research** (ticker research, local specialists, save and evaluate) · **Recommendations** (research leans) · **Validation** (scoreboard, CSV) ·
 **Events** (news and conflicts) · **Drilldown & System** (technicals, provider health) · **Screens**. Nothing is fetched on page load; each section runs on a button.
 
-## Known limits
+## Known limits and stock_predictor port gaps (reviewed 2026-11-02)
 
-Price-only proxies (no fundamentals or volume yet), "period" not all-time high/low, news issues reuse the chart source id. See [platform_plan.md](platform_plan.md) backlog B11.
+stock_predictor's FastAPI/SQLAlchemy/Redis layers were dropped on purpose. These are the gaps in the
+*reasoning* that was ported:
+
+| stock_predictor | Here | Gap | Disposition |
+|---|---|---|---|
+| `research_prediction.py` | `research.py` | 63-session horizon dropped; news score never fed in (`event_strength` is always 0, because headlines are untrusted text and stay UI-only); buy/sell labels, risk factors and signal breakdown dropped | Keep news out of scoring until it can enter as quarantined, templated sentiment counts (backlog B17); horizons stay 5/21 |
+| `scenario_swarm.py` | `scenarios.py` + `tot.py` | Original only critiqued one fixed direction, with nothing generated, compared or pruned | **Closed by ToT** (Week 4): specialists now act as critics over competing theses |
+| `recommendation_engine.py`, `market_intelligence.py` | `recommend.py`, `news.py` | Fundamental score, valuation bonus, idea ranking and swarm-adjusted ranking dropped; `technical_score` ignores the ATR/volume that `technical.py` computes | Backlog B18; ranking stays UI-only |
+| `stock_lists.py` | `screens.py` | Valuation from a price z-score, not P/E or P/B; "period" high/low, not all-time; fixed 50-name universe | Documented proxies; fundamentals need a new provider (B11 follow-up) |
+| `local_model_analysis.py` | none | Single-call thesis review not ported | Superseded by ToT critics |
+| `prediction_tracker.py` | `outcomes.py` | Nothing records forecasts or evaluates outcomes automatically; UI-only, explicit approval | Intentional (approval-gated persistence) |
+
+Coordinator workers consume only `research.py`, `tot.py`/`scenarios.py` and the technical lean.
+`recommend.rank_leans`, `screens` and `report` are Forecast-page features.

@@ -89,6 +89,7 @@ retrieval loops inside the retriever.
 | `.../service.py` | UI wiring | `build_coordinator(vault, get_records, scenario_factory, extra_workers)`, `run_query` (applies policy), `propose_from_report` |
 | `src/agents/{runtime,mcp,store,skills}.py` | v1 agent loop, MCP, vault records | see `multi_agent_design.md` |
 | `src/forecaster/*.py` | Public-data research | `research`, `scenarios`, `outcomes`, `technical`, `recommend`, `screens`, `news`, `report`, `health`, `providers` |
+| `src/forecaster/tot.py` | Tree-of-Thought thesis search (Week 4) | `search(snapshot, critique) -> ThoughtTree`; `Thought`, `Node`; design + rationale in [reasoning_design.md](reasoning_design.md) |
 | `src/ai_engine/engine.py` | Client factory | `build_chat_client`, `build_embed_client`, `client_kwargs_from_config`, `EngineDisabledError` |
 | `src/ai_engine/omlx_client.py` | oMLX client | OpenAI-shape chat/embeddings, tool-call mapping (`_to_openai_messages`, `_from_openai_message`) |
 | `src/interface/` | UI | `main.py` (Coordinator in chat selector via `_respond_coordinated`), `forecast.py` + `forecast_tabs.py`, `agents.py` (Core Memory tab) |
@@ -159,13 +160,15 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Core Memory commits without approval | 0 | 0 / 195 | |
 | Minimal disclosure (canary/PII in bus, log, egress) | 0 | 0 | |
 | Refusal of out-of-scope asks / false refusals | 100% / 0 | 24/24 / 0/12 | regex first gate; real controls are allowlists |
+| ToT thesis selection vs linear / critic-vote baselines (8 labeled synthetic cases) | ≥ both, 100% | 8/8 vs 6/8 / 7/8 (2026-11-02) | ablation of the search policy, not market accuracy |
+| ToT bounded search: max nodes / critic reviews | ≤ 9 / ≤ 1 per case | 7 / 3 of 8 (5 converged with 0 LLM calls) | |
 
 Answer to "benefit of coordination vs running each repo alone": cross-domain tasks (records + market) are unanswerable by B1
 (0%) and about 2.4x faster than sequential B2 on the fan-out workload, without regressing single-domain tasks.
 
 ## 6. Status and task cards
 
-Legend: DONE (code + tests + eval), PARTIAL, OPEN. A card is complete only when its **Accept** command passes. Test counts: 635 pass, 0 failures; `make eval` and `make eval-rag` PASS (offline, synthetic; **nothing verified on live oMLX**); `make eval` all hard rows PASS.
+Legend: DONE (code + tests + eval), PARTIAL, OPEN. A card is complete only when its **Accept** command passes. Test counts: 748 pass, 0 failures (2026-11-02); `make eval` and `make eval-rag` PASS (offline, synthetic; **nothing verified on live oMLX**); `make eval` all hard rows PASS.
 
 | Phase | Status | Accept |
 |---|---|---|
@@ -179,6 +182,8 @@ Legend: DONE (code + tests + eval), PARTIAL, OPEN. A card is complete only when 
 | 7 Evaluation | DONE (refusal included) | `make eval` → `Overall: PASS` |
 | 8 Docs + diagram | DONE (this doc, security log, feedback response, Miro) | review |
 | 9 Independent audit + fixes | DONE (§6.2) | `pytest tests/test_audit_regressions.py` |
+| 10 Merge PR #17 hardening (2026-11-02) | DONE: this branch forked before `main`'s 9d955f9, so it lacked atomic/flocked auth writes, `tests/conftest.py` isolation (temp HOME, no sockets/DNS) and the auth/vault-lock/RAG-privacy/ingestion regressions. Merged; one fail-closed rebuild path; source-identity chunk ids | `make test` (748 pass) |
+| 11 Week 4 Tree-of-Thought forecaster | DONE offline; **not run on live oMLX** | `pytest tests/test_forecaster_tot.py tests/test_orchestration_workers.py` + `make eval` ToT rows |
 
 ### 6.1 Backlog (ordered; each is a self-contained card)
 
@@ -201,6 +206,9 @@ Each card: **goal / files / accept**. Pick from the top; do not start a card who
 | B14 | **RAG freshness + bill ingestion** (manifest, expected-bills ledger, incremental indexing, Gmail attachments, browser portal recipes, security S-R1..S-R8). Plan R7-R11 in `docs/rag_design.md`. | `data_ingestion/` | `docs/rag_design.md` §8 R7-R10 accept | PARTIAL: R7-R9 DONE (code + tests); R10 real recipes + Gmail attachments vs real MCP are user-supervised; Sync panel on Upload page |
 | B15 | **Expense worker accuracy (found while writing the user testing guide).** `expense_worker` sums *every* record's total per calendar quarter: it mixes categories (mobile + utilities) and does not warn when a quarter is partial (e.g. only June in Q2). Filter by category from the question, require all three months (or flag the quarter as partial/uncertain), exclude superseded/duplicate documents. | `orchestration/workers.py`, tests, eval fault case | tests + `make eval` | DONE 2026-10-25 (records lacking `period_start` now read as partial) |
 | B16 | **Frame the user testing results into evals.** Every Fail found with `docs/user_testing_guide.md` becomes a golden/eval case. | `evals/` | `make eval` | DONE 2026-10-25 (`evals/userguide.py`, 12 cases; add one per manual Fail) |
+| B17 | **News into ToT safely.** Headlines are untrusted, so `research.py`'s news term is always 0 today. Feed news only as quarantined, templated sentiment counts per topic (no text), as a `news` driver | `forecaster/research.py`, `tot.py`, `orchestration/quarantine.py` | tests + injection eval row unchanged at 0 | OPEN |
+| B18 | **Port gaps from stock_predictor** (see forecasting_system.md "Known limits"): `technical_score` should use ATR/volume; fundamentals provider for valuation; optional 63-session horizon | `forecaster/recommend.py`, `providers.py`, `models.py` | `pytest tests/test_forecaster_*` | OPEN |
+| B19 | **ToT live check + persistence.** Live oMLX run of one converged and one depth-2 ticker; save selected/runner-up node ids with forecasts so outcomes can compare ToT vs heuristic; optional LLM thought proposer behind `Thought` validation | `tot.py`, `outcomes.py`, `interface/forecast.py` | manual run recorded + tests | OPEN |
 | B12 | **Commit/PR hygiene:** branch `feat/agent-platform` is uncommitted; split into reviewable commits when the user asks. | git | user decision | OPEN |
 
 ### 6.2 Independent audit (2026-10-25) and resolution
@@ -260,6 +268,9 @@ regression test (`tests/test_audit_regressions.py`, `tests/test_orchestration.py
 - D5 Scheduler runs on app open (no daemon); a cron/launchd caller can invoke `schedule.run_due` headlessly.
 - D6 Ollama kept but disabled (one flag) rather than deleted, to avoid a risky removal across ~20 files.
 - D8 RAG architecture: **Advanced RAG inside the document retriever** (query analysis to filters, hybrid retrieval, rerank, context assembly, numeric grounding check); **Modular behaviour only at system level** (routing between structured records / semantic search / public evidence, Coordinator orchestration, deterministic fusion, approval-gated memory). No free-running retrieve-reflect loops (latency, injection surface, hard to evaluate); at most one bounded re-retrieve when the grounding check fails. See `docs/rag_design.md` §8.1.
+- D9 Tree of Thought only in the forecaster (beam width 3, depth 2, scenario-diverse beam, deterministic thought generator, LLM specialists as a lazy shared critic). Records, planning and RAG stay linear by design. See [reasoning_design.md](reasoning_design.md).
+- D10 CrewAI/LangChain/MCP are mapped to ToT roles, not imported: no second orchestration framework, all inference stays on the loopback client, invariants stay in this repo's code.
+- D11 Step budgets come from code: forecaster steps get `FORECAST_STEP_TIMEOUT_SECONDS` (research + specialist deadlines + 5 s); the LLM planner cannot set `timeout_s`.
 - D7 Latency target applied to the 5-step fan-out workload; B1 target to the cross-domain subset (see §5 notes).
 
 ## 9. Feedback traceability

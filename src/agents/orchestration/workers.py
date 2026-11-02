@@ -9,6 +9,7 @@ import re
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from src.config import FORECAST_STEP_TIMEOUT_SECONDS
 from src.forecaster.models import ResearchRequest
 from .bus import MessageBus
 from .coordinator import Worker, check_cancel
@@ -70,7 +71,8 @@ def plan_for(query: str, max_symbols: int = 3) -> Plan:
         steps.append(PlanStep(id="brokerage", agent="brokerage", goal="Read-only holdings"))
     deps = tuple(d for d, on in (("expense", wants_bills), ("brokerage", wants_holdings)) if on and wants_market)
     for sym in symbols:
-        steps.append(PlanStep(id=f"forecast_{sym}", agent="forecaster", goal=f"Research {sym}", symbol=sym))
+        steps.append(PlanStep(id=f"forecast_{sym}", agent="forecaster", goal=f"Research {sym}", symbol=sym,
+                              timeout_s=FORECAST_STEP_TIMEOUT_SECONDS))
     if wants_market:
         steps.append(PlanStep(id="market", agent="market", goal="Technical lean and constraints",
                               depends_on=deps, symbol=symbols[0] if symbols else None))
@@ -167,7 +169,10 @@ def expense_worker(get_records: Callable[[], Sequence[Dict[str, Any]]]) -> Worke
 
 
 def forecaster_worker(research, swarm=None) -> Worker:
-    """ResearchPredictionService (+ optional ScenarioSwarmService) -> Findings."""
+    """ResearchPredictionService -> heuristic outlooks, then a Tree-of-Thought thesis search that calls the
+    specialist swarm only when depth 1 is not decisive (docs/reasoning_design.md)."""
+    from src.forecaster.tot import search
+
     def run(step: PlanStep, inputs) -> List[Finding]:
         sym = step.symbol
         check_cancel()
@@ -181,15 +186,49 @@ def forecaster_worker(research, swarm=None) -> Worker:
                        summary="; ".join(h.reasoning)[:400] or "heuristic outlook", evidence_ids=ev,
                        confidence=h.coverage, as_of=prediction.snapshot.as_of,
                        status="ok" if prediction.status == "completed" else "uncertain") for h in prediction.horizons]
-        if swarm is not None:
+        reviews = []
+
+        def critique():
             check_cancel()
-            report = asyncio.run(swarm.analyze(prediction.snapshot))
+            reviews.append(asyncio.run(swarm.analyze(prediction.snapshot)))
+            return reviews[-1]
+
+        tree = search(prediction.snapshot, critique if swarm is not None else None)
+        if reviews:
+            report = reviews[-1]
             out.append(Finding(agent="forecaster", claim_key=f"specialists:{sym}", value=report.verdict,
                                summary=f"{len(report.specialists)} specialists; disagreement={report.disagreement_score}",
                                evidence_ids=ev, confidence=report.coverage,
                                status="ok" if report.verdict in ("supports", "contradicts") else "uncertain"))
+        out.append(_thesis_finding(sym, tree, prediction, ev))
         return out
     return run
+
+
+def _thesis_finding(sym: str, tree, prediction, ev) -> Finding:
+    """Templated summary only: scenario/driver are closed enums, numbers are computed here."""
+    from src import config
+
+    pick = tree.node(tree.selected_id) if tree.selected_id else None
+    runner = tree.node(tree.runner_up_id) if tree.runner_up_id else None
+    pruned = sum(n.status == "pruned" for n in tree.nodes)
+    if pick is None:
+        return Finding(agent="forecaster", claim_key=f"thesis:{sym}", confidence=0, evidence_ids=ev,
+                       status="uncertain" if tree.nodes else "unavailable",
+                       summary=f"Thesis search abstained ({tree.termination}); {len(tree.nodes)} branches, {pruned} pruned.")
+    heuristic = next((h.outlook for h in prediction.horizons if h.horizon_sessions == 21), None)
+    clash = {heuristic, pick.thought.scenario} == {"bullish", "bearish"}
+    critic_missing = pick.depth == 2 and "critic" not in pick.components
+    close = tree.margin is not None and tree.margin < config.TOT_UNCERTAIN_MARGIN
+    summary = (f"{pick.thought.scenario} via {pick.thought.driver} (score {pick.score:.2f}, depth {pick.depth}, "
+               f"{tree.termination}); runner-up "
+               + (f"{runner.thought.scenario} {runner.score:.2f}" if runner else "none")
+               + f"; {pruned} of {len(tree.nodes)} branches pruned"
+               + ("; disagrees with heuristic outlook" if clash else "")
+               + ("; specialists unavailable" if critic_missing else ""))
+    return Finding(agent="forecaster", claim_key=f"thesis:{sym}", value=pick.thought.scenario, summary=summary,
+                   evidence_ids=pick.thought.evidence_ids, confidence=pick.score, as_of=prediction.snapshot.as_of,
+                   status="uncertain" if clash or close or critic_missing else "ok")
 
 
 def _lean(providers, symbol: str) -> List[Finding]:
@@ -270,4 +309,7 @@ def llm_plan(query: str, client, agents) -> Plan:
         {"role": "user", "content": query[:500]}], format=Plan.model_json_schema())
     plan = Plan.model_validate(json.loads(reply["message"]["content"]))
     validate_plan(plan, tuple(agents))
-    return plan
+    # Budgets come from code, never from the model.
+    default = PlanStep.model_fields["timeout_s"].default
+    return Plan(steps=tuple(s.model_copy(update={"timeout_s": FORECAST_STEP_TIMEOUT_SECONDS if s.agent == "forecaster"
+                                                  else default}) for s in plan.steps))

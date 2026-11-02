@@ -54,6 +54,12 @@ Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforce
 - After any change here run `make test` AND `make eval` (must print `Overall: PASS`); update
   `docs/platform_plan.md` §Status and `docs/security_design.md` changelog in the same change.
 
+## Reasoning changes (read `docs/reasoning_design.md` first)
+
+- Tree of Thought lives only in the forecaster (`src/forecaster/tot.py`); records, planning and RAG stay linear on purpose.
+- Thresholds/budgets are `TOT_*` in `src/config.py`. Never tune them to make one eval case pass; `make eval` gates ToT >= both baselines.
+- Thoughts stay closed enums + snapshot evidence ids; `thesis:` summaries stay templated (S16).
+
 ## RAG changes (read `docs/rag_design.md` first)
 
 - Architecture decision (platform_plan D8): Advanced RAG inside the retriever, Modular only at coordinator level; no free-running

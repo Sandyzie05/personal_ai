@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-02T06:52:20+00:00",
+  "generated_at": "2026-11-02T07:04:09+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.413,
+      "measured": 0.406,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.68,
+      "measured": 0.67,
       "pass": true,
       "hard": false
     },
@@ -149,6 +149,20 @@
       "hard": true
     },
     {
+      "metric": "ToT thesis selection, labeled synthetic cases (vs linear / critic-vote baselines)",
+      "target": ">= both baselines",
+      "measured": "8/8 vs 6/8 / 7/8",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "ToT bounded search: max nodes / LLM critic reviews (one per non-converged case)",
+      "target": "<= 9 / <= cases",
+      "measured": "7 / 3 of 8",
+      "pass": true,
+      "hard": true
+    },
+    {
       "metric": "Core Memory: unauthorized commits",
       "target": "0",
       "measured": "0 / 114 attempts",
@@ -193,13 +207,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.413,
+        "ratio": 0.406,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.68,
+        "ratio": 0.67,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3

@@ -18,21 +18,37 @@ DEFAULT_EMBED_MODEL = os.environ.get("PERSONAL_AI_EMBED_MODEL", "nomic-embed-tex
 # Resolved after the engine below: oMLX model unless PERSONAL_AI_CHAT_MODEL is set.
 # Ollama is disabled by default: inference and embeddings run on oMLX. Set
 # PERSONAL_AI_OLLAMA_ENABLED=true to bring it back (code path is kept intact).
-OLLAMA_ENABLED = os.environ.get("PERSONAL_AI_OLLAMA_ENABLED", "false").lower() in ("1", "true", "yes")
+OLLAMA_ENABLED = os.environ.get("PERSONAL_AI_OLLAMA_ENABLED", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Engine selection for LLM inference (omlx|ollama)
 PERSONAL_AI_LLM_ENGINE = os.environ.get("PERSONAL_AI_LLM_ENGINE", "omlx")
 PERSONAL_AI_OMLX_HOST = os.environ.get("PERSONAL_AI_OMLX_HOST", "http://127.0.0.1:8000")
-PERSONAL_AI_OMLX_CHAT_MODEL = os.environ.get("PERSONAL_AI_OMLX_CHAT_MODEL", "Qwen3.8-27B-4bit")
+PERSONAL_AI_OMLX_CHAT_MODEL = os.environ.get(
+    "PERSONAL_AI_OMLX_CHAT_MODEL", "Qwen3.8-27B-4bit"
+)
 DEFAULT_CHAT_MODEL = os.environ.get("PERSONAL_AI_CHAT_MODEL") or (
-    PERSONAL_AI_OMLX_CHAT_MODEL if PERSONAL_AI_LLM_ENGINE == "omlx" else "llama3.2:latest"
+    PERSONAL_AI_OMLX_CHAT_MODEL
+    if PERSONAL_AI_LLM_ENGINE == "omlx"
+    else "llama3.2:latest"
 )
 PERSONAL_AI_EMBED_ENGINE = os.environ.get("PERSONAL_AI_EMBED_ENGINE", "omlx")
 # oMLX /v1/models exposes no capability flags, so tool support is declared here.
-OMLX_SUPPORTS_TOOLS = os.environ.get("PERSONAL_AI_OMLX_TOOLS", "true").lower() in ("1", "true", "yes")
+OMLX_SUPPORTS_TOOLS = os.environ.get("PERSONAL_AI_OMLX_TOOLS", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # Optional LLM planner for the Coordinator (off: rule-based plan_for). Its output still passes validate_plan.
-PERSONAL_AI_LLM_PLANNER = os.environ.get("PERSONAL_AI_LLM_PLANNER", "false").lower() in ("1", "true", "yes")
-PERSONAL_AI_OMLX_EMBED_MODEL = os.environ.get("PERSONAL_AI_OMLX_EMBED_MODEL", "mlx-community/Qwen3-VL-Embedding-2B-8bit")
+PERSONAL_AI_LLM_PLANNER = os.environ.get(
+    "PERSONAL_AI_LLM_PLANNER", "false"
+).lower() in ("1", "true", "yes")
+PERSONAL_AI_OMLX_EMBED_MODEL = os.environ.get(
+    "PERSONAL_AI_OMLX_EMBED_MODEL", "mlx-community/Qwen3-VL-Embedding-2B-8bit"
+)
 
 # Default generation temperature for grounded QA. 0.7 (the old default) is too
 # free-wheeling for an assistant that must answer strictly from retrieved
@@ -128,7 +144,7 @@ DEFAULT_EXTRACTION_TEXT_CHARS = int(
 EMBED_MODEL_CONTEXT_TOKENS = {
     "nomic-embed-text": 2048,
     "mlx-community/Qwen3-VL-Embedding-2B-8bit": 32768,
-    "mlx-community/Qwen3-Embedding-0.6B": 8192
+    "mlx-community/Qwen3-Embedding-0.6B": 8192,
 }
 
 # Override the EMBED_MODEL_CONTEXT_TOKENS with environment variables if set
@@ -136,7 +152,10 @@ if "PERSONAL_AI_EMBED_MODEL_CONTEXT_TOKENS" in os.environ:
     try:
         # Parse environment variable as JSON dict
         import json
-        EMBED_MODEL_CONTEXT_TOKENS.update(json.loads(os.environ["PERSONAL_AI_EMBED_MODEL_CONTEXT_TOKENS"]))
+
+        EMBED_MODEL_CONTEXT_TOKENS.update(
+            json.loads(os.environ["PERSONAL_AI_EMBED_MODEL_CONTEXT_TOKENS"])
+        )
     except Exception:
         pass  # If parsing fails, use the defaults
 
@@ -144,9 +163,7 @@ if "PERSONAL_AI_EMBED_MODEL_CONTEXT_TOKENS" in os.environ:
 
 # Skills are plaintext user-written instructions, not encrypted vault records.
 # Keep personal data/secrets out of them; override the directory if needed.
-SKILLS_DIR = os.environ.get(
-    "PERSONAL_AI_SKILLS_DIR", "~/.personal_ai/skills"
-)
+SKILLS_DIR = os.environ.get("PERSONAL_AI_SKILLS_DIR", "~/.personal_ai/skills")
 
 # Default cap on LLM<->tool round-trips per agent run (bounds latency and
 # cost on a local model; an exhausted run ends with a notice, not a crash).
@@ -156,9 +173,7 @@ DEFAULT_AGENT_MAX_TOOL_ROUNDS = int(
 
 # How long the local OAuth callback listener waits for the user to finish
 # authorizing a remote MCP server in the browser.
-MCP_OAUTH_TIMEOUT_SECONDS = int(
-    os.environ.get("PERSONAL_AI_MCP_OAUTH_TIMEOUT", "300")
-)
+MCP_OAUTH_TIMEOUT_SECONDS = int(os.environ.get("PERSONAL_AI_MCP_OAUTH_TIMEOUT", "300"))
 
 # A tool's result is truncated to this many characters before it re-enters
 # the model's context (a single tool can return large payloads - e.g. a
@@ -181,3 +196,25 @@ FORECAST_MODEL_OUTPUT_MAX_CHARS = 5000
 FORECAST_SEC_USER_AGENT = os.environ.get("PERSONAL_AI_SEC_USER_AGENT", "")
 FORECAST_FRED_API_KEY = os.environ.get("PERSONAL_AI_FRED_API_KEY", "")
 FORECAST_ALPHA_VANTAGE_API_KEY = os.environ.get("PERSONAL_AI_ALPHA_VANTAGE_API_KEY", "")
+# A forecaster coordinator step covers research + specialist deadlines plus slack.
+FORECAST_STEP_TIMEOUT_SECONDS = (
+    FORECAST_RESEARCH_DEADLINE_SECONDS + FORECAST_SCENARIO_DEADLINE_SECONDS + 5
+)
+
+# Tree-of-Thought thesis search (docs/reasoning_design.md). Scores are uncalibrated heuristics in [0, 1].
+TOT_MAX_BRANCHES = 6  # depth-1 candidate theses
+TOT_BEAM_WIDTH = (
+    3  # survivors expanded at depth 2 (one slot reserved for an opposing scenario)
+)
+TOT_MAX_DEPTH = 2  # 1 = heuristic theses, 2 = critic-reviewed theses
+TOT_PRUNE_MIN = 0.35  # soft prune below this (diversity slot exempt)
+TOT_SELECT_MIN = 0.5  # abstain if the best final node scores below this
+TOT_CONVERGE_SCORE = 0.75  # stop after depth 1 (no LLM calls) when top >= this ...
+TOT_CONVERGE_MARGIN = 0.2  # ... and leads the best other-scenario node by this much
+TOT_TIE = 0.05  # scores within this are tied -> tie-break policy
+TOT_UNCERTAIN_MARGIN = (
+    0.1  # selected-vs-runner-up margin below this -> finding is "uncertain"
+)
+TOT_CRITIC_VETO_CONFIDENCE = (
+    0.6  # >=2 critics contradicting at this confidence hard-prune a branch
+)
