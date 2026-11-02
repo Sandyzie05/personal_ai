@@ -3,8 +3,9 @@
 import hashlib
 import os
 import re
+import hashlib
+import json
 from typing import List, Dict, Any, Optional
-import uuid
 
 from .embeddings import EmbeddingsGenerator
 from .hybrid import LexicalIndex, rrf
@@ -362,7 +363,15 @@ def _chunk_markdown(text: str, chunk_chars: int, overlap_chars: int = DEFAULT_CH
                     overlapping_chunks.append(chunk)
         chunks = overlapping_chunks
 
-    return chunks
+    return [
+        part
+        for chunk in chunks
+        for part in (
+            _chunk_text(chunk, chunk_chars, overlap_chars)
+            if len(chunk) > max(chunk_chars, 1)
+            else [chunk]
+        )
+    ]
 
 
 def _chunk_doc(text: str, chunk_chars: int) -> List[str]:
@@ -378,7 +387,7 @@ def chunk_text(text: str, embed_context_tokens: int = 2048) -> List[str]:
     chunk_chars = min(
         DEFAULT_EMBED_CHUNK_TOKENS * CHARS_PER_TOKEN_ESTIMATE,
         HARD_CHUNK_CHAR_CAP,
-        int(embed_context_tokens * CHARS_PER_TOKEN_ESTIMATE * 0.25),
+        max(1, int(embed_context_tokens * CHARS_PER_TOKEN_ESTIMATE * 0.25)),
     )
 
     # Use markdown-aware chunking if the text seems to contain markdown
@@ -436,6 +445,17 @@ class ChromaStore:
         self.min_coverage = min_coverage
         self._lex: Optional[LexicalIndex] = None
         self.collection_name = collection_name
+        client = getattr(embedding_generator, "client", None)
+        model = getattr(client, "embed_model", None) or getattr(client, "model", None)
+        if isinstance(model, str) and model:
+            # Chroma retains collection dimensions even after every row is deleted.
+            identity = (
+                f"{type(client).__module__}.{type(client).__qualname__}",
+                getattr(client, "host", ""),
+                model,
+            )
+            digest = hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:32]
+            self.collection_name = f"{collection_name}_{digest}"
         self.persist_directory = persist_directory or DEFAULT_CHROMA_DIR
         self.collection = None
         self._client = None
@@ -493,15 +513,6 @@ class ChromaStore:
             return f"index built with embedding model {meta['embed_model']}, current is {self._model_id()}"
         return None
 
-    def delete_document(self, storage_key: str) -> None:
-        """Drop every chunk of one source document (before re-adding an edited one)."""
-        self._ensure_initialized()
-        try:
-            self._lex = None
-            self.collection.delete(where={"storage_key": storage_key})
-        except Exception as e:
-            raise ChromaStoreError(f"Failed to delete document: {e}")
-
     def add_documents(
         self, documents: List[str], metadatas: List[Dict[str, Any]] = None
     ) -> List[str]:
@@ -555,12 +566,12 @@ class ChromaStore:
             else:
                 embeddings = None
 
-            # Deterministic ids: re-adding the same chunk is idempotent and retrieval ties break the same way every run.
+            # Source-derived ids: replace/delete by document stay exact; sourceless chunks get content-hash ids.
             ids = []
             for doc, meta in zip(chunked_docs, chunked_metas):
-                base = "c_" + hashlib.sha256(
-                    f"{meta.get('storage_key', '')}|{meta.get('chunk')}|{doc}".encode()
-                ).hexdigest()[:16]
+                source = document_id(meta)
+                base = (f"vault_{hashlib.sha256(source.encode()).hexdigest()}_{meta['chunk']}" if source else
+                        "c_" + hashlib.sha256(f"{meta.get('chunk')}|{doc}".encode()).hexdigest()[:16])
                 cid, n = base, 0
                 while cid in ids:
                     n += 1
@@ -733,10 +744,31 @@ class ChromaStore:
         self._ensure_initialized()
         try:
             self._lex = None
-            self.collection.delete(where={"id": {"$ne": ""}})
+            ids = self.collection.get(include=[])["ids"]
+            if ids:
+                self.collection.delete(ids=ids)
+            self._last_retrieval = []
             return True
         except Exception as e:
             raise ChromaStoreError(f"Failed to delete documents: {str(e)}")
+
+    def delete_document(self, storage_key: str) -> None:
+        """Remove all chunks for one source, including legacy random chunk IDs."""
+        self._ensure_initialized()
+        try:
+            self._lex = None
+            self.collection.delete(where={"storage_key": storage_key})
+            self._last_retrieval = []
+        except Exception:
+            raise ChromaStoreError("Failed to remove document chunks") from None
+
+    def replace_document(self, content: str, metadata: Dict[str, Any]) -> List[str]:
+        """Replace just this source; shrinking documents cannot retain old tails."""
+        source = document_id(metadata)
+        if not source:
+            raise ChromaStoreError("Document replacement requires a storage key")
+        self.delete_document(source)
+        return self.add_documents([content], [metadata])
 
     def get_all(self) -> List[Dict[str, Any]]:
         """Get all documents from the collection."""

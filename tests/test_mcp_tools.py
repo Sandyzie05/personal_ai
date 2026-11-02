@@ -297,6 +297,7 @@ class TestVaultTokenStorage:
 
 
 class TestOAuthCallbackServer:
+    @pytest.mark.loopback
     def test_redirect_params_are_captured_and_returned(self):
         server = _OAuthCallbackServer()
         server.start()

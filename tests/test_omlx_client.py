@@ -11,6 +11,37 @@ import pytest
 from src.ai_engine.omlx_client import OmlxClient, OllamaClientError
 
 
+@pytest.fixture(autouse=True)
+def isolated_api_key(monkeypatch):
+    monkeypatch.delenv("omlx_api_key", raising=False)
+    monkeypatch.delenv("OMLX_API_KEY", raising=False)
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("api_key", [None, "synthetic-offline-api-key"])
+def test_chat_auth_header_matches_for_streaming_and_non_streaming(stream, api_key, monkeypatch):
+    if api_key:
+        monkeypatch.setenv("OMLX_API_KEY", api_key)
+    client = OmlxClient()
+    # Key-bearing requests go through the no-redirect/no-proxy opener (tested below), so patch the client seam.
+    with patch.object(client, "_open") as urlopen:
+        response = urlopen.return_value.__enter__.return_value
+        response.read.return_value = b'{"choices":[{"message":{"content":"synthetic"}}]}'
+        response.__iter__.return_value = [
+            b'data: {"choices":[{"delta":{"content":"synthetic"}}]}\n',
+            b'data: [DONE]\n',
+        ]
+        result = client.chat([{"role": "user", "content": "synthetic"}], stream=stream)
+        if stream:
+            assert list(result) == [{"message": {"content": "synthetic"}}]
+        else:
+            assert result == {"message": {"content": "synthetic"}}
+        request = urlopen.call_args.args[0]
+        assert request.get_header("Authorization") == (
+            f"Bearer {api_key}" if api_key else None
+        )
+
+
 @pytest.mark.parametrize("status", [307, 308])
 def test_safe_opener_never_follows_redirect_or_environment_proxy(status, monkeypatch):
     requests = []

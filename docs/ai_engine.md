@@ -41,11 +41,24 @@ All defaults live in `src/config.py`; add new settings there, not inline. Saved 
 
 ```python
 from src.ai_engine.chat_engine import ChatEngine
-from src.security.encryption import AEADEncryption
+from getpass import getpass
+from src.security.auth import AuthManager
 
-chat = ChatEngine(encryption_key=AEADEncryption().key)   # real use goes through the login gate, see the UI
-chat.initialize_rag()                                    # index vault documents
-result = chat.query_vault("What was my gas bill in September?")
+# Use an already registered vault; never put a password in source code.
+encryption_key = AuthManager().authenticate(getpass("Vault password: "))
+chat_engine = ChatEngine(encryption_key=encryption_key)
+
+# Add data to encrypted vault
+chat_engine.add_data_to_vault("my_note", {
+    "title": "Important Note",
+    "content": "This is my sensitive data"
+})
+
+# Initialize RAG with vault data
+chat_engine.initialize_rag()
+
+# Query the vault
+result = chat_engine.query_vault("What is in my vault?")
 print(result["response"])
 ```
 
@@ -62,6 +75,10 @@ document; if embedding fails midway you get an explicit error and must run it ag
 The agent runtime speaks Ollama-shaped messages. `OmlxClient` converts to/from the OpenAI shape (ids minted and matched to tool results,
 JSON-string arguments parsed to dicts). If your model has no tool support set `PERSONAL_AI_OMLX_TOOLS=false`; agents then run without tools.
 Not yet verified against a live server: streaming tool-call deltas and the `response_format` JSON-schema shape (backlog B1 in [platform_plan.md](platform_plan.md)).
+
+`make demo` is a live auth/vault/model smoke flow, not an offline test.
+Run `make check-context` after chat-path/model changes; an unavailable
+configured model/service is an explicit integration-check blocker.
 
 ## Troubleshooting
 

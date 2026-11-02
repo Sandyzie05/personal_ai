@@ -12,14 +12,28 @@ Owns the lifecycle of the vault's data-encryption key (DEK):
 
 Failed attempts are persisted (not just tracked in-process) so a script
 cannot bypass the lockout by calling authenticate() in a fresh process.
+
+Updates use a persistent sidecar flock on POSIX (macOS/Linux), including
+threads and separate managers/processes. Windows is unsupported and fails
+closed. All writers must cooperate; do not remove the lock file while in use.
+Atomic replacement prevents partial JSON; directory fsync requests durability
+of the rename. A directory-sync failure is reported after replacement and
+cannot roll back the committed update.
 """
 
 import os
 import getpass
 import base64
 import json
+import tempfile
 import time
+from contextlib import contextmanager
 from typing import Optional
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 from .encryption import AEADEncryption, EncryptionError, PasswordKeyDerivation
 
@@ -44,18 +58,56 @@ class AuthManager:
             return json.load(f)
 
     def _write_state(self, state: dict) -> None:
-        with open(self.auth_file, "w") as f:
-            json.dump(state, f)
-        os.chmod(self.auth_file, 0o600)
+        directory = os.path.dirname(os.path.abspath(self.auth_file))
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=directory,
+                prefix=f".{os.path.basename(self.auth_file)}.",
+                suffix=".tmp",
+                delete=False,
+            ) as f:
+                temporary_path = f.name
+                json.dump(state, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary_path, self.auth_file)
+            temporary_path = None
+            directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
+
+    @contextmanager
+    def _state_lock(self):
+        if fcntl is None:
+            raise AuthenticationError("Authentication requires POSIX file locking.")
+        # Lock a stable inode: the auth file itself is replaced on every update.
+        fd = os.open(
+            os.fspath(self.auth_file) + ".lock",
+            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            os.fchmod(fd, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(fd)
 
     def register(self, password: Optional[str] = None) -> bytes:
         """Create a new account, generate a DEK, and wrap it with the password.
 
         Returns the plaintext DEK to use for the current session.
         """
-        if self.is_registered():
-            raise AuthenticationError("User already registered.")
-
         if password is None:
             password = getpass.getpass("Enter password: ")
             confirm = getpass.getpass("Confirm password: ")
@@ -64,6 +116,12 @@ class AuthManager:
         if len(password) < 8:
             raise AuthenticationError("Password must be at least 8 characters.")
 
+        with self._state_lock():
+            if self.is_registered():
+                raise AuthenticationError("User already registered.")
+            return self._register(password)
+
+    def _register(self, password: str) -> bytes:
         dek = os.urandom(AEADEncryption.KEY_SIZE)
         kek, salt = PasswordKeyDerivation.derive_key(password)
         wrapped_dek = AEADEncryption(key=kek).encrypt(dek)
@@ -105,15 +163,18 @@ class AuthManager:
         Raises AuthenticationError on any failure (no account, locked out,
         or wrong password).
         """
+        if password is None:
+            password = getpass.getpass("Enter password: ")
+
+        with self._state_lock():
+            return self._authenticate(password)
+
+    def _authenticate(self, password: str) -> bytes:
         if not self.is_registered():
             raise AuthenticationError("No user registered. Please register first.")
 
         state = self._read_state()
         self._check_lockout(state)
-
-        if password is None:
-            password = getpass.getpass("Enter password: ")
-
         salt = base64.b64decode(state["salt"])
         iterations = state.get("iterations", PasswordKeyDerivation.ITERATIONS)
         wrapped_dek = base64.b64decode(state["wrapped_key"])
@@ -155,18 +216,19 @@ class AuthManager:
 
     def change_password(self, old_password: str, new_password: str) -> bytes:
         """Re-wrap the existing DEK under a new password. Returns the DEK."""
-        dek = self.authenticate(old_password)
         if len(new_password) < 8:
             raise AuthenticationError("Password must be at least 8 characters.")
 
-        kek, salt = PasswordKeyDerivation.derive_key(new_password)
-        wrapped_dek = AEADEncryption(key=kek).encrypt(dek)
-        state = self._read_state()
-        state["salt"] = base64.b64encode(salt).decode("utf-8")
-        state["iterations"] = PasswordKeyDerivation.ITERATIONS
-        state["wrapped_key"] = base64.b64encode(wrapped_dek).decode("utf-8")
-        self._write_state(state)
-        return dek
+        with self._state_lock():
+            dek = self._authenticate(old_password)
+            kek, salt = PasswordKeyDerivation.derive_key(new_password)
+            wrapped_dek = AEADEncryption(key=kek).encrypt(dek)
+            state = self._read_state()
+            state["salt"] = base64.b64encode(salt).decode("utf-8")
+            state["iterations"] = PasswordKeyDerivation.ITERATIONS
+            state["wrapped_key"] = base64.b64encode(wrapped_dek).decode("utf-8")
+            self._write_state(state)
+            return dek
 
 
 def main():

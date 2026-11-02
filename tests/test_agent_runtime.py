@@ -7,6 +7,7 @@ a FakeMcp (name -> ToolResult), a fake context engine with only
 enabled MCP server. No Ollama, no MCP server, no network.
 """
 
+import hashlib
 import os
 
 import pytest
@@ -18,6 +19,7 @@ from src.agents.runtime import (
     DENIED_RESULT_TEXT,
     AgentRuntime,
     RunResult,
+    _args_digest,
     assemble_system_prompt,
 )
 from src.data_vault import DataVault
@@ -183,6 +185,27 @@ def write_tool(server_id="srv1"):
 BUY_ARGS = {"symbol": "AAPL", "quantity": "1", "side": "buy"}
 
 
+def test_args_digest_is_canonical_sha256():
+    args = {"z": ["privacy-canary", {"b": 2, "a": 1}], "a": "synthetic"}
+    expected = hashlib.sha256(
+        b'{"a":"synthetic","z":["privacy-canary",{"a":1,"b":2}]}'
+    ).hexdigest()
+    assert _args_digest(args) == expected
+    assert _args_digest(
+        {"a": "synthetic", "z": ["privacy-canary", {"a": 1, "b": 2}]}
+    ) == expected
+    assert _args_digest({**args, "a": "changed"}) != expected
+    assert "privacy-canary" not in expected
+
+
+def test_args_digest_does_not_expose_unserializable_arguments():
+    args = {"canary": "privacy-canary"}
+    args["cycle"] = args
+    digest = _args_digest(args)
+    assert len(digest) == 64
+    assert "privacy-canary" not in digest
+
+
 # -- start_run: the tool loop ---------------------------------------------------
 
 
@@ -231,6 +254,8 @@ class TestStartRunLoop:
         assert activity[0]["tool"] == "get_equity_quotes"
         assert activity[0]["ok"] is True
         assert activity[0]["server"] == "Robinhood"
+        assert activity[0]["args_digest"] == _args_digest({"symbols": ["AAPL"]})
+        assert "AAPL" not in result.trail[0]["summary"]
 
     def test_build_prompt_gets_agent_rag_settings_and_history(self, vault):
         agent = save_agent(vault, rag_enabled=False)

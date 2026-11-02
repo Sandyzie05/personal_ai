@@ -10,8 +10,6 @@ confirms/overrides each file's category and fields -> "Upload All" encrypts
 the category was changed) for fast, accurate aggregation queries later.
 """
 
-import os
-import tempfile
 from typing import Any, Callable, Dict, List, Optional
 
 import streamlit as st
@@ -53,7 +51,7 @@ def render_upload_page(
 
     uploaded_files = st.file_uploader(
         "Choose file(s)",
-        type=["txt", "pdf", "csv", "json", "md"],
+        type=[suffix.lstrip(".") for suffix in FileUploadHandler.SUPPORTED_FORMATS],
         label_visibility="collapsed",
         accept_multiple_files=True,
     )
@@ -132,7 +130,7 @@ def _sync_pending(
 
     Runs classification once per newly-added file (tracked by (name, size)
     signature) and drops pending entries for files the user has since
-    removed from the picker, cleaning up their temp files.
+    removed from the picker. Original bytes and parsed previews stay in memory.
     """
     pending: List[Dict[str, Any]] = st.session_state.setdefault(_PENDING_KEY, [])
     current_signatures = {(f.name, f.size) for f in uploaded_files}
@@ -143,12 +141,10 @@ def _sync_pending(
     for entry in pending:
         if entry["signature"] in current_signatures:
             kept.append(entry)
-        else:
-            _cleanup_tmp(entry["tmp_path"])
     st.session_state[_PENDING_KEY] = kept
     pending = kept
 
-    # Prepare (write temp file + classify) any newly-added files.
+    # Parse and classify any newly-added files without disk staging.
     for uploaded_file in uploaded_files:
         signature = (uploaded_file.name, uploaded_file.size)
         if signature in pending_signatures:
@@ -166,20 +162,14 @@ def _prepare_one(
     encryption_key: Optional[bytes],
     ollama_client: Optional[Any],
 ) -> Optional[Dict[str, Any]]:
-    """Write one uploaded file to a temp path and classify it."""
-    with tempfile.NamedTemporaryFile(
-        delete=False, suffix=f"_{uploaded_file.name}"
-    ) as tmp_file:
-        tmp_file.write(uploaded_file.getvalue())
-        tmp_path = tmp_file.name
-
+    """Parse and classify one upload in memory before confirmation."""
     try:
+        file_content = uploaded_file.getvalue()
         handler = FileUploadHandler(vault, encryption_key)
-        text_preview = handler.preview_text(tmp_path)
+        text_preview = handler.preview_bytes(file_content, uploaded_file.name)
         detected_category = classify_document(text_preview, ollama_client)
     except IngestionError as e:
         st.error(f"Could not read {uploaded_file.name}: {e}", icon=":material/error:")
-        _cleanup_tmp(tmp_path)
         return None
 
     if (
@@ -225,7 +215,7 @@ def _prepare_one(
         "signature_key": f"{uploaded_file.name}_{uploaded_file.size}".replace(" ", "_"),
         "filename": uploaded_file.name,
         "size": uploaded_file.size,
-        "tmp_path": tmp_path,
+        "file_content": file_content,
         "text_preview": text_preview,
         "detected_category": detected_category,
         "selected_category": detected_category,
@@ -264,7 +254,9 @@ def _upload_all(
                     "category": selected_category,
                     **{k: v for k, v in entry["field_values"].items() if v},
                 }
-                result = handler.handle_upload(entry["tmp_path"], metadata=metadata)
+                result = handler.handle_upload_bytes(
+                    entry["file_content"], filename, metadata=metadata
+                )
                 if not result["success"]:
                     failed += 1
                     st.write(f":material/close: {filename}: upload failed")
@@ -369,15 +361,5 @@ def _extraction_consistency_warning(extraction) -> Optional[str]:
     return None
 
 
-def _cleanup_tmp(tmp_path: str) -> None:
-    if tmp_path and os.path.exists(tmp_path):
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-
 def _clear_all_pending() -> None:
-    pending: List[Dict[str, Any]] = st.session_state.pop(_PENDING_KEY, [])
-    for entry in pending:
-        _cleanup_tmp(entry["tmp_path"])
+    st.session_state.pop(_PENDING_KEY, None)

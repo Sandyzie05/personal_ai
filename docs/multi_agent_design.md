@@ -24,13 +24,13 @@ quarantine, Core Memory gate, scheduler, policy) is documented in [platform_plan
    MCP servers (remote HTTP or local stdio), see their results, and reason
    over them — including the Robinhood trading MCP
    (`https://agent.robinhood.com/mcp/trading`).
-4. **Safety for actions.** Tools that mutate state (placing trades, creating
-   alerts) require an explicit in-UI confirmation from the user before
-   execution.
+4. **Safety for actions.** With the agent's confirmation setting enabled,
+   tools classified as mutating pause for in-UI approval. Classification and
+   optional confirmation are not a universal authorization policy.
 5. **Keep the security posture.** All new state (agent configs, MCP
    configs, OAuth tokens, activity log, run state) lives in the encrypted
    vault. No new plaintext-at-rest location except skill instruction files
-   (non-sensitive, documented in §9).
+   (user-controlled plaintext, documented in §9).
 6. **Testable without a browser.** Core logic (store, tool mapping, agent
    loop) is pure-Python and unit-tested with fakes; UI is smoke-tested with
    `streamlit.testing.v1.AppTest`.
@@ -61,7 +61,7 @@ Open items from that mapping (vision inputs, knowledge graph, voice) are tracked
 
 ### D1 — Tool calling backend (superseded: now oMLX with an OpenAI-shape adapter; text below is the original Ollama decision)
 
-**Decision:** agents use Ollama's `/api/chat` `tools` parameter and
+**Original v1 decision:** agents use Ollama's `/api/chat` `tools` parameter and
 `role: "tool"` result messages. No OpenAI-compatible side channel (oMLX etc.).
 
 **Why:** verified working with local models; keeps the "all inference is
@@ -163,10 +163,11 @@ behavior, so all existing tests pass untouched):
 
 `AgentRuntime` then: builds the prompt exactly like today
 (`_build_prompt` → messages + sources), then runs the tool loop over those
-messages. RAG scoping composes with the existing query-analysis scoping
-(union of both: if the query names a category outside the agent's scope,
-retrieval is empty for that query — the agent honestly says "outside my
-scope" because the grounding prompt forces it to).
+messages. RAG scoping limits results to the agent's allowed categories.
+When query analysis requests categories outside that scope, the current
+implementation can fall back to retrieval across the allowed scope; it
+does not guarantee an empty result or a particular model refusal.
+Prompt wording is not the authorization boundary.
 
 **Why:** one prompt-building code path (the tested one) instead of two;
 per-agent budgets stay correct because budget math reads
@@ -353,22 +354,20 @@ reloads the run state, executes, and continues exactly where it paused.
 ```python
 class McpManager:
     def __init__(self, vault): ...
-    def connect(self, server: McpServer) -> Connection   # lazy per-server session
-    async def list_tools(self, server_id) -> list[McpTool]
-    async def call_tool(self, server_id, name, args) -> ToolResult
-    def to_ollama_tool(self, tool: McpTool) -> dict      # {"type":"function","function":{...}}
-    def connect_remote_with_oauth(self, server_id)       # starts browser flow (UI button)
-    @staticmethod
-    def is_sensitive_tool(name: str) -> bool
+    def connect(self, server_id, *, interactive=False): ...
+    def list_tools(self, server_id): ...
+    def call_tool(self, server_id, name, args): ...
 ```
 
-- `McpTool`: `{server_id, name, description, input_schema, annotated_write: bool}`
-  (`annotated_write` from MCP `annotations.readOnlyHint == False` when
+- `McpTool` includes `{server_id, name, description, input_schema, is_write}`.
+  (`is_write` from MCP `annotations.readOnlyHint == False` when
   present, else the prefix heuristic — MCP annotations are the *primary*
   signal when a server provides them; the prefix list is the fallback for
   servers without annotations).
-- Connections are cached per server id for the Streamlit process; a failed
-  connect degrades to `last_status="error"` and the agent simply runs
+- Public operations are synchronous wrappers around fresh MCP sessions,
+  not a process-wide connection cache. `connect(..., interactive=True)`
+  enables the user-initiated OAuth flow. A failed connection reports status
+  and the agent runs
   without that server's tools (UI shows the error; the agent is never
   silently broken).
 - Tool results: `CallToolResult.content` text parts are joined;
@@ -382,26 +381,32 @@ class McpManager:
 
 New in v1, recorded per the repo's security checklist:
 
-1. **Network egress.** Remote MCP servers (Robinhood) receive the user's
-   messages, retrieved vault context (if RAG is on for that agent), and
-   tool results; OAuth tokens transit to `api.robinhood.com`. This is an
+1. **Network egress.** Remote MCP servers receive tool names and arguments,
+   not the complete model message list. Arguments may reproduce private
+   user messages, history or retrieved context; tool results return to the
+   model. OAuth credentials transit to configured authorization services.
+   This is an
    **explicit, per-agent opt-in** (agent only gets a server's tools if the
    user attached that server). Mitigations: localhost-only app unchanged;
    per-agent RAG scoping limits what context an agent can pull;
-   `rag_enabled: false` removes vault context from tool calls entirely.
+   `rag_enabled: false` removes retrieved document context, not private user
+   text or conversation history.
    Default template text warns the user. This is the biggest threat-model
    delta and is called out as accepted risk (like `.chroma` plaintext).
 2. **Token storage.** OAuth tokens + registered-client info live in the
    encrypted vault (`mcp_oauth_<id>`), not a plaintext file. The `mcp` SDK
    refreshes transparently; a refresh failure returns the agent to
    `needs_auth` (UI shows "Reconnect").
-3. **Action safety.** Confirmation gate (D5) is enforced by the runtime,
-   not the prompt. Audit: every tool call (args digest, outcome, duration)
-   in `agent_activity_log`.
-4. **No new key paths.** Vault DEK flow is untouched; no code reads
-   `~/.personal_ai_auth` or the old key file.
-5. **Skill files** at `~/.personal_ai/skills/` are plaintext *instructions*
-   (no personal data) — accepted, mirroring the `.chroma` tradeoff.
+3. **Action safety.** When enabled, the confirmation gate (D5) is enforced
+   by the runtime, not the prompt. The encrypted activity log records
+   executed/denied activity; unknown tool requests are not guaranteed audit
+   entries. This is not complete provider/model/tool-attempt coverage.
+4. **No new key paths.** Agent/MCP code receives the existing
+   AuthManager-provided vault key; it does not derive keys independently or
+   read a legacy raw-key file.
+5. **Skill files** at `~/.personal_ai/skills/` are plaintext *instructions*.
+   Their arbitrary user-written contents are not enforced to be non-sensitive;
+   keep personal data and credentials out of them.
 6. **Stdio MCP servers** run as local child processes; the add form is
    user-explicit (they type the command). Not enabled by default for
    anyone; same trust level as any CLI the user runs.

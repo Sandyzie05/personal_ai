@@ -28,8 +28,9 @@ For the agent-specific rules and their tests see [platform_plan.md](platform_pla
 
 This is a **single-user, local-machine** system. It defends against:
 
-- Another user, process, or piece of malware reading your data files directly
-  off disk while you are *not* logged into the app (vault at rest).
+- Direct reads of encrypted vault payloads without the password/DEK.
+  This protection does not cover plaintext Chroma/skill copies, metadata,
+  old staging files or a compromised local inference process.
 - Casual/opportunistic access to the machine (e.g. someone picks up an
   unlocked laptop with the app not actively unlocked).
 
@@ -37,6 +38,8 @@ It does **not** currently defend against:
 
 - A compromised or malicious process running *as your own user account* while
   the vault is unlocked (it can read process memory / hook Python).
+- Same-user/admin access to accepted plaintext artifacts, including while
+  the application's login gate is locked. App locking is not OS isolation.
 - Someone with root/admin access to the machine.
 - Network exposure - the Streamlit app must stay bound to `localhost` (the
   default). Do not put it behind a reverse proxy or expose the port without
@@ -72,12 +75,15 @@ unconditional access to every byte in the vault.
 - The Streamlit app (`src/interface/main.py`) now gates all rendering behind
   `_render_login_gate()`: first run asks you to set a password (min 8 chars)
   and creates the vault; subsequent runs require that password before any
-  page renders. The unwrapped DEK lives only in `st.session_state` for the
-  duration of the session - never written to disk in plaintext. A "Lock
-  vault" button in the sidebar clears it.
+  page renders. The unwrapped DEK is held in server-side session state and
+  DEK-bearing vault/client objects during the session, never intentionally
+  persisted in plaintext by the app. A "Lock vault" button removes the
+  session key and releases session-owned history, runtime and vault/client
+  references. Python memory zeroization is not guaranteed.
 - `~/.personal_ai_key` (the old raw-key file) is no longer read by the app at
-  all. If it exists on your machine from before this change, it is now dead
-  weight - safe to delete once you've re-registered.
+  all. Preserve it if an older vault may still need recovery: registering a
+  new password does not migrate ciphertext encrypted under the old key.
+  Never automatically delete old key material.
 
 **Residual risk:** the KEK/DEK unwrap happens in-process and the DEK sits in
 memory (and in `st.session_state`, which Streamlit keeps server-side) for the
@@ -134,7 +140,8 @@ earlier, disconnected prototype (`bill_extractor.py`/`bill_storage.py`,
 deleted) that stored extracted bill data - account numbers included - in a
 **fully unencrypted** SQLite DB at `~/.personal_ai/bills.db`, outside the
 vault entirely and never actually wired into the chat flow. If you ran an
-older version of this app, check for and manually delete that file.
+older version, treat that file as sensitive plaintext. Review retention and
+an encrypted recovery backup before any explicit deletion.
 
 ## Multi-session chat and dashboard (2026-08-25)
 
@@ -195,9 +202,10 @@ design in `docs/multi_agent_design.md`). Six security-relevant deltas:
 **New network egress: remote MCP servers.** The previous trust boundary was
 "nothing leaves the machine except calls to the local Ollama process". An
 agent attached to a *remote* MCP server (e.g. Robinhood's trading endpoint)
-sends the user's chat messages, the tool arguments the model constructs,
-and - when the agent has RAG enabled - retrieved vault context, to that
-server over the internet; tool results come back the same way. This is an
+sends the selected tool name and model-constructed arguments to that server
+over the internet; results return to the runtime. It does not automatically
+send the entire model message list. Arguments can nevertheless reproduce
+private user text, history or RAG context. This is an
 **explicit, per-agent opt-in**: an agent only gets a server's tools if the
 user attached that server on the Agents page, and the agent form shows a
 data-egress warning (naming the remote server) whenever RAG is on plus a
@@ -205,7 +213,8 @@ remote server is attached. Mitigations already in place: the app remains
 localhost-only (the Streamlit server still binds 127.0.0.1); per-agent RAG
 category scoping (`rag_scope_categories`) limits which documents can be
 retrieved into an agent's context; `rag_enabled: false` removes vault
-context from the agent's turns entirely. **Accepted risk**, same class as
+retrieved document context from the agent's turns. This does not remove
+private user messages or prior history. **Accepted risk**, same class as
 the `.chroma` plaintext index: the user knowingly chose this destination.
 
 **OAuth tokens are encrypted vault records, not a plaintext sidecar.**
@@ -220,23 +229,27 @@ Token refresh is transparent (SDK); a failed refresh surfaces as
 `needs_auth` and the UI offers "Connect & Authorize" again. Deleting an MCP
 server on the Agents page also deletes its `mcp_oauth_<id>` key.
 
-**Confirmation gate enforced by the runtime, not the prompt.** Sensitive
+**Configurable confirmation gate enforced by the runtime, not the prompt.** Sensitive
 (state-mutating) tool calls - MCP `readOnlyHint=false` when the server
 annotates, else a name-prefix heuristic (`place_`, `create_`, `cancel_`,
 `update_`, `delete_`, ...) - pause the agent loop and persist the full
 in-flight state to `agent_run_<session_id>` in the vault; the model can
-only proceed after the user clicks Allow/Deny/Abort in the UI. The gate
-lives in `AgentRuntime` (`src/agents/runtime.py`), so it cannot be bypassed
-by prompt injection, and a paused run survives reruns/tab closes/app
-restarts (vault-backed, never only `st.session_state`). Every tool call -
-including denied ones - is audited in `agent_activity_log` (args digest
-capped at 200 chars, outcome, duration), capped at 500 entries.
+only proceed after the user clicks Allow/Deny/Abort in the UI when the
+agent's confirmation setting is enabled. The gate lives in `AgentRuntime`
+(`src/agents/runtime.py`); prompts cannot grant approval to a paused call.
+However, configurable confirmation, server annotations and name heuristics
+are not a universal authorization policy or prompt-injection immunity.
+A paused run survives reruns/tab closes/app restarts (vault-backed).
+Executed and denied tool activity is recorded in `agent_activity_log`,
+capped at 500 entries; unknown tool requests are not necessarily recorded
+there. It is not a complete audit of every provider/model/tool attempt.
 
 **Skills are plaintext instruction files.** Agent skills
 (`~/.personal_ai/skills/<slug>.md`, overridable via
 `PERSONAL_AI_SKILLS_DIR`) are plain markdown on disk - they are
-*instructions* (no personal data by construction), the same accepted
-tradeoff as the `.chroma` index. They are injected into the agent's system
+*instructions*. Their contents are user-controlled and may include private
+data; "no personal data" is a usage requirement, not an enforced property.
+This is an accepted plaintext-storage tradeoff. They enter the agent's system
 prompt at run time.
 
 **New internal vault keys.** `agents_index`, `mcp_servers`, and
@@ -353,13 +366,15 @@ Now centralized in `src/config.py`, overridable via environment variables:
 | Variable | Default | Purpose |
 |---|---|---|
 | `PERSONAL_AI_OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
-| `PERSONAL_AI_CHAT_MODEL` | `qwen3:8b` | Chat model |
+| `PERSONAL_AI_CHAT_MODEL` | `llama3.2:latest` | Ollama chat model |
 | `PERSONAL_AI_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 | `PERSONAL_AI_CONTEXT_WINDOW_TOKENS` | `8192` | Context window size: both the RAG/history truncation guard's budget assumption *and* the literal `num_ctx` value passed to Ollama on every `chat()` call (see "Multi-session chat and dashboard" above) - the two can no longer silently disagree |
 
-`nomic-embed-text` was pulled via `ollama pull nomic-embed-text` as part of
-this fix; it's required regardless of which chat model you use, since
-embeddings and chat are separate models in Ollama.
+Embedding and chat backends are independently configured. Chat defaults to
+Ollama; `PERSONAL_AI_EMBED_ENGINE` defaults to `omlx`, using the oMLX model
+from `src/config.py`. `nomic-embed-text` is the Ollama embedding default,
+not a universal requirement for oMLX. Endpoint configuration is not a
+general loopback-only enforcement policy: keep private inference local.
 
 ## Context-overflow guard
 
@@ -390,7 +405,7 @@ and an AI coding agent can sanity-check before running the full app. See
   `encryption.py` copy was dead code that could confuse future edits (fixing
   a bug in one copy while the other silently stayed broken).
 
-## Verification performed
+## Historical verification performed (2026-08-23 pass)
 
 - `examples/ai_engine_demo.py` run end-to-end from a clean state: register →
   encrypted vault write → RAG index build (real `nomic-embed-text` calls) →
@@ -429,7 +444,9 @@ already had this pattern; it was just inconsistently applied.
  password**, it means `~/.personal_ai_vault/vault.db` predates your current
  password and its old entries are unrecoverable without the old key. There is
  no recovery tool - back up the directory if you want to keep it, then
- delete `~/.personal_ai_vault` to start clean under the new password.
+ choose a separate empty vault location if starting over. Preserve the old
+ directory and key material for possible recovery; deletion is destructive
+ and must never be an automatic error-recovery step.
 
  **Deleting an MCP server removes its OAuth credentials too** (multi-agent
  layer, 2026-10-13): the delete action on the Agents page removes both the
@@ -448,3 +465,64 @@ already had this pattern; it was just inconsistently applied.
 **Bill ingestion + portal agent (R7-R10, 2026-10-25):** S-R1: `files.validate_pdf` gates every downloaded/attached file (magic bytes, 15 MB/60-page caps, rejects JS/Launch/EmbeddedFile/RichMedia incl. `#XX`-obfuscated names and object streams, embedded files, encrypted PDFs); files stored encrypted as `ingest_<sha16>` before parsing, parsed in memory, remote filename never used. S-R3: `ingest_manifest`, `ingest_expectations`, `portal_recipes`, `portal_cred_*` are internal encrypted vault keys. Residual risk: Playwright downloads touch a 0700 temp dir briefly (deleted after read) and its persistent profile (`~/.personal_ai_vault/.portal_profiles`, 0700) holds session cookies in plaintext. S-R4: Gmail attachments via `ReadOnlyMcp` only, code-side sender allowlist, no body text read. S-R5: recipes are data with a closed action set, https + host allowlist, payment/settings deny list; off-allowlist navigation aborts the run; credentials only reach `fill_*` steps, never logs/errors/models; 2FA/CAPTCHA stops for the human; fetch only on explicit button press. S-R7: per-run file/time caps, idempotent hash dedupe, no archive recursion. Evals: hostile files accepted 0/10, credential leaks 0, unblocked off-allowlist redirects 0.
 
 **Agent platform hardening (2026-10-25):** Core Memory approval needs a single-use, session- and item-bound token minted only by the Core Memory button handler (`memory.issue_approval_token`; a test pins callers); forged/replayed/cross-item tokens fail closed (structural within the process, not cryptographic). Schedule and Core Memory read-modify-write take a cross-process `flock` (`~/.personal_ai/*.lock`, 0600); scheduled jobs are claimed atomically. Gmail/brokerage MCP reads are prefetched on the calling thread (S15); only validated tickers survive. Bus dedupes identical retried sends; timed-out workers get a cooperative cancel. Verifier can only add escalations. Optional LLM planner is off by default and gated by `Plan` + `validate_plan`. oMLX client: no invented tool-call ids, correct `json_schema` response format, streamed tool-call deltas accumulated. News failures carry `yahoo-news` source id.
+## Foundation assessment and remaining boundaries (2026-10-19)
+
+The design review is source-level evidence, not proof that the application
+is leak-free or production-ready. Current known work is tracked in
+[platform_plan.md](platform_plan.md).
+
+- **Upload staging:** UI preparation and confirmation now parse uploaded
+  bytes in memory and do not retain plaintext temporary paths across reruns.
+  Original bytes are stored only through the encrypted vault flow.
+  Parser failures fail closed; synthetic regressions cover malformed input,
+  hostile filenames and error paths. Bytes/previews still exist in
+  Python/Streamlit memory; swap, core dumps and memory zeroization are not
+  covered. Old staging files from previous releases are not automatically
+  removed; do not treat this change as retroactive cleanup.
+- **Lock lifecycle:** teardown clears the session DEK, cached engines/runtime,
+  history, pending uploads and session-local private forecast state, and
+  releases vault connections. Cleanup errors are surfaced after state
+  invalidation. This is reference cleanup, not Python memory zeroization or
+  revocation of a DEK already copied by another process/session.
+- **Auth durability:** same-directory `0600` staging, file fsync, atomic
+  replacement and directory fsync replace truncating writes. A persistent
+  POSIX sidecar flock serializes cooperating managers/processes; each
+  transaction reads fresh state. Do not remove the lock file while in use.
+  Windows authentication fails closed; supported targets are macOS/Linux.
+  A directory-sync error is reported after replacement and cannot undo the
+  already-committed update. Wrapping format, PBKDF2 parameters and DEKs stay
+  compatible; existing registration cannot be silently overwritten.
+- **Diagnostics:** routine retrieval logs now contain counts/scores, not
+  query/provider/source text. Agent audit arguments use a canonical SHA256
+  digest rather than a truncated JSON preview. Synthetic canary regressions
+  cover logs and ingestion error messages. Logs/backups are not
+  retroactively sanitized, and hashes are not general anonymization.
+- **Test data:** the live oMLX diagnostic's credential-shaped assignment and
+  credential-prefix printing were removed without validating the value.
+  Synthetic mocked requests replace service calls. Historical commits may
+  still contain that old value; an owner must revoke/rotate it if it was
+  ever valid. No history rewrite or remote credential mutation is performed.
+- **Offline regressions:** tests isolate HOME and disable dotenv before
+  collection, isolate per-test state, and deny socket/DNS access by default.
+  The synthetic OAuth callback test explicitly permits loopback only.
+  This is regression isolation, not an OS sandbox or egress security control
+  for the running application.
+- **Retrieval lifecycle:** complete rebuilds replace indexed source content
+  in the active embedding-compatible collection, including an empty vault.
+  Collections are namespaced by actual embedding backend, host and model so
+  a dimension/model change does not corrupt an incompatible collection.
+  Stable chunk identity and per-source updates prevent duplicate accumulation
+  and repeated full-vault embedding for batch uploads.
+  Delete/reclassification refresh affected source chunks before success is shown.
+  On failure the current engine is disabled rather than reporting a
+  successful rebuild with stale content. This does not promise transactional
+  isolation across multiple independently running app processes or secure
+  erasure of historical index copies, old collections and backups. Prior
+  embedding collections are preserved, not silently erased.
+- **Legacy helpers:** standalone encryption/key-manager APIs still include
+  raw-key persistence behavior. They are not the application's supported
+  AuthManager path and must not appear in app setup examples.
+- **Deployment and supply chain:** localhost binding and encryption are not
+  a production-network security posture, dependency audit or external
+  endpoint guarantee. No new compliance or absence-of-vulnerability claim
+  follows from this checkpoint.

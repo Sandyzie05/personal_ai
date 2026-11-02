@@ -102,8 +102,8 @@ class RAGEngine:
                 store.delete_document(metadata["storage_key"])
             store.add_documents([content], [metadata or {}])
             return doc_id
-        except _ChromaStoreError as e:
-            raise RAGEngineError(f"Failed to add document: {str(e)}")
+        except _ChromaStoreError:
+            raise RAGEngineError("Failed to add document") from None
 
     def add_documents(
         self, documents: List[str], metadatas: List[Dict[str, Any]] = None
@@ -114,8 +114,8 @@ class RAGEngine:
                 metadatas = [{} for _ in documents]
 
             return self._get_chroma_store().add_documents(documents, metadatas)
-        except _ChromaStoreError as e:
-            raise RAGEngineError(f"Failed to add documents: {str(e)}")
+        except _ChromaStoreError:
+            raise RAGEngineError("Failed to add documents") from None
 
     def retrieve_relevant(
         self, query: str, k: int = None, where: Optional[Dict[str, Any]] = None
@@ -129,7 +129,7 @@ class RAGEngine:
 
         try:
             results = self._get_chroma_store().retrieve_relevant(query, k, where=where)
-            self._log_retrieval(query, results)
+            self._log_retrieval(results)
             return results
         except _ChromaStoreError:
             return []
@@ -182,7 +182,7 @@ class RAGEngine:
         provider = meta.get("provider") or meta.get("original_filename") or meta.get("category")
         return f"chunk #{index} · {provider}" if provider else f"chunk #{index}"
 
-    def _log_retrieval(self, query: str, docs: List[Dict[str, Any]]) -> None:
+    def _log_retrieval(self, docs: List[Dict[str, Any]]) -> None:
         """Diagnostic log of what was (or wasn't) found, to debug hallucination.
 
         Surfaces whether a turn answered from grounding at all, and how strong
@@ -191,14 +191,14 @@ class RAGEngine:
         """
         if not docs:
             logger.info(
-                "RAG retrieval for %r: no chunks met the relevance threshold "
+                "RAG retrieval: 0 chunk(s) met the relevance threshold "
                 "(min %.2f) - answering ungrounded/not-found.",
-                query,
                 self.min_relevance,
             )
             return
         top = ", ".join(
-            f"{self._source_label(doc, i)}=sim:{doc.get('score', 0.0):.2f}"
-            for i, doc in enumerate(docs, 1)
+            f"{doc.get('score', 0.0):.2f}" for doc in docs
         )
-        logger.info("RAG retrieval for %r: %d chunk(s) [%s]", query, len(docs), top)
+        logger.info(
+            "RAG retrieval: %d chunk(s) [similarities: %s]", len(docs), top
+        )

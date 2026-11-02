@@ -4,13 +4,15 @@ File Upload Handler for Personal AI System
 Handles file uploads, encryption, text extraction, and vault storage
 """
 
+import csv
 import uuid
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from .parsers.csv_parser import CSVParser
-from .parsers.pdf_parser import PDFParser
+from .parsers import pdf_parser
 from .parsers.docx_parser import DOCXParser
 from .parsers.health_parser import HealthXMLParser
 from ..data_vault.vault import DataVault
@@ -54,48 +56,80 @@ class FileUploadHandler:
         return file_type
 
     def preview_text(self, file_path: str) -> str:
-        """Extract text for classification/preview without storing anything.
-
-        Used by the Upload page to run category detection before the user
-        confirms metadata and commits to handle_upload(). Re-parses the file
-        (handle_upload() parses it again independently) - an acceptable
-        tradeoff for a one-time upload action given these are short
-        bills/statements, not large documents.
-        """
+        """Extract text from a caller-supplied local path (CLI compatibility)."""
         path = Path(file_path)
-        file_type = self._resolve_file_type(path)
-        return self._extract_text(path, file_type)
+        self._resolve_file_type(path)
+        try:
+            return self.preview_bytes(path.read_bytes(), path.name)
+        except OSError as e:
+            raise IngestionError(f"Could not read file: {e}") from e
+
+    def _upload_name(self, filename: str) -> Path:
+        """Treat an upload name only as a label, never as a filesystem path."""
+        name = filename.replace("\\", "/").rsplit("/", 1)[-1]
+        if not name or name in {".", ".."} or "\x00" in name:
+            raise IngestionError("Invalid upload filename")
+        path = Path(name)
+        if path.suffix.lower() not in self.SUPPORTED_FORMATS:
+            raise IngestionError(f"Unsupported file format: {path.suffix.lower()}")
+        return path
+
+    def preview_bytes(self, content: bytes, filename: str) -> str:
+        """Parse upload bytes without opening the supplied filename or staging on disk."""
+        name = self._upload_name(filename)
+        file_type = self.SUPPORTED_FORMATS[name.suffix.lower()]
+        try:
+            if file_type == "pdf":
+                if pdf_parser.pymupdf is None or pdf_parser.pymupdf4llm is None:
+                    raise ImportError("pymupdf4llm is required for PDF parsing")
+                with pdf_parser.pymupdf.open(stream=content, filetype="pdf") as doc:
+                    return pdf_parser.pymupdf4llm.to_markdown(doc).strip()
+            if file_type == "docx":
+                return DOCXParser().parse(BytesIO(content))
+            if file_type == "health":
+                return HealthXMLParser().parse(BytesIO(content))
+            text = content.decode("utf-8")
+            if file_type == "csv":
+                rows = list(csv.reader(StringIO(text, newline=""), strict=True))
+                rows = [row for row in rows if row]
+                if not rows or not any(rows[0]):
+                    raise ValueError("Missing CSV header")
+                header, *records = rows
+                if any(len(row) != len(header) for row in records):
+                    raise ValueError("CSV row does not match header")
+                return CSVParser()._format_csv_content(header, records)
+            return text
+        except Exception as e:
+            raise IngestionError(f"Text extraction failed for {file_type}: {e}") from e
 
     def handle_upload(
         self, file_path: str, metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """
-        Handle file upload: encrypt, extract text, store in vault.
-
-        Args:
-            file_path: Path to the file to upload
-            metadata: Optional metadata to associate with the file
-
-        Returns:
-            Dictionary with upload results including storage key and extracted content
-        """
+        """Upload a caller-supplied local file (CLI compatibility)."""
         try:
-            file_path = Path(file_path)
-            file_type = self._resolve_file_type(file_path)
+            path = Path(file_path)
+            self._resolve_file_type(path)
+            return self.handle_upload_bytes(path.read_bytes(), path.name, metadata)
+        except Exception as e:
+            raise IngestionError(f"Upload failed: {e}") from e
 
-            # Read original file content
-            with open(file_path, "rb") as f:
-                file_content = f.read()
-
-            # Extract text content
-            text_content = self._extract_text(file_path, file_type)
+    def handle_upload_bytes(
+        self,
+        content: bytes,
+        filename: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Parse in memory and encrypt original bytes plus extracted text in the vault."""
+        try:
+            name = self._upload_name(filename)
+            file_type = self.SUPPORTED_FORMATS[name.suffix.lower()]
+            text_content = self.preview_bytes(content, name.name)
 
             # Prepare metadata
-            file_stat = file_path.stat()
             upload_metadata = {
-                "original_filename": file_path.name,
+                "original_filename": name.name,
                 "file_type": file_type,
-                "file_size": file_stat.st_size,
+                "file_size": len(content),
                 "upload_timestamp": datetime.now().isoformat(),
                 "content_type": "text",
                 **(metadata or {}),
@@ -105,11 +139,11 @@ class FileUploadHandler:
             data_to_store = {
                 "metadata": upload_metadata,
                 "text_content": text_content,
-                "raw_content_b64": self._encode_content(file_content),
+                "raw_content_b64": self._encode_content(content),
             }
 
             # Store in vault (automatically encrypted)
-            storage_key = self._generate_storage_key(file_path)
+            storage_key = self._generate_storage_key(name)
             self.vault.store_data(storage_key, data_to_store, encrypt=True)
 
             return {
@@ -121,7 +155,7 @@ class FileUploadHandler:
             }
 
         except Exception as e:
-            raise IngestionError(f"Upload failed: {str(e)}")
+            raise IngestionError(f"Upload failed: {str(e)}") from e
 
     def handle_multiple_uploads(self, file_paths: List[str]) -> List[Dict[str, Any]]:
         """Handle multiple file uploads."""
@@ -133,27 +167,6 @@ class FileUploadHandler:
             except IngestionError as e:
                 results.append({"success": False, "error": str(e), "file_path": path})
         return results
-
-    def _extract_text(self, file_path: Path, file_type: str) -> str:
-        """Extract text content based on file type."""
-        try:
-            if file_type == "csv":
-                parser = CSVParser()
-                return parser.parse(file_path)
-            elif file_type == "pdf":
-                parser = PDFParser()
-                return parser.parse(file_path)
-            elif file_type == "docx":
-                parser = DOCXParser()
-                return parser.parse(file_path)
-            elif file_type == "health":
-                parser = HealthXMLParser()
-                return parser.parse(file_path)
-            else:
-                # Fallback: try to decode as text
-                return file_path.read_text(encoding="utf-8", errors="replace")
-        except Exception as e:
-            raise IngestionError(f"Text extraction failed for {file_type}: {str(e)}")
 
     def _generate_storage_key(self, file_path: Path) -> str:
         """Generate unique storage key for the file."""

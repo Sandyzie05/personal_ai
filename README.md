@@ -27,7 +27,7 @@ index has a documented plaintext-at-rest limitation.
 - 🗂️ Files page grouped into per-category folders (e.g. "Mobile / Phone"),
   with a re-categorize control for anything misclassified
 - 📊 Dashboard page with configurable widgets - document counts, spend by
-  category, spend over time, recent uploads - built from the same structured
+  category and spend over time - built from the same structured
   extraction data, not a RAG summary
 - 🖥️ Streamlit web UI: chat, upload, files, dashboard, and settings pages
 - Multi-agent platform: a Coordinator delegates to specialist agents in parallel, merges
@@ -47,6 +47,10 @@ index has a documented plaintext-at-rest limitation.
   report, events/news, drilldown and screens, optional parallel local
   specialist reviews, and explicitly saved encrypted forecasts/outcomes.
   Scores are heuristic, not calibrated probabilities or investment advice.
+
+UI uploads are parsed in memory before encrypted storage. DOCX extraction
+covers paragraphs/tables; XML extraction recognizes supported health-record
+types, not arbitrary XML. Scanned documents have no built-in OCR.
 
 ## Project structure
 
@@ -78,7 +82,7 @@ examples/              # CLI usage examples
 ## Agentic capstone direction
 
 The planned unified application combines document-backed personal assistance
-with requested-stock research from the companion `stock_predictor` project.
+with the requested-stock research already implemented under `src/forecaster/`.
 Its target architecture uses a bounded coordinator, separate private/public
 data boundaries, parallel forecast specialists, approved encrypted memory
 and leakage-aware outcome evaluation. Trading and payments are outside the
@@ -119,8 +123,9 @@ out of source control; do not enter them into forecast prompts.
 
 ## Requirements
 
-- macOS, Linux, or Windows
+- macOS or Linux; Windows requires adapting Unix-style setup/Makefile paths
 - Python 3.10+
+- Streamlit 1.62+ (the UI and headless regressions use current APIs)
 - An [oMLX](docs/ai_engine.md) server on `127.0.0.1:8000` with your chat and embedding models loaded
   (Ollama is optional legacy: set `PERSONAL_AI_OLLAMA_ENABLED=true`)
 
@@ -133,10 +138,11 @@ model-pull/Ollama checks only apply to the legacy Ollama path, so use
 ```bash
 git clone <repository-url>
 cd personal_ai
+export PERSONAL_AI_EMBED_ENGINE=ollama
 make setup   # or: python3 scripts/setup.py
 ```
 
-It's safe to re-run - every step is skipped if already satisfied. Add
+Re-running reuses the environment but still installs dependencies. Add
 `--skip-models` (e.g. `python3 scripts/setup.py --skip-models`) to skip the
 `ollama pull` step.
 
@@ -177,7 +183,7 @@ Other useful entry points:
 make setup           # One-command bootstrap (see Setup above); safe to re-run
 make demo            # CLI walkthrough: register/login, store data, RAG query
 make check-context   # Sanity-check model context-window assumptions (see below)
-make test            # Run the test suite
+make test            # Isolated offline regressions (temp HOME, no network except a synthetic loopback callback)
 make eval            # Offline agent-platform evals (must print Overall: PASS)
 make eval-rag        # Offline retrieval/grounding evals; baseline + deltas in evals/results/rag_latest.md
 make eval-live       # Opt-in: injection corpus against the real local model (needs oMLX running)
@@ -199,6 +205,12 @@ export PERSONAL_AI_OMLX_EMBED_MODEL=mlx-community/Qwen3-VL-Embedding-2B-8bit   #
 export OMLX_API_KEY=...                              # only if your server needs one
 export PERSONAL_AI_CONTEXT_WINDOW_TOKENS=8192        # must not exceed your chat model's real window
 ```
+
+Chat defaults to Ollama; embeddings default to oMLX. The Ollama-only
+example overrides that embedding default. Settings can select either
+backend independently; an oMLX setup also needs its configured server and
+models. Keep private inference endpoints local and trusted: binding the
+Streamlit UI to localhost does not constrain outbound model requests.
 
 Run `make check-context` after changing models to confirm the configured
 context window doesn't exceed what the server actually reports for that model -
