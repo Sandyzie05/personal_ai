@@ -68,7 +68,7 @@ def test_chat_page_renders_with_agent_selector(app):
     assert "Agent" in boxes, "the session-controls row must carry the agent selector"
     agent_box = boxes["Agent"]
     assert agent_box.value == "general", "General is the default agent"
-    assert len(agent_box.options) == 2, "General + the seeded Trader agent"
+    assert list(agent_box.options) == ["General", "Coordinator", "Expense & Records", "Forecaster", "Market", "Trader"], "General + built-ins (coordinator + specialists) + seeded Trader"
 
 
 def test_stale_agent_selection_resets_to_general(app):
@@ -188,3 +188,5 @@ def test_agents_page_tabs_all_render_without_network(app):
 
     captions = [str(c.value) for c in app.caption]
     assert any("Skills are plaintext instruction files" in c for c in captions)
+    assert any("Jobs run when the app is opened" in c for c in captions), "scheduled tab"
+    assert not app.exception

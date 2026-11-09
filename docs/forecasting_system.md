@@ -1,109 +1,67 @@
-# Personal AI Forecasting System
+# Forecasting system (`src/forecaster/`)
 
-## Purpose and Scope
+Research support for US stocks and ETFs: gather dated public evidence, freeze it, let independent specialists review it, and (only if you choose)
+save the forecast so it can be scored after its horizon. **It never trades and never promises returns.** Scores are uncalibrated heuristics.
 
-The forecasting system enables the Personal AI to research requested stock symbols, compare evidence-backed scenarios, and evaluate forecasts after their horizons have elapsed. It provides a structured approach to market research with explicit evidence collection and outcome tracking.
+## Flow
 
-Status (2026-10-19): requested-public-US-ticker research, optional parallel
-specialists and explicit encrypted forecast/outcome saves are implemented.
-General coordination and approved task memory are proposed separately in
-[agentic_system_design.md](agentic_system_design.md). Generic MCP agent
-permissions are not inherited by this workflow.
+```
+ticker ─► validate ─► providers (public, fixed routes) ─► EvidenceSnapshot (immutable, hashed)
+                                                              ├─► research prediction (heuristic, 5 / 21 sessions)
+                                                              └─► ToT thesis search (tot.py): ≤6 theses ─► rubric ─► scenario-diverse beam (3)
+                                                                    └─ only if not decisive: ScenarioSwarm critics (macro · valuation · event · downside,
+                                                                       parallel, one shared review) ─► re-score / prune ─► select or abstain
+      ─► thesis:<SYM> finding (uncertain when close, critic-less, or contradicting the heuristic)
+      ─► [optional, you approve] save forecast ─► evaluate after horizon
+```
+## Modules
 
-## Core Components
+| Module | Role |
+|---|---|
+| `providers.py` | `PublicDataProviders`: fixed allowlisted routes (Yahoo chart + news search, Alpha Vantage, FRED, SEC EDGAR), timeouts, size caps, retry only transient errors, queries containing personal identifiers are refused. Returns typed results with explicit `completed / partial / unavailable`. |
+| `models.py` | Immutable contracts (`ResearchRequest`, `EvidenceSnapshot`, `ResearchPrediction`, ...). |
+| `research.py` | `ResearchPredictionService`: parallel market/macro/filing fetch, scoring, `abstained`/`unsupported` states. |
+| `scenarios.py` | `ScenarioSwarmService`: 4 specialist reviews on the same frozen snapshot, bounded workers, deadline, model-call budget. |
+| `tot.py` | **Tree-of-Thought thesis search** ([reasoning_design.md](reasoning_design.md)): competing bull/base/bear theses per evidence family, deterministic rubric, beam with a diversity slot, specialist critics only when depth 1 is not decisive, pruning with recorded reasons, conservative tie-break, abstention. Coordinator path only for now; the Forecast page still shows the raw swarm verdict. |
+| `technical.py` | Deterministic indicators from closes (SMA/EMA/RSI/MACD/Bollinger, trend, support/resistance, volatility). ATR(14) and 20-bar volume ratio use `PriceBar.high/low/volume` (Yahoo/Alpha parsed; misaligned arrays dropped) and are reported as unavailable when absent. News failures carry their own `yahoo-news` SourceId. |
+| `recommend.py` | **Research lean** (bullish/neutral/bearish + confidence + risk) from technicals and evidence; ranking and diversified selection. Never buy/sell wording; `insufficient_evidence` when inputs are missing. |
+| `screens.py` | Period high/low, price-position (valuation proxy) and momentum screens over a bundled 50-name universe. States its window; no fundamentals. |
+| `news.py` | News search and "today" report; stories are untrusted data (sanitised, length-capped), conflicting signals are surfaced as disagreement, never netted. |
+| `outcomes.py`, `report.py` | Forecast records, outcome evaluation vs SPY, scoreboard, trend, CSV export (formula-injection safe), naive baselines, "insufficient sample" below 10. |
+| `health.py` | Per-provider status/latency/failure counts shown in the UI. |
+| `themes.py`, `events.py`, `filings.py`, `macro.py`, `source_registry.py`, `cache.py` | AI-infrastructure theme exposure, event extraction, SEC filing and FRED signals, source provenance, short-lived cache. |
 
-### Research Framework
-- Public-data adapters for financial research
-- Evidence collection with timestamped snapshots
-- Heuristic scoring and specialist roles
-- Parallel one-shot specialist reviews
+## Correctness rules
 
-### Forecast Process
-1. **Symbol Research**: Validate requested symbol, gather dated public evidence
-2. **Evidence Snapshot**: Freeze immutable public evidence packet for specialist review
-3. **Specialist Reviews**: Run parallel one-shot specialist reviews
-4. **Scenario Aggregation**: Combine reviews deterministically
-5. **Outcome Tracking**: Preview/approve an immutable forecast; explicitly
-   evaluate and separately approve saving an outcome after its horizon
+- **Point in time:** evidence is stamped and frozen; historical (`as_of`) research is unsupported rather than faked.
+- **No leakage:** an outcome counts only after its horizon elapsed and only if evaluated after the target close. Horizons 5 and 21 sessions are scored separately.
+- **Explicit uncertainty:** provider outage, abstention, stale data or specialist disagreement lowers confidence and is shown; it is never hidden.
+- **Metrics:** directional accuracy, return-estimate error, coverage/abstention rate, always-up and persistence baselines. Small samples report "insufficient sample".
 
-## Data Contracts and Ownership
+## Bounds and privacy
 
-### Key Data Types
-- **Research results**: Public evidence, provider failures and coverage
-- **Evidence snapshots**: Immutable public data packets
-- **Specialist reviews**: Role-based analysis with risk assessment
-- **Forecasts**: Symbol-specific predictions with horizons
-- **Outcomes**: Evaluated forecasts with actual results
+Local inference is capped app-wide at `PERSONAL_AI_INFERENCE_CONCURRENCY` in-flight requests (default 2), and specialists can use the smaller `PERSONAL_AI_OMLX_WORKER_MODEL` (see [ai_engine.md](ai_engine.md) "Memory budget"). Max 5 orchestration rounds, shared tool/model-call budgets, 45 s research and 60 s scenario deadlines, 4 specialist workers (`config.FORECAST_*`).
+Only tickers, topics and fixed parameters leave the machine; specialists run on the local model. Saved forecasts and outcomes live in the encrypted vault,
+and saving needs an explicit click bound to the exact content shown.
 
-Curated task memory and a shared coordinator run state are future contracts,
-not records currently produced by this page.
+## In the UI (Forecast page)
 
-### Trust Boundaries
-- Private execution boundary: Forecast UI and explicitly encrypted saved records
-- Public research boundary: Only validated public ticker/provider parameters;
-  no vault documents, holdings, account identifiers or chat history
-- Strict data validation for all external inputs
-- Immutable evidence for specialist review
+Section picker: **Research** (ticker research, local specialists, save and evaluate) · **Recommendations** (research leans) · **Validation** (scoreboard, CSV) ·
+**Events** (news and conflicts) · **Drilldown & System** (technicals, provider health) · **Screens**. Nothing is fetched on page load; each section runs on a button.
 
-## Forecast Evaluation
+## Known limits and stock_predictor port gaps (reviewed 2026-11-02)
 
-### Correctness Requirements
-- Leakage-safe historical evaluation requires point-in-time availability;
-  current adapters cannot reconstruct historical SEC/FRED data vintages
-- Normalized timestamps and caller-attested exchange-session sequences;
-  no independent official-calendar verification
-- Versioned snapshot definitions with explicit timing rules
-- Separate evaluation of 5- and 21-session horizons
+stock_predictor's FastAPI/SQLAlchemy/Redis layers were dropped on purpose. These are the gaps in the
+*reasoning* that was ported:
 
-### Performance Metrics
-- Directional accuracy comparison
-- Return-estimate error measurement
-- Coverage and abstention rates
-- Uncertainty and disagreement reporting
+| stock_predictor | Here | Gap | Disposition |
+|---|---|---|---|
+| `research_prediction.py` | `research.py` | 63-session horizon dropped; news score never fed in (`event_strength` is always 0, because headlines are untrusted text and stay UI-only); buy/sell labels, risk factors and signal breakdown dropped | Keep news out of scoring until it can enter as quarantined, templated sentiment counts (backlog B17); horizons stay 5/21 |
+| `scenario_swarm.py` | `scenarios.py` + `tot.py` | Original only critiqued one fixed direction, with nothing generated, compared or pruned | **Closed by ToT** (Week 4): specialists now act as critics over competing theses |
+| `recommendation_engine.py`, `market_intelligence.py` | `recommend.py`, `news.py` | Fundamental score, valuation bonus, idea ranking and swarm-adjusted ranking dropped; `technical_score` ignores the ATR/volume that `technical.py` computes | Backlog B18; ranking stays UI-only |
+| `stock_lists.py` | `screens.py` | Valuation from a price z-score, not P/E or P/B; "period" high/low, not all-time; fixed 50-name universe | Documented proxies; fundamentals need a new provider (B11 follow-up) |
+| `local_model_analysis.py` | none | Single-call thesis review not ported | Superseded by ToT critics |
+| `prediction_tracker.py` | `outcomes.py` | Nothing records forecasts or evaluates outcomes automatically; UI-only, explicit approval | Intentional (approval-gated persistence) |
 
-These are evaluation dimensions, not measured accuracy claims. Current
-scores are uncalibrated heuristics, not probabilities, profitability
-evidence or investment advice.
-
-## Implementation Design
-
-### Run Lifecycle
-1. Unlock the existing vault and open Forecast.
-2. Enter a public US ticker and choose 5-/21-trading-session horizons.
-3. For trackable forecasts, supply and attest a complete official session
-   sequence before **Research ticker**. Without it research is unscheduled.
-4. Review dated evidence, coverage and provider failures; optionally run
-   local specialists on the public snapshot.
-5. **Prepare forecast** previews the exact captured record; **Save forecast**
-   approves only that content and writes it encrypted, insert-once.
-6. Supply explicit source-attributed origin/target session closing prices
-   for symbol and benchmark, plus an aware evaluation timestamp.
-7. **Evaluate outcome** displays results; **Save outcome** is a separate
-   approval. Opening or evaluating records does not implicitly save them.
-
-Changed preview payloads invalidate approval. Missing session prices never
-fall back to the latest quote. There is no automatic calendar fetch,
-scheduled evaluator, live-news ingestion or historical backtest.
-
-### Bounded Reasoning
-- Parallel one-shot role reviews with finite model-call budget and limited
-  transport retry; not a five-round general coordinator
-- Research and specialist time budgets defined in `src/config.py`
-- Specialist deadlines stop waiting, but cannot forcibly terminate active
-  synchronous HTTP calls; transport timeouts are inactivity bounds
-- Invalid model evidence references are rejected; failures stay visible
-
-### Security Requirements
-- Research/scenario previews remain session-local until explicit Save
-- Saved forecasts/outcomes use the existing AuthManager DEK and internal
-  vault prefixes excluded from document retrieval
-- Public providers use fixed adapter operations, not arbitrary model URLs
-- Specialist inference is restricted to loopback endpoints, with redirects
-  and environment proxies disabled for this path
-- Explicit user approval for any persistence
-- No claim of unified audit coverage for every provider/model/tool call
-
-See [security_design.md](security_design.md) for precise endpoint, deadline
-and persistence boundaries, and
-[development_planning.md](development_planning.md) for the integrated build
-sequence.
+Coordinator workers consume only `research.py`, `tot.py`/`scenarios.py` and the technical lean.
+`recommend.rank_leans`, `screens` and `report` are Forecast-page features.

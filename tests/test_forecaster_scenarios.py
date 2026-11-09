@@ -140,6 +140,7 @@ def test_unbounded_zeroarg_factory_rejected_without_model_call():
 
 
 def test_remaining_budget_reaches_native_transport_and_stalled_workers_release_slots(monkeypatch):
+    monkeypatch.setattr("src.ai_engine.engine.OLLAMA_ENABLED", True)
     import httpx
     import ollama
 

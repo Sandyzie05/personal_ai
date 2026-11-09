@@ -50,4 +50,4 @@ htmlcov/
 .idea/
 
 # OS artifacts
-.DS_Store
+.DS_Storetest_data/

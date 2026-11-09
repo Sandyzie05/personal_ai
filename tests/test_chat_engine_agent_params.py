@@ -214,6 +214,5 @@ class TestRagScopeCategories:
         engine._build_prompt("what did I spend on my Chase credit card?", use_rag=True)
 
         assert engine.rag_engine.last_where == {
-            "category": "credit_card",
-            "provider": "Chase",
+            "$and": [{"category": "credit_card"}, {"provider": "Chase"}]
         }

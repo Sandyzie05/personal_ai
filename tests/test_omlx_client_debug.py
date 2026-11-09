@@ -10,8 +10,8 @@ def test_authenticated_connection_is_offline_and_does_not_print_key(monkeypatch,
     monkeypatch.setenv("OMLX_API_KEY", "synthetic-diagnostic-key")
     client = OmlxClient(host="http://127.0.0.1:8000", model="synthetic-model")
 
-    with patch(
-        "urllib.request.urlopen",
+    with patch.object(
+        client, "_open",
         return_value=io.BytesIO(b'{"data": [{"id": "synthetic-model"}]}'),
     ) as transport:
         assert client.check_connection()

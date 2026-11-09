@@ -2,9 +2,12 @@
 
 import asyncio
 import hashlib
+import importlib.util
 import json
+import sys
 from datetime import datetime, timezone
 from ipaddress import ip_address
+from pathlib import Path
 from urllib.parse import urlparse
 
 import streamlit as st
@@ -50,7 +53,7 @@ def _save_preview(vault, state_key: str, prefix: str, label: str):
 
 
 def _scenario_factory(vault):
-    from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
+    from src.ai_engine.engine import build_chat_client, client_kwargs_from_config, worker_client
     from src.config import (
         DEFAULT_OLLAMA_HOST, FORECAST_SCENARIO_DEADLINE_SECONDS,
         PERSONAL_AI_LLM_ENGINE, PERSONAL_AI_OMLX_HOST,
@@ -77,10 +80,10 @@ def _scenario_factory(vault):
     kwargs["host"] = host
 
     def factory(*, remaining_seconds=FORECAST_SCENARIO_DEADLINE_SECONDS):
-        return build_chat_client(
+        return worker_client(build_chat_client(
             **kwargs, request_timeout_seconds=remaining_seconds,
             safe_local_transport=True,
-        )
+        ))
 
     return factory
 
@@ -294,6 +297,17 @@ def _outcomes(vault):
             st.write("Saved outcome/status", saved["outcome"])
 
 
+def _tabs_module():
+    """Load sibling forecast_tabs by path (src.interface/__init__ pulls in the whole app)."""
+    name = "personal_ai_forecast_tabs"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name("forecast_tabs.py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
 def render_forecast_page(vault):
     st.header("Forecast")
     st.caption("Requested US ticker research · 5/21 trading sessions · no trading or scheduling.")
@@ -303,8 +317,15 @@ def render_forecast_page(vault):
         "a separate action using existing inference settings. Only Save forecast / Save outcome "
         "writes the displayed snapshot to the encrypted vault."
     )
+    tabs = _tabs_module()
+    section = st.segmented_control(
+        "Section", tabs.SECTIONS, default="Research", key="forecast_section"
+    ) or "Research"
     try:
-        _research(vault)
-        _outcomes(vault)
+        if section == "Research":
+            _research(vault)
+            _outcomes(vault)
+        else:
+            tabs.render_section(section, vault, SNAPSHOT_PREFIX, OUTCOME_PREFIX)
     except (DataVaultError, ValueError, TypeError):
         st.error("Forecast data unavailable. Nothing was automatically saved or modified.")

@@ -112,11 +112,16 @@ def indexed_engine(engine, monkeypatch):
     rows = {}
     collection = MagicMock()
 
-    def get(include=None):
+    def get(include=None, where=None, ids=None):
+        picked = {
+            key: row for key, row in rows.items()
+            if (ids is None or key in ids)
+            and (not where or all(row[1].get(k) == v for k, v in where.items()))
+        }
         return {
-            "ids": list(rows),
-            "documents": [row[0] for row in rows.values()],
-            "metadatas": [row[1] for row in rows.values()],
+            "ids": list(picked),
+            "documents": [row[0] for row in picked.values()],
+            "metadatas": [row[1] for row in picked.values()],
         }
 
     def add(ids, documents, metadatas, embeddings):
@@ -132,6 +137,9 @@ def indexed_engine(engine, monkeypatch):
         for chunk_id in ids:
             rows.pop(chunk_id)
 
+    def upsert(ids, documents, metadatas, embeddings):
+        rows.update(zip(ids, zip(documents, metadatas)))
+
     def query(n_results, where=None, **kwargs):
         matched = [
             row for row in rows.values()
@@ -143,8 +151,10 @@ def indexed_engine(engine, monkeypatch):
             "distances": [[0.0] * len(matched)],
         }
 
+    collection.metadata = {}
     collection.get.side_effect = get
     collection.add.side_effect = add
+    collection.upsert.side_effect = upsert
     collection.delete.side_effect = delete
     collection.query.side_effect = query
 
@@ -157,6 +167,7 @@ def indexed_engine(engine, monkeypatch):
         document_prefix="", query_prefix="",
     )
     engine._embedding_generator.generate_embedding.return_value = [1.0, 0.0]
+    engine._embedding_generator.generate_embeddings.side_effect = lambda texts, **_: [[1.0, 0.0] for _ in texts]
     return engine, collection, rows
 
 
@@ -196,7 +207,7 @@ def test_upload_replace_reclassify_delete_and_empty_rebuild(indexed_engine):
     assert len(rows) == 2
     assert rows["untouched-id"] == untouched
     assert engine.rag_engine.get_context_for_query("q", where={"category": "gas"}) == ""
-    context = engine.rag_engine.get_context_for_query("q", where={"category": "electricity"})
+    context = engine.rag_engine.get_context_for_query("synthetic text", where={"category": "electricity"})
     assert "current synthetic text" in context
     assert "old synthetic text" not in context
 
@@ -217,7 +228,8 @@ def test_one_hundred_upload_callbacks_embed_exactly_one_hundred_chunks(indexed_e
         engine.index_document(key, data)
 
     assert len(rows) == 100
-    assert engine._embedding_generator.generate_embedding.call_count == 100
+    embedded = engine._embedding_generator.generate_embeddings.call_args_list
+    assert sum(len(c.args[0]) for c in embedded) == 100
     assert collection.get.call_count == 1  # Only the first callback initializes the snapshot.
     collection.delete.assert_any_call(where={"storage_key": "synthetic-upload-99"})
 
@@ -238,8 +250,8 @@ def test_generic_agent_context_uses_saved_embedding_client_not_environment(engin
     from src.agents.runtime import _default_context_engine_factory
 
     engine.vault.store_data("ollama_config", {
-        "embed_engine": "ollama",
-        "embed_host": "http://synthetic.invalid:1234",
+        "embed_engine": "omlx",
+        "embed_host": "http://127.0.0.1:1234",
         "embed_model": "synthetic-saved-embedding",
     })
     configured_client = SimpleNamespace(model="synthetic-saved-embedding")
@@ -251,7 +263,7 @@ def test_generic_agent_context_uses_saved_embedding_client_not_environment(engin
         context.initialize_rag()
 
     build.assert_called_once_with(
-        engine="ollama", host="http://synthetic.invalid:1234",
+        engine="omlx", host="http://127.0.0.1:1234",
         model="synthetic-saved-embedding",
     )
     assert context._embedding_generator.client is configured_client
@@ -290,8 +302,10 @@ def test_embedding_dimension_switch_uses_independent_collections(
                 for chunk_id in ids or []:
                     rows.pop(chunk_id)
 
+            collection.metadata = {}
             collection.get.side_effect = get
             collection.add.side_effect = add
+            collection.upsert.side_effect = add
             collection.delete.side_effect = delete
             collections[store.collection_name] = (collection, model, rows)
         store.collection = collections[store.collection_name][0]
@@ -312,6 +326,7 @@ def test_embedding_dimension_switch_uses_independent_collections(
             ),
             document_prefix="", query_prefix="",
             generate_embedding=MagicMock(return_value=[1.0] * dimension),
+            generate_embeddings=MagicMock(side_effect=lambda texts, **_: [[1.0] * dimension for _ in texts]),
         )
 
     monkeypatch.setattr(ChromaStore, "_ensure_initialized", initialize)
@@ -348,7 +363,7 @@ def test_failed_rebuild_drops_queryable_engine_and_cannot_report_success(
     if failure == "clear":
         collection.delete.side_effect = RuntimeError("synthetic clear failure")
     elif failure == "embedding":
-        engine._embedding_generator.generate_embedding.side_effect = RuntimeError("synthetic embedding failure")
+        engine._embedding_generator.generate_embeddings.side_effect = RuntimeError("synthetic embedding failure")
     else:
         monkeypatch.setattr(engine.vault, "retrieve_data", MagicMock(side_effect=RuntimeError("synthetic read failure")))
 
@@ -368,7 +383,7 @@ def test_rebuild_action_calls_real_initializer_and_reports_only_its_result(
     engine, collection, rows = indexed_engine
     engine.vault.store_data("note", {"text_content": "synthetic text"})
     if fails:
-        collection.add.side_effect = RuntimeError("synthetic indexing failure")
+        collection.upsert.side_effect = RuntimeError("synthetic indexing failure")
     ui = MagicMock()
     monkeypatch.setattr(interface, "st", ui)
     app = interface.PersonalAIInterface()
@@ -431,7 +446,7 @@ def test_file_mutations_refresh_shared_index_before_success(
         if action == "recat_note":
             assert engine.vault.retrieve_data("note")["metadata"]["category"] == "electricity"
             assert "synthetic text" in observer.get_context_for_query(
-                "q", where={"category": "electricity"},
+                "synthetic text", where={"category": "electricity"},
             )
             assert len(rows) == 1
         else:
@@ -831,9 +846,9 @@ def test_build_prompt_scopes_rag_by_provider_when_no_structured_records(engine):
         "what did I spend on my Chase credit card?", use_rag=True
     )
 
+    # Chroma rejects a flat two-key filter (and RAGEngine swallowed that as "no results"): must be $and.
     assert engine.rag_engine.last_where == {
-        "category": "credit_card",
-        "provider": "Chase",
+        "$and": [{"category": "credit_card"}, {"provider": "Chase"}]
     }
     assert built["context_used"] == "chase card text"
 
@@ -948,3 +963,20 @@ def test_estimate_usage_accounts_for_pending_context(engine):
     with_context = engine.estimate_usage(history=[], pending_context="z" * 400)
 
     assert with_context["used_tokens"] > without_context["used_tokens"]
+
+
+def test_build_prompt_adds_period_filter_for_named_month(tmp_path):
+    engine = make_engine(tmp_path)
+    engine.rag_engine = FakeRagEngine(context="x")
+    engine._build_prompt("what was my electricity bill for March 2026?", use_rag=True)
+    assert engine.rag_engine.last_where == {"$and": [
+        {"category": "electricity"},
+        {"period_end_n": {"$gte": 20260301}}, {"period_start_n": {"$lte": 20260331}}]}
+
+
+def test_rag_metadata_carries_period_title_and_hash(engine):
+    meta = engine._rag_metadata_for("k", {"text_content": "hello", "metadata": {
+        "category": "gas", "provider": "P", "period_start": "2026-03-01", "period_end": "2026-03-31",
+        "original_filename": "f.pdf"}})
+    assert meta["period_start_n"] == 20260301 and meta["period_end_n"] == 20260331
+    assert meta["title"] == "f.pdf" and len(meta["content_hash"]) == 16

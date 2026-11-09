@@ -1,0 +1,15 @@
+{
+  "recall@5": 0.4453,
+  "mrr": 0.241,
+  "context_precision": 0.1134,
+  "context_has_answer": 0.0,
+  "abstention": 0.2857,
+  "false_abstain": 0.0,
+  "stale_in_context": 0.0,
+  "dup_in_context": 0.0,
+  "avg_retrieval_ms": 1.46,
+  "avg_context_chars": 444,
+  "index_embed_calls": 573,
+  "n_answerable": 67,
+  "n_absent": 14
+}

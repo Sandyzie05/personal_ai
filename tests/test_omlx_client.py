@@ -23,7 +23,8 @@ def test_chat_auth_header_matches_for_streaming_and_non_streaming(stream, api_ke
     if api_key:
         monkeypatch.setenv("OMLX_API_KEY", api_key)
     client = OmlxClient()
-    with patch("urllib.request.urlopen") as urlopen:
+    # Key-bearing requests go through the no-redirect/no-proxy opener (tested below), so patch the client seam.
+    with patch.object(client, "_open") as urlopen:
         response = urlopen.return_value.__enter__.return_value
         response.read.return_value = b'{"choices":[{"message":{"content":"synthetic"}}]}'
         response.__iter__.return_value = [
@@ -241,10 +242,7 @@ class TestOmlxClient(unittest.TestCase):
             self.client.pull_model("test-model")
 
     def test_model_supports_tools(self):
-        # oMLX currently doesn't support tools
-        self.assertFalse(self.client.model_supports_tools())
-        self.assertFalse(self.client.model_supports_tools("synthetic-other-model"))
-        self.assertFalse(self.client.model_supports_tools(model=None))
+        self.assertTrue(self.client.model_supports_tools("any"))
 
     def test_properties(self):
         self.assertEqual(self.client.host, "http://127.0.0.1:8000")
@@ -255,3 +253,56 @@ class TestOmlxClient(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_inflight_requests_never_exceed_the_app_wide_cap(stream, monkeypatch):
+    import io
+    import threading
+    import time
+    from src.ai_engine import omlx_client
+
+    monkeypatch.setattr(omlx_client, "_INFLIGHT", threading.BoundedSemaphore(2))
+    active, peak, lock = [0], [0], threading.Lock()
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            with lock:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            time.sleep(.05)
+            return self
+
+        def __exit__(self, *exc):
+            with lock:
+                active[0] -= 1
+
+    body = (b'data: {"choices":[{"delta":{"content":"x"}}]}\ndata: [DONE]\n' if stream
+            else b'{"choices":[{"message":{"content":"x"}}]}')
+
+    def call():
+        client = OmlxClient()
+        with patch.object(client, "_open", side_effect=lambda req: Response(body)):
+            result = client.chat([{"role": "user", "content": "synthetic"}], stream=stream)
+            if stream:
+                list(result)
+
+    threads = [threading.Thread(target=call) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert peak[0] == 2
+
+
+def test_busy_cap_fails_visibly_after_the_request_timeout(monkeypatch):
+    import threading
+    from src.ai_engine import omlx_client
+    from src.ai_engine.ollama_client import OllamaClientError
+
+    busy = threading.BoundedSemaphore(1)
+    busy.acquire()
+    monkeypatch.setattr(omlx_client, "_INFLIGHT", busy)
+    client = OmlxClient(request_timeout_seconds=.05)
+    with patch.object(client, "_open") as transport, pytest.raises(OllamaClientError, match="concurrency limit"):
+        client.chat([{"role": "user", "content": "synthetic"}])
+    transport.assert_not_called()

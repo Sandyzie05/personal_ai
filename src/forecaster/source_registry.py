@@ -9,6 +9,11 @@ _SOURCES = (
         caveats="Unofficial personal-research endpoint, not yfinance. USD US equities/ETFs only; no redistribution assurance.",
     ),
     DataSourceProfile(
+        source_id="yahoo-news", name="Yahoo Finance news search",
+        categories=("news",),
+        caveats="Unofficial search endpoint; headlines are untrusted text, rendered as plain text only.",
+    ),
+    DataSourceProfile(
         source_id="alpha-vantage", name="Alpha Vantage",
         categories=("market",),
         caveats="Key and daily-adjusted endpoint entitlement required. Constrained rate limits; verify provider terms.",
