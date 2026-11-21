@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:30:41+00:00",
+  "generated_at": "2026-11-21T18:42:15+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.41,
+      "measured": 0.4,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.675,
+      "measured": 0.669,
       "pass": true,
       "hard": false
     },
@@ -184,6 +184,20 @@
       "hard": true
     },
     {
+      "metric": "Core Memory recall: seeded facts retrieved in a later run (P5)",
+      "target": ">= 90%",
+      "measured": "9/9 (+1 forgotten, correctly absent)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Core Memory recall: superseded or forgotten facts returned; untrusted unlabelled",
+      "target": "0 / 0",
+      "measured": "0 / 0",
+      "pass": true,
+      "hard": true
+    },
+    {
       "metric": "Minimal disclosure: canary/PII in bus, log, egress; forced leaks passed",
       "target": "0",
       "measured": "0 (190 msgs, 190 log, 40 egress, 180 forced)",
@@ -214,13 +228,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.41,
+        "ratio": 0.4,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.675,
+        "ratio": 0.669,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3

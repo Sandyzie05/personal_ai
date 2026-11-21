@@ -697,8 +697,18 @@ def _render_memory_tab(vault: Any) -> None:
                 memory.reject(vault, item["id"])
                 st.rerun()
     st.subheader("Saved")
+    st.caption("Approved items are recalled into later Coordinator answers (a separate \"From your approved memory\" "
+               "section) and, for cash-flow baselines, the expense step. They never go to market, forecast, email or "
+               "portal agents. Forget deletes an item for good.")
     for item in memory.list_core(vault):
-        st.text(f"{item['key']}: {item['value']} (approved {item['approved_at'][:10]})")
+        text_col, forget_col = st.columns([5, 1])
+        text_col.text(f"{item['key']}: {item['value']} (approved {item['approved_at'][:10]})"
+                      + (" · untrusted-derived" if item.get("trust") == "untrusted" else ""))
+        if forget_col.button("Forget", key=f"forget_{item['id']}"):
+            sid = st.session_state.setdefault("_approval_session", uuid.uuid4().hex)
+            memory.forget(vault, item["id"], token=memory.issue_approval_token(sid, item["id"], "forget"),
+                          session_id=sid)
+            st.rerun()
 
 
 def _render_schedule_tab(vault: Any, run_due: Optional[Callable[[], List[str]]] = None) -> None:

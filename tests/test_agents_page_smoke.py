@@ -212,3 +212,19 @@ def test_forecast_workflow_agent_can_be_tweaked_and_reset(app):
     next(b for b in app.button if b.key == "agent_reset_builtin-critic-macro").click().run()
     assert not app.exception
     assert not store.get_agent(vault, "builtin-critic-macro")["tweaked"]
+
+
+def test_core_memory_forget_button_deletes_the_item(app):
+    from src.agents.orchestration import memory
+
+    app, home, dek = app
+    seed = DataVault(vault_path=str(home / ".personal_ai_vault"), encryption_key=dek)
+    pid = memory.propose(seed, "goal:monthly_savings", "500", proposer="test")
+    memory.approve(seed, pid, token=memory.issue_approval_token("t", pid), session_id="t")
+    del seed
+    _go_to_agents_page(app)
+    assert any("never go to market" in str(c.value) for c in app.caption)
+    next(b for b in app.button if b.label == "Forget").click().run()
+    assert not app.exception
+    check = DataVault(vault_path=str(home / ".personal_ai_vault"), encryption_key=dek)
+    assert memory.list_core(check, include_superseded=True) == []

@@ -103,7 +103,25 @@ def _months(ex: Dict[str, Any]) -> set:
     return out
 
 
-def expense_worker(get_records: Callable[[], Sequence[Dict[str, Any]]]) -> Worker:
+def _baselines(get_memory: Optional[Callable[[], Sequence[Any]]]) -> List[Finding]:
+    """P5: approved, trusted Core Memory cash-flow facts as an optional baseline (never sent on a bus edge, S18)."""
+    out: List[Finding] = []
+    for fact in (get_memory() if get_memory else ()):
+        if fact.trust != "trusted" or not fact.key.startswith(("cashflow_delta:", "budget_baseline:")):
+            continue
+        try:
+            value = round(float(str(fact.value).replace("$", "").replace(",", "")), 2)
+        except ValueError:
+            continue
+        period = fact.key.split(":", 1)[1][:20]
+        out.append(Finding(agent="expense", claim_key=f"budget_baseline:{period}", value=value,
+                           summary="Approved baseline from your Core Memory", evidence_ids=(f"memory:{fact.key[:60]}",),
+                           confidence=0.9))
+    return out
+
+
+def expense_worker(get_records: Callable[[], Sequence[Dict[str, Any]]],
+                   get_memory: Optional[Callable[[], Sequence[Any]]] = None) -> Worker:
     """Deterministic aggregation over structured vault records (no LLM arithmetic).
 
     Filters by the step's category, skips superseded documents, counts each (provider, period) once,
@@ -116,7 +134,7 @@ def expense_worker(get_records: Callable[[], Sequence[Dict[str, Any]]]) -> Worke
             records = [r for r in records if (r.get("metadata") or {}).get("category") in (None, step.category)]
         if not records:
             return [Finding(agent="expense", claim_key="records", summary="No structured statements found.",
-                            confidence=0, status="unavailable")]
+                            confidence=0, status="unavailable")] + _baselines(get_memory)
         cats = {(r.get("metadata") or {}).get("category") for r in records} - {None}
         out: List[Finding] = []
         per_quarter: Dict[str, float] = {}
@@ -164,7 +182,7 @@ def expense_worker(get_records: Callable[[], Sequence[Dict[str, Any]]]) -> Worke
         else:
             out.append(Finding(agent="expense", claim_key="cashflow_delta", summary="Need two quarters of statements.",
                                confidence=0, status="uncertain"))
-        return out
+        return out + _baselines(get_memory)
     return run
 
 
@@ -292,6 +310,11 @@ def render_report(report) -> str:
     if report.escalations:
         lines.append("\n**Needs your decision:**")
         lines += [f"- {e.kind}: {_md(e.detail)}" for e in report.escalations]
+    facts = getattr(report, "memory", None) or []
+    if facts:  # P5: separate section; approved by you, but still labelled when derived from untrusted content
+        lines.append("\n**From your approved memory:**")
+        lines += [f"- {_md(m.key)}: {_md(m.value)}" + (" (untrusted-derived)" if m.trust == "untrusted" else "")
+                  for m in facts]
     lines.append("\n_Research support only; not financial advice._")
     return "\n".join(lines)
 

@@ -55,8 +55,11 @@ def build_coordinator(vault: Any, get_records: Callable[[], Sequence[Dict[str, A
 
     # Critic agents (tweakable in the Agents tab) are read here, on the calling thread, like the records.
     swarm = ScenarioSwarmService(scenario_factory, agents=critic_agents(vault)) if scenario_factory else None
+    # P5: recalled Core Memory facts are set per query in run_query (calling thread) and read by the expense step
+    # only; no bus edge carries them (S18).
+    memory_box: Dict[str, list] = {"facts": []}
     workers = {
-        "expense": expense_worker(lambda: snapshot),
+        "expense": expense_worker(lambda: snapshot, lambda: memory_box["facts"]),
         "forecaster": forecaster_worker(ResearchPredictionService(providers=providers), swarm),
         "market": market_worker(providers, bus),
         **(extra_workers or {}),
@@ -83,6 +86,7 @@ def build_coordinator(vault: Any, get_records: Callable[[], Sequence[Dict[str, A
     coordinator = Coordinator(workers, deadline_s=FORECAST_STEP_TIMEOUT_SECONDS + 30)  # forecaster + one dependent wave
     coordinator.bus, coordinator.audit_vault = bus, vault
     coordinator.prefetch, coordinator.fetched = prefetch, fetched
+    coordinator.memory_box = memory_box
     coordinator.evidence = records_evidence(snapshot)
     coordinator.verifier_client = quarantine_client
     return coordinator
@@ -123,10 +127,16 @@ def run_query(coordinator: Coordinator, query: str, only: Optional[str] = None,
                 fetched[step.agent] = prefetch[step.agent]()  # calling thread: vault/OAuth access is safe here
             except Exception as exc:
                 fetched[step.agent] = exc
+    vault = getattr(coordinator, "audit_vault", None)
+    box = getattr(coordinator, "memory_box", None)
+    facts = memory.recall(vault, query) if vault is not None and box is not None else []
+    if box is not None:
+        box["facts"] = facts  # read on this thread; workers only see this immutable list
     report = coordinator.run(plan)
+    report.memory = facts
     if getattr(coordinator, "evidence", None):  # verifier may only add escalations, never clear one
         report.escalations.extend(verify_claims(report.claims, coordinator.evidence, getattr(coordinator, "verifier_client", None)))
-    bus, vault = getattr(coordinator, "bus", None), getattr(coordinator, "audit_vault", None)
+    bus = getattr(coordinator, "bus", None)
     if vault is not None:  # audit from the calling thread, never a worker thread
         for entry in (bus.delivered if bus is not None else []):
             store.log_activity(vault, entry)
