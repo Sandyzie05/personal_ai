@@ -727,6 +727,10 @@ def _render_probe(r: Optional[Dict[str, Any]]) -> None:
         st.error(f"Read call {r['probe_tool']} failed: {r.get('probe_reason', 'other')} (server text not shown)."
                  + (" Check the scope in OAuth client and that the Gmail API + Gmail MCP API are enabled."
                     if r.get("probe_reason") in ("permission / scope", "API not enabled") else ""))
+        if r.get("probe_detail") and st.toggle("Show server error", key=f"probe_detail_{r['probe_tool']}",
+                                                help="Google's own message, as plain text on your screen only "
+                                                "(never sent to a model, logged or stored)."):
+            st.code(r["probe_detail"], language=None)
 
 
 def _render_mcp_tab(vault: Any) -> None:
