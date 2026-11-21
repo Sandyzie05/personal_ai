@@ -41,7 +41,8 @@ re-derive that context by re-reading every file - it's already written down.
 
 ## Agent platform (read `docs/platform_plan.md` for the rules and `docs/roadmap.md` for the work)
 
-Remaining work is planned only in `docs/roadmap.md`: pick the next card in its §2 order and follow its Accept line.
+Remaining work is planned only in `docs/roadmap.md`. **New session? Read its §00 "Start here" first** (current state, what the
+user is running, which card is next). Then follow that card's Accept line.
 When a card is done, update the progress diagram (`docs/roadmap.md` §0) **and** the Miro "0 Progress journey" frame in the same change.
 
 Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforced in code AND tested):

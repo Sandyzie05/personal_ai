@@ -20,7 +20,7 @@ Outside `docs/`: `../README.md` (setup), `../AGENTS.md` (repo rules for coding a
 
 ## Reading order
 
-1. **New to the project:** architecture → platform_plan §0-§2 → roadmap §1-§3.
+1. **New session / new to the project:** roadmap §00 (start here) → architecture → platform_plan §0-§2 → roadmap §1-§3.
 2. **Picking up a card:** `AGENTS.md` → roadmap §3 (conventions) → the card → the design doc it names.
 3. **Fixing answer quality:** rag_design §3 → ai_engine → user_testing_guide Part A.
 4. **Reviewing safety:** security_design → platform_plan §2 (invariants) → roadmap P4.

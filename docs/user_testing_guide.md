@@ -10,8 +10,8 @@ so you record what actually happens instead of assuming. Use the results table a
 
 1. **Use a throwaway vault** so test data never touches your real one:
    ```bash
+   cd ~/RandomIdeasWithAI/personal_ai   # your clone (cd BEFORE changing HOME, or ~ points at the throwaway dir)
    export HOME=/tmp/pa_test_home && mkdir -p $HOME
-   cd ~/RandomIdeasWithAI/personal_ai   # your clone
    ```
 2. **Generate the synthetic bills** (9 PDFs, fictional providers):
    ```bash
@@ -20,6 +20,10 @@ so you record what actually happens instead of assuming. Use the results table a
 3. **Start oMLX** with your chat model and the embedding model loaded, then (if it needs a key) `export OMLX_API_KEY=...` in the same shell.
 4. **Run the app:** `make run`, open the localhost URL, **register** a throwaway password.
 5. **Sanity check:** Settings should show engine **oMLX** and host `http://127.0.0.1:8000`. Use the *Test connection* button if present.
+6. **After every `git pull`:** `venv/bin/pip install -U -r requirements.txt`, then `venv/bin/pip check`.
+   Known harmless leftovers: `fastapi ... requires starlette<0.49` means an old `fastapi` from a previous project is still in
+   the venv (personal_ai does not use it): `venv/bin/pip uninstall -y fastapi`. Never downgrade `starlette` (Streamlit and MCP
+   need the new one). `pyarrow requires NumPy 2.0` means the install step was skipped (`numpy>=2.0` is required).
 
 Test data (all fictional):
 

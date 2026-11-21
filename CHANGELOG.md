@@ -4,6 +4,12 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - docs: session handoff
+
+- `roadmap.md` §00 "Start here": state after PR #25, what the user runs next on the model laptop, a decision table for the next
+  card by state-report result, the opencode prompt, and working conventions. F7 rewritten as an executable card (news analyst
+  behind quarantine). `user_testing_guide.md` §0: fixed `cd`/`HOME` order; post-pull install + known pip warnings.
+
 ## (pending) - 2026-11-21 - feat: Track F - Forecast overhaul on configurable workflow agents
 
 - F1 critics: the model no longer has to echo snapshot/role/scenario/source ids (code fills them; a contradicting echo is still
