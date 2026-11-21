@@ -5,6 +5,7 @@ explicit `unavailable`/`uncertain` Finding rather than raising or guessing.
 """
 
 import asyncio
+import calendar
 import re
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -303,6 +304,9 @@ def expense_worker(
             records = [
                 r for r in records if _account(r) in (None, step.account.lower())
             ]
+        missing = _missing(
+            get_overdue() if get_overdue else (), all_records, step.category
+        )
         if not records:
             return [
                 Finding(
@@ -312,7 +316,7 @@ def expense_worker(
                     confidence=0,
                     status="unavailable",
                 )
-            ]
+            ] + missing
         cats = {(r.get("metadata") or {}).get("category") for r in records} - {None}
         out: List[Finding] = []
         per_quarter: Dict[str, float] = {}
@@ -392,6 +396,22 @@ def expense_worker(
                     ("conflicting records", conflicted & set(qs[-2:])),
                     ("partial quarter " + ",".join(partial), partial),
                     (
+                        "missing statement "
+                        + ",".join(
+                            sorted(
+                                {
+                                    f.claim_key.split(":")[1]
+                                    for f in missing
+                                    if _quarter(f.claim_key.split(":")[2]) in qs[-2:]
+                                }
+                            )
+                        ),
+                        any(
+                            _quarter(f.claim_key.split(":")[2]) in qs[-2:]
+                            for f in missing
+                        ),
+                    ),
+                    (
                         "mixed categories; ask per category",
                         len(cats) > 1 and not step.category,
                     ),
@@ -420,9 +440,54 @@ def expense_worker(
                     status="uncertain",
                 )
             )
-        return out
+        return out + missing
 
     return run
+
+
+def _next_period_end(last: date, cadence: str) -> date:
+    months = 3 if cadence == "quarterly" else 1
+    y, m = (
+        last.year + (last.month - 1 + months) // 12,
+        (last.month - 1 + months) % 12 + 1,
+    )
+    return date(y, m, calendar.monthrange(y, m)[1])
+
+
+def _missing(
+    overdue: Sequence[Dict[str, Any]],
+    records: Sequence[Dict[str, Any]],
+    category: Optional[str],
+) -> List[Finding]:
+    """P12: each overdue ledger entry -> `missing:<provider>:<period_end>` (unavailable, no value). Never a guess.
+    A provider whose records belong to another category than the one asked is skipped."""
+    cats: Dict[str, set] = {}
+    for r in records:
+        cats.setdefault(
+            _label((r.get("metadata") or {}).get("provider") or "unknown"), set()
+        ).add((r.get("metadata") or {}).get("category"))
+    out = []
+    for o in overdue:
+        prov = _label(o.get("provider") or "unknown")
+        if category and cats.get(prov, set()) - {None} and category not in cats[prov]:
+            continue
+        try:
+            end = _next_period_end(
+                date.fromisoformat(str(o["last_period_end"])[:10]),
+                o.get("cadence") or "monthly",
+            ).isoformat()
+        except (KeyError, TypeError, ValueError):
+            end = "unknown"
+        out.append(
+            Finding(
+                agent="expense",
+                claim_key=f"missing:{prov}:{end}",
+                status="unavailable",
+                confidence=0,
+                summary=f"No {prov} statement on file for the period ending {end}; the ledger expects one",
+            )
+        )
+    return out
 
 
 def forecaster_worker(research, swarm=None) -> Worker:

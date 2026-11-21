@@ -78,3 +78,68 @@ def test_ambiguous_question_gets_one_clarifying_question_then_replans(chat):
         "coord_clarify" not in chat.session_state
     )  # answered: the combined question was planned
     assert "bill:Northwind Gas:2026-09-30" in _said(chat).replace("\\", "")
+
+
+def _vault(at):
+    from src.data_vault import DataVault
+
+    return DataVault(
+        vault_path=str(Path.home() / ".personal_ai_vault"),
+        encryption_key=at.session_state["vault_key"],
+    )
+
+
+def _log(at):
+    from src.agents import store
+
+    return [e for e in store.list_activity(_vault(at), 50) if e.get("kind") == "review"]
+
+
+def test_missing_statement_offers_sync_now_and_never_fetches(chat):
+    _send(chat, "Show my gas bills and spending.")
+    flags = chat.session_state["coord_last"]["escalations"]
+    assert {
+        "kind": "missing_statement",
+        "claim_key": "missing:Contoso Power:2026-09-30",
+    } in flags
+    sync = [b for b in chat.button if b.label == "Sync now"]
+    assert sync, "a missing statement must offer Sync now"
+    sync[0].click().run()
+    assert (
+        not chat.exception and chat.session_state["nav_page"] == "upload"
+    )  # opens the Sync panel, fetches nothing
+
+
+def test_review_buttons_log_decisions_without_values(chat):
+    _send(chat, "Show my gas bills and spending.")
+    next(b for b in chat.button if b.label == "Accept").click().run()
+    next(b for b in chat.button if b.label == "Dismiss").click().run()
+    assert not chat.exception
+    entries = _log(chat)
+    assert {e["decision"] for e in entries} == {"accept", "dismiss"}
+    assert all(
+        set(e) <= {"ts", "kind", "run_id", "escalation_kind", "claim_key", "decision"}
+        for e in entries
+    )
+    assert not any(
+        "45.0" in str(list(e.values())) or "30.0" in str(list(e.values()))
+        for e in entries
+    )
+
+
+def test_correct_becomes_a_core_memory_proposal_not_a_commit(chat):
+    from src.agents.orchestration import memory
+
+    _send(chat, "Show my gas bills and spending.")
+    next(t for t in chat.toggle if t.label == "Correct").set_value(True).run()
+    next(t for t in chat.text_input if t.label == "Correct value").set_value(
+        "41.50"
+    ).run()
+    next(b for b in chat.button if b.label == "Propose correction").click().run()
+    assert not chat.exception
+    assert memory.list_core(_vault(chat)) == []
+    assert any(
+        p["key"].startswith("correction:") and p["value"] == "41.50"
+        for p in memory.list_pending(_vault(chat))
+    )
+    assert [e["decision"] for e in _log(chat)] == ["correct"]

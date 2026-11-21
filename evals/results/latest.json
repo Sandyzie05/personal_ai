@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:50:13+00:00",
+  "generated_at": "2026-11-21T18:54:32+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.403,
+      "measured": 0.411,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.663,
+      "measured": 0.672,
       "pass": true,
       "hard": false
     },
@@ -186,16 +186,23 @@
     {
       "metric": "Stress set: action + figures correct (coordinated)",
       "target": "100% of non-pending",
-      "measured": "100% (52/52; 0 pending)",
+      "measured": "100% (56/56; 0 pending)",
       "pass": true,
       "hard": true
     },
     {
       "metric": "Stress set, B1 single-agent baseline",
       "target": "info",
-      "measured": "30/52",
+      "measured": "34/56",
       "pass": true,
       "hard": false
+    },
+    {
+      "metric": "Missing statements reported, never invented",
+      "target": "100%",
+      "measured": "100% (3/3)",
+      "pass": true,
+      "hard": true
     },
     {
       "metric": "Evidence relevance: wrong-record citations caught",
@@ -207,7 +214,7 @@
     {
       "metric": "Planner chose the expected specialists (golden + stress)",
       "target": ">= 90%",
-      "measured": "100% (72/72)",
+      "measured": "100% (76/76)",
       "pass": true,
       "hard": true
     },
@@ -242,13 +249,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.403,
+        "ratio": 0.411,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.663,
+        "ratio": 0.672,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3
@@ -294,8 +301,8 @@
         12
       ],
       "incomplete": [
-        9,
-        9
+        13,
+        13
       ],
       "stale": [
         8,

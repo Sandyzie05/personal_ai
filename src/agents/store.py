@@ -135,17 +135,27 @@ def builtin_agent(vault: Any, agent_id: str) -> Optional[Dict[str, Any]]:
     """Template + the user's tweaks (EDITABLE_FIELDS only). Role rules and _COMMON are never overridable."""
     import copy
 
-    from src.agents.orchestration.templates import BUILTIN_AGENTS, EDITABLE_FIELDS, compose_instructions
+    from src.agents.orchestration.templates import (
+        BUILTIN_AGENTS,
+        EDITABLE_FIELDS,
+        compose_instructions,
+    )
 
     found = BUILTIN_AGENTS.get(agent_id)
     if not found:
         return None
     agent = copy.deepcopy(found)
-    tweak = {k: v for k, v in (_overrides(vault).get(agent_id) or {}).items() if k in EDITABLE_FIELDS}
+    tweak = {
+        k: v
+        for k, v in (_overrides(vault).get(agent_id) or {}).items()
+        if k in EDITABLE_FIELDS
+    }
     if agent.get("max_tool_rounds", 0) == 0:
         tweak.pop("mcp_server_ids", None)  # a tool-less role stays tool-less
     agent.update(tweak)
-    agent["instructions"] = compose_instructions(agent["role_rules"], agent.get("extra_instructions", ""))
+    agent["instructions"] = compose_instructions(
+        agent["role_rules"], agent.get("extra_instructions", "")
+    )
     agent["tweaked"] = bool(tweak)
     return agent
 
@@ -172,7 +182,11 @@ def _update_builtin(vault: Any, agent_id: str, agent: Dict[str, Any]) -> bool:
     template = BUILTIN_AGENTS.get(agent_id)
     if not template:
         return False
-    tweak = {k: agent[k] for k in EDITABLE_FIELDS if k in agent and agent[k] != template.get(k)}
+    tweak = {
+        k: agent[k]
+        for k in EDITABLE_FIELDS
+        if k in agent and agent[k] != template.get(k)
+    }
     data = _load(vault, OVERRIDES_KEY, {"overrides": {}})
     data.setdefault("overrides", {})
     if tweak:
@@ -263,9 +277,7 @@ def save_mcp_server(vault: Any, server: Dict[str, Any]) -> str:
     return server["id"]
 
 
-def update_mcp_server_status(
-    vault: Any, server_id: str, **fields: Any
-) -> bool:
+def update_mcp_server_status(vault: Any, server_id: str, **fields: Any) -> bool:
     """Patch volatile connection fields (last_status, last_error, ...)."""
     index = _index(vault, MCP_SERVERS_KEY, "servers")
     for stored in index["servers"]:
@@ -287,7 +299,9 @@ def delete_mcp_server(vault: Any, server_id: str) -> bool:
     return True
 
 
-def log_activity(vault: Any, entry: Dict[str, Any], max_entries: int = AGENT_ACTIVITY_MAX_ENTRIES) -> None:
+def log_activity(
+    vault: Any, entry: Dict[str, Any], max_entries: int = AGENT_ACTIVITY_MAX_ENTRIES
+) -> None:
     """Append one activity entry, dropping the oldest beyond the cap.
     Failures are swallowed on purpose: an audit log must never break the
     chat turn that produced it."""
@@ -299,6 +313,28 @@ def log_activity(vault: Any, entry: Dict[str, Any], max_entries: int = AGENT_ACT
         _save(vault, ACTIVITY_LOG_KEY, index)
     except Exception:
         pass
+
+
+REVIEW_DECISIONS = ("accept", "correct", "dismiss")
+
+
+def log_review(
+    vault: Any, run_id: str, escalation_kind: str, claim_key: str, decision: str
+) -> None:
+    """P6 reviewer decision on one coordinator escalation. Ids, kinds and the decision only: never a claim value or
+    the user's correction text (a correction goes to Core Memory as a *proposal*, separately)."""
+    if decision not in REVIEW_DECISIONS:
+        raise ValueError("decision must be accept, correct or dismiss")
+    log_activity(
+        vault,
+        {
+            "kind": "review",
+            "run_id": str(run_id)[:24],
+            "escalation_kind": str(escalation_kind)[:24],
+            "claim_key": str(claim_key)[:80],
+            "decision": decision,
+        },
+    )
 
 
 def list_activity(vault: Any, limit: int = 100) -> List[Dict[str, Any]]:

@@ -38,15 +38,21 @@ class IngestReport:
     needs_you: List[str] = field(default_factory=list)
 
     def summary(self) -> str:
-        parts = [f"{len(self.new)} new" + (f" ({', '.join(self.new)})" if self.new else "")]
+        parts = [
+            f"{len(self.new)} new" + (f" ({', '.join(self.new)})" if self.new else "")
+        ]
         if self.duplicates:
             parts.append(f"{self.duplicates} duplicate skipped")
         if self.superseded:
-            parts.append(f"{len(self.superseded)} corrected bill(s) superseded an older copy")
+            parts.append(
+                f"{len(self.superseded)} corrected bill(s) superseded an older copy"
+            )
         if self.failed:
             parts.append(f"{len(self.failed)} failed ({'; '.join(self.failed)})")
         if self.needs_you:
-            parts.append(f"{len(self.needs_you)} need you ({'; '.join(self.needs_you)})")
+            parts.append(
+                f"{len(self.needs_you)} need you ({'; '.join(self.needs_you)})"
+            )
         return ", ".join(parts)
 
 
@@ -81,21 +87,52 @@ def ingest_candidate(
     key = f"ingest_{sha[:16]}"
     meta = {
         "original_filename": f"{sha[:16]}.pdf",  # never the remote filename
-        "file_type": "pdf", "file_size": len(c.data), "content_type": "text",
-        "upload_timestamp": datetime.now().isoformat(), "source": c.source,
-        **{k: v for k, v in (("provider", c.provider), ("category", c.category),
-                              ("period_start", c.period_start), ("period_end", c.period_end)) if v},
+        "file_type": "pdf",
+        "file_size": len(c.data),
+        "content_type": "text",
+        "upload_timestamp": datetime.now().isoformat(),
+        "source": c.source,
+        **{
+            k: v
+            for k, v in (
+                ("provider", c.provider),
+                ("category", c.category),
+                ("period_start", c.period_start),
+                ("period_end", c.period_end),
+            )
+            if v
+        },
     }
-    vault.store_data(key, {"metadata": meta, "text_content": "",
-                           "raw_content_b64": base64.b64encode(c.data).decode()}, encrypt=True)
-    rec = {"sha256": sha, "source": c.source, "source_ref": c.source_ref[:80], "provider": c.provider,
-           "category": c.category, "period_start": c.period_start, "period_end": c.period_end,
-           "fetched_at": datetime.now().isoformat(), "status": "new", "storage_key": key}
+    vault.store_data(
+        key,
+        {
+            "metadata": meta,
+            "text_content": "",
+            "raw_content_b64": base64.b64encode(c.data).decode(),
+        },
+        encrypt=True,
+    )
+    rec = {
+        "sha256": sha,
+        "source": c.source,
+        "source_ref": c.source_ref[:80],
+        "provider": c.provider,
+        "category": c.category,
+        "period_start": c.period_start,
+        "period_end": c.period_end,
+        "fetched_at": datetime.now().isoformat(),
+        "status": "new",
+        "storage_key": key,
+    }
     try:
         text = pdf_text(c.data)
         if not text:
             raise ValueError("no text layer")
-        data = {"metadata": meta, "text_content": text, "raw_content_b64": base64.b64encode(c.data).decode()}
+        data = {
+            "metadata": meta,
+            "text_content": text,
+            "raw_content_b64": base64.b64encode(c.data).decode(),
+        }
         vault.store_data(key, data, encrypt=True)
         if verify is not None and not verify(key, data):
             raise ValueError("verification failed")
@@ -109,10 +146,16 @@ def ingest_candidate(
         _save(vault, docs)
         r.failed.append(f"{label}: {rec['error']}")
         return "failed"
-    if c.provider and c.period_end:  # corrected bill: same provider+period, different hash
+    if (
+        c.provider and c.period_end
+    ):  # corrected bill: same provider+period, different hash
         for old_sha, old in docs.items():
-            if (old_sha != sha and old["status"] == "indexed" and old.get("provider") == c.provider
-                    and old.get("period_end") == c.period_end):
+            if (
+                old_sha != sha
+                and old["status"] == "indexed"
+                and old.get("provider") == c.provider
+                and old.get("period_end") == c.period_end
+            ):
                 old["status"] = "superseded"
                 r.superseded.append(label)
                 if on_superseded:
@@ -126,8 +169,11 @@ def ingest_candidate(
 def run_ingest(
     vault,
     fetchers: Iterable[Callable[[], Iterable[Candidate]]],
-    on_indexed=None, on_superseded=None, verify=None,
-    max_files: int = MAX_FILES_PER_RUN, max_seconds: int = MAX_RUN_SECONDS,
+    on_indexed=None,
+    on_superseded=None,
+    verify=None,
+    max_files: int = MAX_FILES_PER_RUN,
+    max_seconds: int = MAX_RUN_SECONDS,
 ) -> IngestReport:
     """Headless entry point (also used by the Sync panel). A fetcher raising never aborts the others."""
     r, n, t0 = IngestReport(), 0, time.monotonic()
@@ -147,6 +193,7 @@ def run_ingest(
 
 
 # ---- expected-bills ledger -------------------------------------------------
+
 
 def set_expectation(vault, provider: str, cadence: str) -> None:
     if cadence not in CADENCE_DAYS:
@@ -170,8 +217,14 @@ def overdue(vault, today: Optional[date] = None) -> List[Dict[str, Any]]:
         last = latest.get(p)
         late = (today - last).days - CADENCE_DAYS[cad] if last else None
         if last is None or late > 0:
-            out.append({"provider": p, "last_period_end": last.isoformat() if last else None,
-                        "days_overdue": late})
+            out.append(
+                {
+                    "provider": p,
+                    "last_period_end": last.isoformat() if last else None,
+                    "days_overdue": late,
+                    "cadence": cad,
+                }
+            )
     return out
 
 

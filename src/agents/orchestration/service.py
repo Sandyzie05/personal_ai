@@ -46,6 +46,16 @@ def _canaries(records: Sequence[Dict[str, Any]]) -> List[str]:
     return sorted(out)
 
 
+def _overdue(vault: Any) -> List[Dict[str, Any]]:
+    """Expected-but-missing bills from the ingest ledger; a vault without a ledger simply has none."""
+    try:
+        from src.data_ingestion.pipeline import overdue
+
+        return list(overdue(vault)) if vault is not None else []
+    except Exception:
+        return []
+
+
 def find_server(vault: Any, pattern: str) -> Optional[str]:
     """Id of the first enabled MCP server whose name matches (the user binds Gmail/brokerage in Agents -> MCP Servers)."""
     import re
@@ -77,6 +87,9 @@ def build_coordinator(
     # Vault (sqlite) is single-threaded: read on THIS thread, hand workers an immutable snapshot, and
     # write audit entries from this thread after the run (see run_query).
     snapshot = list(get_records())
+    overdue = _overdue(
+        vault
+    )  # P12: ledger read here too (S15); workers get the immutable list
     bus = MessageBus(None, canaries=_canaries(snapshot))
     providers = PublicDataProviders()
     from src.agents.slots import critic_agents
@@ -88,7 +101,7 @@ def build_coordinator(
         else None
     )
     workers = {
-        "expense": expense_worker(lambda: snapshot),
+        "expense": expense_worker(lambda: snapshot, lambda: overdue),
         "forecaster": forecaster_worker(
             ResearchPredictionService(providers=providers), swarm
         ),

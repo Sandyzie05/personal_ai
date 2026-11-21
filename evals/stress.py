@@ -370,6 +370,71 @@ def _build() -> List[StressCase]:
     two_providers = [
         t for t in records if len({r["metadata"]["provider"] for r in t.records}) > 1
     ]
+
+    # incomplete + ledger (P12): the second provider's Q3 statement never arrived. With a ledger entry the system must
+    # report it missing and not state a confident Q3 total; without one it cannot know (answer, unchanged behaviour).
+    for t in two_providers[:3]:
+        late = sorted({r["metadata"]["provider"] for r in t.records})[
+            -1
+        ]  # the second ("...B") provider
+        recs = tuple(
+            r
+            for r in t.records
+            if not (
+                r["metadata"]["provider"] == late
+                and r["extraction"]["period_end"] == "2026-09-30"
+            )
+        )
+        bills = {k: v for k, v in _bills(t).items() if k != f"bill:{late}:2026-09-30"}
+        ledger = (
+            {
+                "provider": late,
+                "last_period_end": "2026-06-30",
+                "days_overdue": 20,
+                "cadence": "quarterly",
+            },
+        )
+        cases.append(
+            StressCase(
+                f"missing-ledger-{t.id}",
+                "incomplete",
+                t.query,
+                recs,
+                {},
+                "caveat",
+                {
+                    **bills,
+                    f"missing:{late}:2026-09-30": ("status", "unavailable"),
+                    "cashflow_delta:2026-Q3": ("status", "uncertain"),
+                },
+                EXPECTED_AGENTS["records"],
+                overdue=ledger,
+            )
+        )
+    for t in two_providers[:1]:
+        late = sorted({r["metadata"]["provider"] for r in t.records})[
+            -1
+        ]  # the second ("...B") provider
+        recs = tuple(
+            r
+            for r in t.records
+            if not (
+                r["metadata"]["provider"] == late
+                and r["extraction"]["period_end"] == "2026-09-30"
+            )
+        )
+        cases.append(
+            StressCase(
+                f"missing-noledger-{t.id}",
+                "incomplete",
+                t.query,
+                recs,
+                {},
+                "answer",
+                {k: v for k, v in _bills(t).items() if k != f"bill:{late}:2026-09-30"},
+                EXPECTED_AGENTS["records"],
+            )
+        )
     for t in records[:3]:
         cases.append(
             StressCase(
@@ -491,6 +556,24 @@ def evaluate() -> Dict[str, Any]:
         if c.expected_agents
     ]
     wrong = [r for r in results if r.case.kind == "wrong_record"]
+    ledger = [r for r in results if r.case.overdue]
+    reported = sum(
+        r.action == "caveat"
+        and r.report is not None
+        and all(
+            (f := r.report.claims.get(f"missing:{o['provider']}:2026-09-30"))
+            is not None
+            and f.status == "unavailable"
+            and f.value is None
+            for o in r.case.overdue
+        )
+        and all(
+            c.status != "ok"
+            for k, c in r.report.claims.items()
+            if k.startswith("cashflow_delta:2026-Q3")
+        )
+        for r in ledger
+    )
     caught = sum(
         r.action == "escalate"
         and any(
@@ -501,6 +584,7 @@ def evaluate() -> Dict[str, Any]:
     )
     return {
         "relevance": (caught, len(wrong)),
+        "missing": (reported, len(ledger)),
         "n": len(results),
         "gated": len(gated),
         "passed": sum(r.passed for r in gated),

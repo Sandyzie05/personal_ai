@@ -382,6 +382,13 @@ def compute() -> Dict[str, Any]:
             False,
         ),
         (
+            "Missing statements reported, never invented",
+            "100%",
+            f"{_rate(*st['missing']):.0%} ({st['missing'][0]}/{st['missing'][1]})",
+            st["missing"][1] > 0 and st["missing"][0] == st["missing"][1],
+            True,
+        ),
+        (
             "Evidence relevance: wrong-record citations caught",
             "100%",
             f"{_rate(*st['relevance']):.0%} ({st['relevance'][0]}/{st['relevance'][1]})",
