@@ -1,4 +1,4 @@
-.PHONY: help setup install run demo test check-context install-skills eval eval-live eval-rag state-report
+.PHONY: help setup install run demo test check-context install-skills eval eval-live eval-rag eval-stability state-report
 
 VENV_BIN := $(shell [ -x venv/bin/python3 ] && echo venv/bin)
 PYTHON := $(if $(VENV_BIN),$(VENV_BIN)/python3,python3)
@@ -52,3 +52,7 @@ install-skills:
 
 eval-live:
 	PYTHONPATH=. $(PYTHON) -m evals.live
+
+RUNS ?= 10
+eval-stability:
+	PYTHONPATH=. $(PYTHON) -m evals.stability --runs $(RUNS) $(if $(LIVE),--live,)

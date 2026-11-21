@@ -31,3 +31,15 @@ def test_integrations_and_userguide_cases_pass():
     from evals.userguide import run_userguide
     assert all(p for _, p in run_integrations())
     assert all(p for _, p, _ in run_userguide())
+
+
+def test_stability_smoke_two_runs_and_perturbations_restore_state():
+    from evals import golden, injection, stability
+
+    before_payloads, before_run = list(injection.PAYLOADS), golden.run_task
+    r = stability.run(2)
+    assert r["all_pass"] and r["runs"] == 2 and all(a["runs"] == 2 for a in r["rows"].values())
+    for kind in stability.PERTURBATIONS:
+        with stability.perturbed(kind, 0):
+            pass
+    assert injection.PAYLOADS == before_payloads and golden.run_task is before_run
