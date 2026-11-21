@@ -163,6 +163,8 @@ INTERNAL_VAULT_KEYS = {
     "ingest_manifest",
     "ingest_expectations",
     "portal_recipes",
+    "gmail_bill_senders",  # provider -> sender domain allowlist for Gmail bill sync
+    "trader_paper_v1",  # Trader paper ledger (simulated trades; never a document, never indexed)
 }
 
 

@@ -1,0 +1,18 @@
+from pathlib import Path
+
+from streamlit.testing.v1 import AppTest
+
+APP = str(Path(__file__).with_name("_sync_app.py"))
+
+
+def test_expected_bills_add_several_and_remove():
+    at = AppTest.from_file(APP).run()
+    assert not at.exception
+    for name in ("Rocky Mountain Power", "Dominion Energy", "T-Mobile"):
+        at.text_input(key="sync_prov").set_value(name)
+        next(b for b in at.button if b.label == "Add").click().run()
+        assert not at.exception
+    assert [t.value for t in at.text] == ["Dominion Energy", "Rocky Mountain Power", "T-Mobile"]
+    next(b for b in at.button if b.label == "Remove").click().run()
+    assert [t.value for t in at.text] == ["Rocky Mountain Power", "T-Mobile"]
+    assert any("Gmail is not connected" in c.value for c in at.caption)

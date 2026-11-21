@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T20:38:36+00:00",
+  "generated_at": "2026-11-21T21:13:11+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.401,
+      "measured": 0.411,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.683,
+      "measured": 0.674,
       "pass": true,
       "hard": false
     },
@@ -219,6 +219,13 @@
       "hard": true
     },
     {
+      "metric": "Gmail bill sync: off-allowlist read, email body stored, hostile facts accepted, non-read tool called",
+      "target": "0",
+      "measured": "0 in 4 checks",
+      "pass": true,
+      "hard": true
+    },
+    {
       "metric": "Gmail/brokerage wired into the coordinator (B4)",
       "target": "100%",
       "measured": "7/7",
@@ -382,13 +389,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.401,
+        "ratio": 0.411,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.683,
+        "ratio": 0.674,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3

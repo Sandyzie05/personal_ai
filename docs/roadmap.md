@@ -10,8 +10,8 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 ## 00. Start here (handoff for the next session, updated 2026-11-21)
 
 **State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R10, incl. the Robinhood Portfolio chat agent) and the offline part of P11
-(PR #30), then Track T Trader: plan view T0-T4 (PR #31) and AI paper agents T5 (PR #32). `make test` 905 pass, `make eval`
-Overall PASS (52 rows), `make eval-rag` PASS, `make eval-stability RUNS=10` PASS (last run before Track T). Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
+(PR #30), then Track T Trader: plan view T0-T4 (PR #31) and AI paper agents T5 (PR #32). `make test` 911 pass, `make eval`
+Overall PASS (53 rows), `make eval-rag` PASS, `make eval-stability RUNS=10` PASS (last run before Track T). Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
 other. **What is left is USER work:** P9 (live run), P10 (RAG calibration on the real embedder), and first live Robinhood
 connection (confirm tool argument names, see Track R "Live check"), and a first Trader paper-agent backtest with the local
 model (Track T "Live check"). Then P11's final numbers.
@@ -23,6 +23,9 @@ model (Track T "Live check"). Then P11's final numbers.
    `user_testing_guide.md` §0 step 6) → `venv/bin/pip check`.
 2. Restart `make run`; Forecast → AAPL → *Research ticker* → *Run AI review*. Optionally tweak a critic (Agents → Forecast
    workflow) and run again.
+5. Upload → Sync → *Bills from Gmail*: add each provider with its sender domain (e.g. Rocky Mountain Power /
+   `rockymountainpower.net`) → *Sync bills from Gmail*. Then Upload → *Rebuild RAG index* once (drops a stray Trader-ledger
+   entry indexed before 2026-11-21).
 4. Forecast → Trader → *Paper agents*: tickers `SPY, AAPL` → *Run backtest (past year)* (up to 30 model calls, minutes on
    the 4B). Note new decisions / invalid replies from the green line, then *Review agents*. Run it again: decisions are reused.
 3. Paste a state report (opencode prompt below). The `<LIVE>` section must list critics completed N/4 with each status,
@@ -112,6 +115,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | ToT held-out evaluation + calibration (Brier) | DONE (Brier win needs dev calibration) | P8: held-out acc 0.76 vs 0.59/0.70; Brier 0.414 vs 0.488/0.430 (raw: vote better) |
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
+| Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE vs fixtures; live = USER | `rag_design.md` R11, eval row 0 in 4 |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
 | Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
