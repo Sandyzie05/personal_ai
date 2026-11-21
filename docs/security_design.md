@@ -386,6 +386,12 @@ rejected before parsing (eval 0/10 accepted); the BM25 index is memory-only, reb
 the manifest and expected-bills ledger are vault keys; portal runs log no credentials and block off-allowlist redirects (eval 0/0).
 Not exercised: live Gmail MCP, real provider portals (R10), headed 2FA flow.
 
+## Public egress User-Agent (2026-11-21)
+
+Public provider requests (Yahoo chart/search, Alpha Vantage, FRED) send a fixed generic `User-Agent` (`personal_ai/1.0`,
+override `PERSONAL_AI_HTTP_USER_AGENT`) instead of httpx's default, which Yahoo rate-limits. It identifies the app only,
+never the user or host. SEC requests keep the user-configured contact UA that SEC requires. No other egress change.
+
 ## Planned controls (2026-11-20)
 
 Specified in `docs/roadmap.md`, not implemented: composed (multi-hop / shared-memory) leakage eval (P4), Core Memory read path with a
