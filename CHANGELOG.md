@@ -4,6 +4,12 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - docs: plan Track F (Forecast overhaul on configurable agents)
+
+- `roadmap.md`: Track F (F1-F10) goes before the P-cards (user decision). Workflow slots with fixed default agents that are
+  tweakable in the Agents tab (overrides + reset), locked tools/schema/budget per slot, an agent chip on every AI feature,
+  dedicated critic/explainer/news agents, per-section Forecast redesign, Chat selector listing every agent. Progress diagram updated.
+
 ## (pending) - 2026-11-21 - feat: `make state-report` (deterministic, redacted)
 
 - The first hand-collected report was wrong: system python instead of the venv (packages "n/a", pytest "missing"), a bare curl
