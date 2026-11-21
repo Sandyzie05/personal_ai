@@ -4,6 +4,15 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: Yahoo research blocked (HTTP 429); quiet expected MCP auth traceback
+
+- Forecast research for any ticker abstained with `yahoo-chart: transport`. Yahoo answers 429 to httpx's default
+  `python-httpx/x` User-Agent (reproduced 3/3; a plain app UA gets 200). Public routes now send a fixed generic UA
+  (`PERSONAL_AI_HTTP_USER_AGENT`, default `personal_ai/1.0`: no name, email or host); SEC keeps its contact UA.
+  Provider issues now state the HTTP status. Regression test in `test_forecaster_providers.py`.
+- `mcp.client.auth.oauth2` logged a full traceback for the app's own non-interactive "authorization required" signal
+  (an MCP server bound to an agent but not yet authorized). That record is filtered; real OAuth errors still log.
+
 ## (pending) - 2026-11-20 - docs: consolidate docs, add executable roadmap (Week 6 feedback)
 
 - New `docs/roadmap.md`: the single place for remaining work. Capability status table (implemented vs planned vs user-run), order,

@@ -56,6 +56,7 @@ class ForecastSettings(Contract):
         default=config.FORECAST_MODEL_OUTPUT_MAX_CHARS, ge=256, le=8000
     )
     sec_user_agent: str = Field(default=config.FORECAST_SEC_USER_AGENT, max_length=200)
+    http_user_agent: str = Field(default=config.FORECAST_HTTP_USER_AGENT, min_length=1, max_length=200)
     fred_api_key: SecretStr = SecretStr(config.FORECAST_FRED_API_KEY)
     alpha_vantage_api_key: SecretStr = SecretStr(config.FORECAST_ALPHA_VANTAGE_API_KEY)
 
@@ -132,7 +133,7 @@ class PublicDataProviders:
                 now = asyncio.get_running_loop().time()
                 await asyncio.sleep(max(0, 0.2 - (now - self._sec_last)))
                 self._sec_last = asyncio.get_running_loop().time()
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", "User-Agent": self.settings.http_user_agent}
         if source == "sec-edgar":
             headers["User-Agent"] = self.settings.sec_user_agent
         for attempt in range(2):
@@ -159,7 +160,7 @@ class PublicDataProviders:
                             raise ProviderFailure(
                                 issue_source,
                                 code,
-                                "Public provider returned non-success status.",
+                                f"Public provider returned HTTP {response.status_code}.",
                             )
                         if "json" not in response.headers.get("content-type", ""):
                             raise ProviderFailure(
