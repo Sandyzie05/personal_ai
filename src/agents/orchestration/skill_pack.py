@@ -9,7 +9,10 @@ from src.agents.skills import skills_dir
 PACK_DIR = Path(__file__).resolve().parents[3] / "skills"
 # sha256 of earlier shipped versions: an installed copy still equal to one of these was never edited, so it is upgraded.
 PREVIOUS_VERSIONS = {
-    "forecast-critic.md": {"3a3035c73d5eae9bc97f809bee68eba70f227af1681f3a9d2c2692a9cc477be8"},
+    "forecast-critic.md": {
+        "3a3035c73d5eae9bc97f809bee68eba70f227af1681f3a9d2c2692a9cc477be8",
+        "3bae2eb555ba480e070480df5218f7941d66f960c307a94d3e81ae6ea43a2385",
+    },
 }
 
 
@@ -24,7 +27,9 @@ def install_builtin_skills() -> List[str]:
     for src in sorted(PACK_DIR.glob("*.md")):
         dest = target / src.name
         new = src.read_text(encoding="utf-8")
-        if not dest.exists() or _sha(dest.read_text(encoding="utf-8")) in PREVIOUS_VERSIONS.get(src.name, ()):
+        if not dest.exists() or _sha(
+            dest.read_text(encoding="utf-8")
+        ) in PREVIOUS_VERSIONS.get(src.name, ()):
             dest.write_text(new, encoding="utf-8")
             installed.append(src.stem)
     return installed

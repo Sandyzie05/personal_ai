@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:47:43+00:00",
+  "generated_at": "2026-11-21T18:50:56+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.403,
+      "measured": 0.399,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.671,
+      "measured": 0.657,
       "pass": true,
       "hard": false
     },
@@ -117,6 +117,27 @@
       "metric": "News analyst: injected text reaching output",
       "target": "0",
       "measured": "0/190",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Robinhood: broker free text reaching evidence/prompts (R8)",
+      "target": "0",
+      "measured": "0/5",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Robinhood: account canaries outside account tools (requests, logs, activity log, snapshot; R-S6)",
+      "target": "0",
+      "measured": "0 in 19 sinks x 3 canaries",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Robinhood: fundamentals reach valuation critic + ToT driver (golden)",
+      "target": "100%",
+      "measured": "3/3",
       "pass": true,
       "hard": true
     },
@@ -256,13 +277,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.403,
+        "ratio": 0.399,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.671,
+        "ratio": 0.657,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3

@@ -17,14 +17,18 @@ from .. import config
 from .models import Contract, EvidenceSnapshot, Score
 
 Scenario = Literal["bullish", "base", "bearish"]
-Driver = Literal["trend", "volatility", "macro", "filing", "theme", "news", "balance"]
+Driver = Literal["trend", "volatility", "macro", "filing", "theme", "news", "valuation", "earnings", "options", "balance"]
 SCENARIO = {1: "bullish", 0: "base", -1: "bearish"}
 CONSERVATIVE = {
     "base": 0,
     "bearish": 1,
     "bullish": 2,
 }  # tie-break: least aggressive call wins
-FAMILY = {"macro": "macro", "filing": "filing", "curated": "theme", "news": "news"}
+FAMILY = {
+    "macro": "macro", "filing": "filing", "curated": "theme", "news": "news",
+    # Track R (Robinhood) public market families; absent unless a Robinhood MCP server is connected.
+    "fundamental": "valuation", "earnings": "earnings", "options": "options",
+}
 SENTIMENT = {"positive": 1, "neutral": 0, "negative": -1}
 FRESH = timedelta(days=30)
 

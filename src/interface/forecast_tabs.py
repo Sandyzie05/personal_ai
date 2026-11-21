@@ -60,7 +60,11 @@ def agent_chip(vault, slot_id, *, run=None, key=""):
         left, right = st.columns([5, 1])
         left.markdown(
             f"{agent.get('icon', '')} **{agent['name']}**"
-            + ("" if agent["name"].lower() == SLOTS[slot_id].label.lower() else f" · {SLOTS[slot_id].label}")
+            + (
+                ""
+                if agent["name"].lower() == SLOTS[slot_id].label.lower()
+                else f" · {SLOTS[slot_id].label}"
+            )
         )
         bits = [
             f"model: {agent.get('model') or 'app default'}",
@@ -136,6 +140,165 @@ def _providers():
     from src.forecaster.providers import PublicDataProviders
 
     return PublicDataProviders()
+
+
+# --- Robinhood (Track R): read-only, code-built calls; account data never leaves this session -------------------
+
+ROBINHOOD_HINT = (
+    'Robinhood not connected: add an MCP server named "Robinhood" in Agents → MCP Servers and authorize '
+    "it (read-only use; no orders, alerts or watchlist changes are ever sent)."
+)
+
+
+def robinhood_client(vault):
+    """Allowlisted Robinhood client, or None when no enabled MCP server named Robinhood exists."""
+    from src.agents.mcp import McpManager
+    from src.forecaster.robinhood import connect
+
+    try:
+        return connect(vault, McpManager(vault))
+    except Exception:
+        return None
+
+
+def _apply_pending(key, default=""):
+    """Widget values set by a button land on the next run, before the widget exists (no default+state conflict)."""
+    pending = st.session_state.pop(key + "_pending", None)
+    if pending is not None:
+        st.session_state[key] = pending
+    st.session_state.setdefault(key, default)
+
+
+def robinhood_import(vault, target_key):
+    """Fill the ticker box `target_key` from a Robinhood watchlist or saved scan. Tickers only."""
+    from src.forecaster import robinhood as rh
+
+    client = robinhood_client(vault)
+    if client is None:
+        st.caption(ROBINHOOD_HINT)
+        return
+    sources_key = target_key + "_rh_sources"
+    if st.button("Load my Robinhood watchlists and scans", key=target_key + "_rh_load"):
+        try:
+            st.session_state[sources_key] = rh.list_sources(client)
+            _health().record(
+                "robinhood", _ok(), at=datetime.now(timezone.utc), latency_ms=0
+            )
+        except Exception:
+            st.session_state[sources_key] = []
+            st.warning(
+                "Robinhood lists unavailable (check the MCP server status in Agents)."
+            )
+    sources = st.session_state.get(sources_key) or []
+    if sources:
+        pick = st.selectbox(
+            "Import from",
+            range(len(sources)),
+            key=target_key + "_rh_pick",
+            format_func=lambda i: f"{sources[i][0]}: {sources[i][2]}",
+        )
+        if st.button("Import tickers", key=target_key + "_rh_import"):
+            try:
+                syms = rh.import_symbols(client, sources[pick][0], sources[pick][1])
+            except Exception:
+                syms = []
+            if syms:
+                st.session_state[target_key + "_pending"] = ", ".join(syms)
+                st.rerun()
+            st.warning(
+                "No tickers imported (empty list, or only crypto/options/futures items)."
+            )
+
+
+def _ok():
+    from src.forecaster.models import ProviderResult
+
+    return ProviderResult(status="completed", value=())
+
+
+def render_portfolio_fit(vault, symbol, price, client_factory=None):
+    """Private panel: how the researched ticker fits the user's own holdings. Figures stay in this session (not the vault,
+    not logs); the optional explainer is the local, tool-less Portfolio Fit agent."""
+    from src.agents.slots import agent_for, log_run
+    from src.forecaster import robinhood as rh
+
+    st.subheader("5 · Portfolio fit (private)")
+    st.caption(
+        "Reads your Robinhood positions only when you click. Figures stay on this laptop: they are not saved, not "
+        "logged, not part of the AI review evidence, and never sent to any other service. Context, not advice."
+    )
+    client = robinhood_client(vault)
+    if client is None:
+        st.caption(ROBINHOOD_HINT)
+        return
+    key = f"forecast_fit_{symbol}"
+    if st.button("Load my position (read-only)", key="forecast_fit_load"):
+        try:
+            st.session_state[key] = rh.portfolio_fit(client, symbol, price).model_dump(
+                mode="json"
+            )
+            st.session_state.pop("forecast_fit_note", None)
+        except Exception:
+            st.session_state[key] = None
+            st.warning("Robinhood account data unavailable.")
+    raw = st.session_state.get(key)
+    if not raw:
+        return
+    fit = rh.PortfolioFit.model_validate(raw)
+    rows = [
+        ("Held", "yes" if fit.held else "no"),
+        ("Quantity", f"{fit.quantity:g}"),
+        (
+            "Weight in portfolio",
+            f"{fit.weight_pct:.2f}%" if fit.weight_pct is not None else "n/a",
+        ),
+        (
+            "Unrealized vs average cost",
+            f"{fit.unrealized_pct:+.2f}%" if fit.unrealized_pct is not None else "n/a",
+        ),
+        ("Positions held", str(fit.positions)),
+        (
+            "Largest position weight",
+            f"{fit.top_weight_pct:.2f}%" if fit.top_weight_pct is not None else "n/a",
+        ),
+        ("Same curated theme as", ", ".join(fit.theme_overlap) or "none"),
+        (
+            "Realized P&L, last 3 months (account)",
+            f"{fit.realized_pnl_window:,.2f}"
+            if fit.realized_pnl_window is not None
+            else "n/a",
+        ),
+    ]
+    st.dataframe(
+        [{"item": k, "value": v} for k, v in rows], hide_index=True, width="stretch"
+    )
+    agent = agent_chip(
+        vault,
+        "forecast.portfolio_fit",
+        run=st.session_state.get("forecast_fit_note_run"),
+    )
+    if client_factory and st.button(
+        "Explain with AI (local)", key="forecast_fit_explain"
+    ):
+        start = time.monotonic()
+        note, status, reason = rh.explain_fit(
+            client_factory()(remaining_seconds=60),
+            agent_for(vault, "forecast.portfolio_fit"),
+            fit,
+        )
+        ms = int((time.monotonic() - start) * 1000)
+        st.session_state["forecast_fit_note"] = note.summary if note else None
+        st.session_state["forecast_fit_note_run"] = {
+            "status": status,
+            "invalid_reason": reason,
+            "latency_ms": ms,
+        }
+        log_run(
+            vault, "forecast.portfolio_fit", agent["id"], status, ms, reason
+        )  # ids/status only, no figures
+        st.rerun()
+    if st.session_state.get("forecast_fit_note"):
+        st.text(st.session_state["forecast_fit_note"])
 
 
 def _health() -> HealthTracker:
@@ -215,11 +378,11 @@ def render_recommendations(vault=None, client_factory=None):
         "Research lean only: uncalibrated close-only technicals, no sentiment/fundamentals, "
         "no price targets, not a buy/sell instruction or financial advice."
     )
+    _apply_pending("forecast_lean_symbols", "AAPL, MSFT, NVDA")
     raw = st.text_input(
-        "Public US tickers (comma separated)",
-        value="AAPL, MSFT, NVDA",
-        key="forecast_lean_symbols",
+        "Public US tickers (comma separated)", key="forecast_lean_symbols"
     )
+    robinhood_import(vault, "forecast_lean_symbols")
     if st.button("Compute research leans", type="primary"):
         symbols, rejected = [], []
         for part in dict.fromkeys(p.strip() for p in raw.split(",") if p.strip()):
@@ -360,7 +523,9 @@ def render_recommendations(vault=None, client_factory=None):
                     st.text(f"{symbol}: {note}")
             else:
                 why = f": {run['invalid_reason']}" if run.get("invalid_reason") else ""
-                st.warning(f"AI explanation {run['status']}{why}; the why column shows rule-based reasons.")
+                st.warning(
+                    f"AI explanation {run['status']}{why}; the why column shows rule-based reasons."
+                )
     else:
         st.info(
             "No symbol passed the confidence/risk filters (or none had enough evidence)."
@@ -499,13 +664,25 @@ def _stories_table(stories, ai=None):
     """Headlines are untrusted: dataframe cells render as inert text (never markdown/HTML)."""
     ai = ai or {}
     st.dataframe(
-        [{"date": f"{s.published_at:%Y-%m-%d}", "headline": s.title, "publisher": s.publisher,
-          "tickers": ", ".join(s.related_tickers[:4]), "keyword sentiment": s.sentiment,
-          **({"AI sentiment": ai.get(s.story_id, "—")} if ai else {}),
-          "impact": round(s.impact_score, 2), "link": s.url} for s in stories],
-        column_config={"link": st.column_config.LinkColumn("link", display_text="open"),
-                       "headline": st.column_config.TextColumn("headline", width="large")},
-        hide_index=True, width="stretch",
+        [
+            {
+                "date": f"{s.published_at:%Y-%m-%d}",
+                "headline": s.title,
+                "publisher": s.publisher,
+                "tickers": ", ".join(s.related_tickers[:4]),
+                "keyword sentiment": s.sentiment,
+                **({"AI sentiment": ai.get(s.story_id, "—")} if ai else {}),
+                "impact": round(s.impact_score, 2),
+                "link": s.url,
+            }
+            for s in stories
+        ],
+        column_config={
+            "link": st.column_config.LinkColumn("link", display_text="open"),
+            "headline": st.column_config.TextColumn("headline", width="large"),
+        },
+        hide_index=True,
+        width="stretch",
     )
 
 
@@ -515,11 +692,20 @@ def _news_analyst(vault, client_factory, stories, key):
     from src.forecaster.news_analyst import NewsAnalysis, analyze
 
     state_key = f"forecast_news_ai_{key}"
-    agent = agent_chip(vault, "forecast.news_analyst", run=st.session_state.get(state_key + "_run"), key=f"_{key}")
-    if client_factory and st.button("Analyze with AI", key=f"forecast_news_ai_btn_{key}"):
+    agent = agent_chip(
+        vault,
+        "forecast.news_analyst",
+        run=st.session_state.get(state_key + "_run"),
+        key=f"_{key}",
+    )
+    if client_factory and st.button(
+        "Analyze with AI", key=f"forecast_news_ai_btn_{key}"
+    ):
         start = time.monotonic()
         try:
-            out = analyze(stories, client_factory(), agent_for(vault, "forecast.news_analyst"))
+            out = analyze(
+                stories, client_factory(), agent_for(vault, "forecast.news_analyst")
+            )
             status = "completed" if out.analyzed else "invalid"
             st.session_state[state_key] = out.to_api()
         except Exception:
@@ -534,33 +720,79 @@ def _news_analyst(vault, client_factory, stories, key):
         return {}
     out = NewsAnalysis.model_validate(raw)
     by_id = {s.story_id: s for s in stories}
-    differ = sum(1 for sid, sent in out.story_sentiment.items() if sid in by_id and by_id[sid].sentiment != sent)
-    st.caption(f"AI tagged {out.analyzed} headlines · rejected {out.rejected} · looked like injection {out.flagged}"
-               + (f" · not reached (time budget) {out.skipped}" if out.skipped else "")
-               + f" · AI and keyword sentiment disagree on {differ}.")
+    differ = sum(
+        1
+        for sid, sent in out.story_sentiment.items()
+        if sid in by_id and by_id[sid].sentiment != sent
+    )
+    st.caption(
+        f"AI tagged {out.analyzed} headlines · rejected {out.rejected} · looked like injection {out.flagged}"
+        + (f" · not reached (time budget) {out.skipped}" if out.skipped else "")
+        + f" · AI and keyword sentiment disagree on {differ}."
+    )
     if out.counts:
-        st.dataframe([{"ticker": t, **c.model_dump()} for t, c in sorted(out.counts.items())],
-                     hide_index=True, width="stretch")
+        st.dataframe(
+            [{"ticker": t, **c.model_dump()} for t, c in sorted(out.counts.items())],
+            hide_index=True,
+            width="stretch",
+        )
     return out.story_sentiment
+
+
+def _earnings_calendar(vault):
+    """R2: large caps reporting in the next 7 days (Robinhood). Dates, tickers, timing and EPS estimates only."""
+    from src.forecaster import robinhood as rh
+
+    with st.container(border=True):
+        st.markdown("**Earnings this week** (Robinhood)")
+        client = robinhood_client(vault)
+        if client is None:
+            st.caption(ROBINHOOD_HINT)
+            return
+        if st.button("Load earnings calendar", key="forecast_earnings_load"):
+            try:
+                st.session_state["forecast_earnings"] = [
+                    e.model_dump(mode="json")
+                    for e in rh.earnings_calendar(
+                        client, datetime.now(timezone.utc).date()
+                    )
+                ]
+            except Exception:
+                st.session_state["forecast_earnings"] = None
+                st.warning("Robinhood earnings calendar unavailable.")
+        rows = st.session_state.get("forecast_earnings")
+        if rows:
+            st.dataframe(rows, hide_index=True, width="stretch")
+        elif rows is not None:
+            st.caption("No large-cap reports in the next 7 days.")
 
 
 def render_events(vault=None, client_factory=None):
     st.subheader("Market events and news")
-    st.warning("Headlines are untrusted external text, shown as plain text. Impact scores are heuristic.")
-    st.caption("Keyword sentiment is a crude word match. *Analyze with AI* tags each headline through quarantine: "
-               "the News Analyst returns only closed labels (topic, sentiment, materiality), never prose.")
+    st.warning(
+        "Headlines are untrusted external text, shown as plain text. Impact scores are heuristic."
+    )
+    st.caption(
+        "Keyword sentiment is a crude word match. *Analyze with AI* tags each headline through quarantine: "
+        "the News Analyst returns only closed labels (topic, sentiment, materiality), never prose."
+    )
+    _earnings_calendar(vault)
     if st.button("Fetch today's stories"):
         try:
             with st.spinner("Fetching public news…"):
                 st.session_state["forecast_news_report"] = _call(
-                    "news-service", lambda: NewsService(_providers()).build_today_report())
+                    "news-service",
+                    lambda: NewsService(_providers()).build_today_report(),
+                )
             st.session_state.pop("forecast_news_ai_today", None)
         except Exception:
             st.session_state["forecast_news_report"] = None
             st.error("News unavailable. Nothing was saved.")
     result = st.session_state.get("forecast_news_report")
     if result is None:
-        st.caption("Nothing fetched yet. News is requested only when you press the button.")
+        st.caption(
+            "Nothing fetched yet. News is requested only when you press the button."
+        )
     else:
         _status(result, "Today's stories")
         report = result.value
@@ -576,25 +808,48 @@ def render_events(vault=None, client_factory=None):
                 _stories_table(report.stories[:20], ai)
             else:
                 st.caption("No stories returned.")
-            lean_rows = [{"symbol": x.symbol, "lean": side, "score": round(x.score, 2), "stories": len(x.story_ids)}
-                         for side, leans in (("up", report.bullish), ("down", report.bearish)) for x in leans]
+            lean_rows = [
+                {
+                    "symbol": x.symbol,
+                    "lean": side,
+                    "score": round(x.score, 2),
+                    "stories": len(x.story_ids),
+                }
+                for side, leans in (("up", report.bullish), ("down", report.bearish))
+                for x in leans
+            ]
             st.write("Keyword leanings by symbol")
-            st.dataframe(lean_rows, hide_index=True, width="stretch") if lean_rows else st.caption("None identified.")
+            st.dataframe(
+                lean_rows, hide_index=True, width="stretch"
+            ) if lean_rows else st.caption("None identified.")
             if report.disagreements:
                 st.write("Conflicting signals (stories on both sides; not averaged)")
-                st.dataframe([{"symbol": d.symbol, "up": round(d.up_score, 2), "down": round(d.down_score, 2),
-                               "stronger": d.stronger_side} for d in report.disagreements],
-                             hide_index=True, width="stretch")
+                st.dataframe(
+                    [
+                        {
+                            "symbol": d.symbol,
+                            "up": round(d.up_score, 2),
+                            "down": round(d.down_score, 2),
+                            "stronger": d.stronger_side,
+                        }
+                        for d in report.disagreements
+                    ],
+                    hide_index=True,
+                    width="stretch",
+                )
             st.caption(report.note)
     with st.form("forecast_news_search"):
-        query = st.text_input("Search topic or ticker (one word works best, e.g. ADBE, inflation)",
-                              key="forecast_news_query")
+        query = st.text_input(
+            "Search topic or ticker (one word works best, e.g. ADBE, inflation)",
+            key="forecast_news_query",
+        )
         go = st.form_submit_button("Search news")
     if go:
         try:
             with st.spinner("Searching public news…"):
                 st.session_state["forecast_news_found"] = _call(
-                    "news-service", lambda: NewsService(_providers()).search_news(query))
+                    "news-service", lambda: NewsService(_providers()).search_news(query)
+                )
             st.session_state["forecast_news_found_query"] = query
             st.session_state.pop("forecast_news_ai_search", None)
         except Exception:
@@ -614,8 +869,10 @@ def render_events(vault=None, client_factory=None):
                 _stories_table(relevant, ai)
             else:
                 st.caption("No headline mentions the search term.")
-            if loose and st.toggle(f"Show {len(loose)} loosely related stories (term not in headline)",
-                                   key="forecast_news_loose"):
+            if loose and st.toggle(
+                f"Show {len(loose)} loosely related stories (term not in headline)",
+                key="forecast_news_loose",
+            ):
                 _stories_table(loose)
         elif found.value is not None:
             st.caption("No stories matched.")
@@ -718,7 +975,7 @@ def render_drilldown():
 # --- Screens ---------------------------------------------------------------
 
 
-def render_screens():
+def render_screens(vault=None):
     st.subheader("Reference stock screens")
     st.warning(
         "Reference screens over a fixed large-cap list using price history only; not recommendations."
@@ -729,11 +986,19 @@ def render_screens():
         format_func=SCREEN_LABELS.get,
         key="forecast_screen_kind",
     )
+    _apply_pending("forecast_screen_symbols")
+    typed = st.text_input(
+        "Tickers to screen (optional, comma separated; blank = fixed large-cap list)",
+        key="forecast_screen_symbols",
+    )
+    robinhood_import(vault, "forecast_screen_symbols")
+    custom = [p.strip() for p in typed.split(",") if p.strip()] or None
     if st.button("Run screen", type="primary"):
         try:
             with st.spinner("Screening public price history…"):
                 st.session_state["forecast_screen"] = _call(
-                    "screen-service", lambda: ScreenService(_providers()).screen(kind)
+                    "screen-service",
+                    lambda: ScreenService(_providers()).screen(kind, symbols=custom),
                 )
         except Exception:
             st.session_state["forecast_screen"] = None
@@ -805,4 +1070,4 @@ def render_section(
     elif section == "Drilldown":
         render_drilldown()
     elif section == "Screens":
-        render_screens()
+        render_screens(vault)

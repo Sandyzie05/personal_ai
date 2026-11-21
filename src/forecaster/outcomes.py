@@ -30,7 +30,7 @@ class SessionPrice(Contract):
     session: date
     close: Positive
     adjusted_close: Positive | None = None
-    source_id: Literal["yahoo-chart", "alpha-vantage"]
+    source_id: Literal["yahoo-chart", "alpha-vantage", "robinhood"]
     retrieved_at: datetime
 
     _symbol = field_validator("symbol", mode="before")(canonical_symbol)

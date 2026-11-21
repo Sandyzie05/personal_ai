@@ -213,7 +213,8 @@ def _research(vault):
                 sessions=sessions,
             )
             with st.spinner("Researching public sources…"):
-                prediction = asyncio.run(ResearchPredictionService().research(request))
+                prediction = asyncio.run(ResearchPredictionService(
+                    robinhood=tabs.robinhood_client(vault)).research(request))
             st.session_state["forecast_research_result"] = prediction.to_api()
             for key in (
                 "forecast_scenarios",
@@ -340,9 +341,15 @@ def _research(vault):
         st.caption(
             "Public evidence only; no vault documents, chat, holdings, or account data."
         )
+        if "robinhood" not in {p.source_id for p in prediction.source_provenance}:
+            st.caption(tabs.ROBINHOOD_HINT + " It adds fundamentals, analyst targets, earnings, options-implied move "
+                       "and SEC figures to the evidence.")
     _ai_review(vault, prediction, tabs)
     st.subheader("4 · Track (optional)")
     _prepare_forecast(vault, prediction, st.session_state.get("forecast_scenarios"))
+    last_bar = snap.market.bars[-1] if snap.market and snap.market.bars else None
+    tabs.render_portfolio_fit(vault, snap.symbol, (last_bar.adjusted_close or last_bar.close) if last_bar else None,
+                              client_factory=lambda: _scenario_factory(vault))
 
 
 def _ai_review(vault, prediction, tabs):
@@ -675,6 +682,38 @@ def _prepare_forecast(vault, prediction, scenarios):
     _save_preview(vault, "forecast_prepared", SNAPSHOT_PREFIX, "Save forecast")
 
 
+def _fill_closes(vault, forecast, tabs):
+    """R5: origin/target closes for the symbol and benchmark from Robinhood daily bars (provenance "robinhood")."""
+    from src.forecaster.robinhood import session_closes
+
+    client = tabs.robinhood_client(vault)
+    if client is None:
+        st.warning(tabs.ROBINHOOD_HINT)
+        return
+    sessions = [forecast.origin] + ([forecast.target] if forecast.target else [])
+    adjusted = forecast.price_convention == "split_dividend_adjusted_close"
+    try:
+        closes = session_closes(client, [forecast.symbol, forecast.benchmark_symbol], sessions[0].session,
+                                sessions[-1].session, adjustment="all" if adjusted else "none")
+    except Exception:
+        st.warning("Robinhood closes unavailable. Nothing changed.")
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for sym, exchange in ((forecast.symbol, forecast.origin.exchange), (forecast.benchmark_symbol, forecast.benchmark_exchange)):
+        for s in sessions:
+            close = closes.get(sym, {}).get(s.session)
+            if close:  # a missing session stays missing; no latest quote substitutes
+                rows.append({"symbol": sym, "exchange": exchange, "session": s.session.isoformat(), "close": close,
+                             **({"adjusted_close": close} if adjusted else {}), "source_id": "robinhood",
+                             "retrieved_at": now})
+    if not rows:
+        st.warning("Robinhood returned no closes for these sessions yet.")
+        return
+    st.session_state["forecast_eval_prices_pending"] = json.dumps(rows)
+    st.rerun()
+
+
 def _outcomes(vault):
     from src.forecaster.outcomes import ForecastRecord, SessionPrice, evaluate_outcome
 
@@ -709,9 +748,11 @@ def _outcomes(vault):
     st.session_state.setdefault(
         "forecast_evaluated_at", datetime.now(timezone.utc).isoformat()
     )
+    tabs = _tabs_module()
+    tabs._apply_pending("forecast_eval_prices")
     with st.form("forecast_evaluate"):
         prices_json = st.text_area(
-            "Session closing prices (JSON array)",
+            "Session closing prices (JSON array)", key="forecast_eval_prices",
             placeholder='[{"symbol":"AAPL","exchange":"XNAS","session":"2026-10-19",'
             '"close":100,"source_id":"yahoo-chart","retrieved_at":"2026-10-19T21:00:00Z"}, ...]',
         )
@@ -720,6 +761,9 @@ def _outcomes(vault):
             key="forecast_evaluated_at",
         )
         evaluate = st.form_submit_button("Evaluate outcome")
+        fill = st.form_submit_button("Fill closes from Robinhood")
+    if fill:
+        _fill_closes(vault, forecast, tabs)
     if evaluate:
         try:
             values = json.loads(prices_json)

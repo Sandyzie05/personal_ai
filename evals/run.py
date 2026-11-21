@@ -35,6 +35,7 @@ from .injection import (
 from .integrations import run_integrations
 from .reasoning import run_held_out, run_reasoning
 from .refusal import run_refusal
+from .robinhood import run_account_egress, run_broker_injection, run_valuation_golden
 from .userguide import run_userguide
 
 RESULTS = Path(__file__).parent / "results"
@@ -178,6 +179,11 @@ def compute() -> Dict[str, Any]:
     ref = run_refusal()
     summ, rag = run_summary_templating(), run_rag_exposure()
     news = run_news_analyst()
+    rh_inj, rh_egress, rh_val = (
+        run_broker_injection(),
+        run_account_egress(),
+        run_valuation_golden(),
+    )
     ug = run_userguide()
     integ = run_integrations()
     ing = run_ingest_eval()
@@ -304,6 +310,27 @@ def compute() -> Dict[str, Any]:
             "0",
             f"{news['violations']}/{news['checked']}",
             news["violations"] == 0 and news["checked"] > 0,
+            True,
+        ),
+        (
+            "Robinhood: broker free text reaching evidence/prompts (R8)",
+            "0",
+            f"{rh_inj['violations']}/{rh_inj['checked']}",
+            rh_inj["violations"] == 0 and rh_inj["checked"] > 0,
+            True,
+        ),
+        (
+            "Robinhood: account canaries outside account tools (requests, logs, activity log, snapshot; R-S6)",
+            "0",
+            f"{rh_egress['violations']} in {rh_egress['sinks']} sinks x {rh_egress['canaries']} canaries",
+            rh_egress["violations"] == 0 and rh_egress["sinks"] > 0,
+            True,
+        ),
+        (
+            "Robinhood: fundamentals reach valuation critic + ToT driver (golden)",
+            "100%",
+            f"{rh_val['passed']}/{rh_val['total']}",
+            rh_val["passed"] == rh_val["total"] > 0,
             True,
         ),
         (
