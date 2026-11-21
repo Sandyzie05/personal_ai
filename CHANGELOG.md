@@ -4,6 +4,12 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat: read-only Gmail via the standard Gmail API (personal accounts)
+
+- Google's hosted Gmail MCP requires a Workspace Developer Preview project (live error), unavailable to personal
+  accounts. `data_ingestion/gmail_api.py`: two fixed read GETs, constant gmail.readonly, PKCE sign-in, own OAuth client,
+  encrypted `gmail_api_oauth`. Upload → Sync → *Gmail connection*. Used by bill Sync and the Email Digest agent.
+
 ## (pending) - 2026-11-21 - fix: discover token endpoint for old tokens; opt-in probe error detail
 
 - Remaining "Token refresh failed: 404": tokens saved before PR #40 had no metadata; looked up once from public metadata.

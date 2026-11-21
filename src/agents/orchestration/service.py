@@ -122,8 +122,13 @@ def build_coordinator(
 
     gmail = find_server(vault, GMAIL_PATTERN) if mcp else None
     broker = find_server(vault, BROKERAGE_PATTERN) if mcp else None
-    if gmail and quarantine_client is not None:
-        prefetch["email"] = gmail_fetcher(ReadOnlyMcp(mcp, gmail))
+    from src.data_ingestion import gmail_api
+
+    # Direct read-only Gmail API first (personal accounts); Google's hosted Gmail MCP needs a Developer Preview project.
+    gmail_ro = (gmail_api.GmailApi(vault) if vault is not None and gmail_api.connected(vault)
+                else ReadOnlyMcp(mcp, gmail) if gmail else None)
+    if gmail_ro is not None and quarantine_client is not None:
+        prefetch["email"] = gmail_fetcher(gmail_ro)
         workers["email"] = email_worker(cached("email"), quarantine_client)
     if broker:
         prefetch["brokerage"] = holdings_fetcher(ReadOnlyMcp(mcp, broker))
@@ -235,7 +240,7 @@ def run_query(
                 if getattr(exc, "needs_auth", False):  # say what to do instead of a bare "unavailable"
                     raise ValueError(
                         f"{'Gmail' if step.agent == 'email' else 'The brokerage'} needs you to sign in again: "
-                        "Agents → MCP Servers → Test read access (or Upload → Sync → Reconnect Gmail)."
+                        "Upload → Sync → Gmail connection → Connect Gmail (or Agents → MCP Servers → Test read access)."
                     ) from exc
                 fetched[step.agent] = exc
     if box is not None:

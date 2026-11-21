@@ -482,6 +482,20 @@ agent, deny by default.)
   logged, stored, rendered as markdown or sent to a model. Residual: it is server-controlled text the user reads.
 - Gmail tool/arg names are fitted to the server's schema (only read-only names; `ReadOnlyMcp` re-checks each call).
 
+## Gmail via the standard Gmail API, read-only (2026-11-21)
+
+Google's hosted Gmail MCP (`gmailmcp.googleapis.com`) rejects tool calls unless the Cloud project is enrolled in the
+Workspace Developer Preview, which personal accounts cannot join (confirmed live). `data_ingestion/gmail_api.py` replaces
+it for Sync and the Email Digest agent:
+- Exactly two operations, both fixed GETs on `gmail.googleapis.com/gmail/v1/users/me/threads[/<id>]`; any other tool name
+  raises `PermissionError`; thread ids are pattern-checked (no path injection); page size capped at 50.
+- Scope is the constant `gmail.readonly` (not configurable); a token response that does not grant it is refused.
+- Sign-in: authorization code + PKCE (S256) + state, loopback redirect (`PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT`),
+  `access_type=offline`. The user's own client and tokens live in the encrypted internal key `gmail_api_oauth`.
+- Google error bodies are never shown or kept (HTTP status only). Message bodies go only to the caller, which passes them
+  to `quarantine.extract_facts`; the sender allowlist is still checked in code before any body is read.
+- When connected it takes precedence over a Gmail MCP server; the MCP path stays for Workspace preview projects.
+
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)
 
 New chat agent `builtin-portfolio` (S25). Code reads positions through `RobinhoodClient` (exact-name account tools, S20),
