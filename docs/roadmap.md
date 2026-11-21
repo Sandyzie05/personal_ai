@@ -107,7 +107,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
-| Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit | PLANNED | Track R (R0-R8), decisions R-D1..R-D3 |
+| Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit | PLANNED (after P8) | Track R (R0-R8); local model may see account data, nothing leaves the laptop (R-S6) |
 | Daily Gmail digest *sent* to a messaging app (W2 idea) | DROPPED | sending is a write; read-only invariant S6. Digest is shown in-app |
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
 
@@ -150,8 +150,7 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-Track F is done (F1 live ✓, F7 offline). Track R (Robinhood) is planned; its position depends on decision R-D3
-(default: after P8). **Remaining order:**
+Track F is done (F1 live ✓, F7 offline). Track R (Robinhood) is planned after P8 (user decision R-D3). **Remaining order:**
 `P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) →
 `P9, P10` (user runs live) → `P11` (final packaging).
 P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 so the leakage eval also covers memory reads.
@@ -299,7 +298,7 @@ Slots in scope (Forecast first; other pages later):
   stays as today (coordinator roles via `run_query(only=role)`, others through the v1 runtime).
 - **Accept:** AppTest: a newly created custom agent and a tweaked built-in both appear and answer.
 
-### Track R. Robinhood research integration (PLANNED 2026-11-21, decisions R-D1..R-D3 below)
+### Track R. Robinhood research integration (PLANNED 2026-11-21, after P8; decisions recorded below)
 
 **Goal.** Give the Forecast agents real fundamentals, earnings, analyst, options and filing data, and give the user a
 private "fits my trading profile" view, through the Robinhood MCP. Read-only (S6), no orders, no advice.
@@ -334,18 +333,25 @@ private "fits my trading profile" view, through the Robinhood MCP. Read-only (S6
   "robinhood"), so step "Evaluate outcome" needs no JSON; completed sessions come from the returned bars.
 - **R6 Watchlist and Screens sources.** "Import" buttons: `get_watchlists`/`get_watchlist_items` and `get_scans` + `run_scan`
   (read; exact-name allowlist) → ticker list for Watchlist leans and Screens. Tickers only (same rule as `holdings_fetcher`).
-- **R7 Portfolio fit (private, code-only).** `get_accounts` (read-only account), `get_equity_positions`, `get_portfolio`,
+- **R7 Portfolio fit (private; local model allowed per R-D1, egress-locked per R-S6).** `get_accounts` (read-only account), `get_equity_positions`, `get_portfolio`,
   `get_realized_pnl`: show for the researched ticker: held? weight in portfolio, sector/theme overlap with other holdings,
-  unrealized vs cost basis, realized P&L history on the symbol, earnings-in-window flag. Numbers stay in the vault session;
-  never logged, never sent to a model (see R-D1). Copy: "context, not advice".
+  unrealized vs cost basis, realized P&L history on the symbol, earnings-in-window flag. Figures are computed by code; a
+  tool-less local "Portfolio fit" agent may explain them. Never logged in plaintext, never in any outbound request (R-S6).
+  Copy: "context, not advice".
 - **R8 Evals.** Injection eval over broker free-text fields (0 reaching output, hard); disclosure eval: no position, quantity,
   account number or balance in any snapshot/prompt/Finding (0, hard); valuation-critic golden cases with fundamentals cards.
 
-**Decisions for the user (defaults in bold).**
-- R-D1 Trading-profile data reaching a model: **none (code-only panel)** / closed buckets only (e.g. `position: none|small|large`)
-  to a local critic.
-- R-D2 Writes: **none** / user-click-only alert or watchlist add with an explicit confirm dialog (would amend S6).
-- R-D3 Order: **after P1-P8 (capstone first)** / before.
+**Decisions (user, 2026-11-21).**
+- R-D1 Account data may reach the **local** model (it runs on the laptop). Guardrail instead: it must never leave the machine.
+  Enforced by R-S6 below, not by keeping it from the model.
+- R-D2 **No writes** to Robinhood (S6 unchanged).
+- R-D3 Build **after P1-P8**.
+
+**R-S6 No egress of account data (replaces the code-only rule in R-S4 for prompts).** An agent that has account data in its
+context gets no remote MCP server, no web/news tool and no tool calls at all (`allowed_tools=()`); every outbound request
+(Robinhood, Yahoo, FRED, SEC, news) is built by code from a ticker/series id only, never from model output or prompt text.
+R8 adds a hard egress eval: synthetic account fixtures with canary values; 0 canaries in any outbound request URL/args/body,
+in logs, or in the activity log.
 
 ### Track P. Capstone feedback cards
 
