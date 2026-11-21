@@ -4,6 +4,12 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: Gmail OAuth "issuer mismatch" (trailing slash)
+
+- MCP SDK compared `https://accounts.google.com` with `https://accounts.google.com/` as different issuers, so Gmail
+  sign-in/refresh always failed and the sync showed "McpError". `agents/mcp.py` uses the SDK's `issuers_match` (root
+  issuer slash-equivalence only); regression test in `test_mcp_tools.py`.
+
 ## (pending) - 2026-11-21 - fix: per-agent tool scopes, all agents in Chat, per-provider Sync, Gmail error/auth
 
 - Agents (S26): tools are ticked per agent per MCP server (`mcp_tools`, deny by default) in Agents → Edit; runtime exposes and

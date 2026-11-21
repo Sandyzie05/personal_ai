@@ -447,6 +447,11 @@ agent, deny by default.)
 - **MCP errors.** `_NeedsAuth`/OAuth failures inside an anyio task group are now reported as needs-auth (they surfaced as a
   bare `McpError` before). JSON-RPC errors show type + code only (server text is untrusted). The Sync panel shows that
   message as inert text and offers *Reconnect Gmail* on needs-auth; per-thread read errors show type only.
+- **OAuth issuer compare (fix).** MCP SDK 2.3 compares the authorization-server issuer as an exact string; Google's
+  advertised `https://accounts.google.com` becomes `https://accounts.google.com/` via pydantic, so every Gmail sign-in and
+  refresh failed ("issuer mismatch"). `agents/mcp.py` swaps in the SDK's own `issuers_match` for that check: only a root
+  issuer with vs without its trailing slash is equal (RFC 3986 §6.2.3); a different scheme, host or path still fails
+  (`test_mcp_tools.py`). Remove when the SDK fixes it.
 - Gmail tool/arg names are fitted to the server's schema (only read-only names; `ReadOnlyMcp` re-checks each call).
 
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)

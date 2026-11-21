@@ -97,6 +97,26 @@ logging.getLogger("mcp.client.auth.oauth2").addFilter(
 )
 
 
+def _validate_issuer(oauth_metadata: Any, expected_issuer: str) -> None:
+    """SDK issuer check, but a root issuer with/without its trailing slash counts as the same (RFC 3986 §6.2.3; the
+    SDK's own `issuers_match`). Google's PRM URL gains a "/" through pydantic while its metadata issuer has none, so
+    the SDK's strict compare broke every Gmail sign-in/refresh. Any other difference still fails."""
+    if not _issuers_match(str(oauth_metadata.issuer), expected_issuer):
+        raise OAuthFlowError(
+            f"Authorization server metadata issuer mismatch: {oauth_metadata.issuer} != {expected_issuer}"
+        )
+
+
+try:
+    from mcp.client.auth import oauth2 as _sdk_oauth2
+    from mcp.client.auth.utils import issuers_match as _issuers_match
+
+    if hasattr(_sdk_oauth2, "validate_metadata_issuer"):
+        _sdk_oauth2.validate_metadata_issuer = _validate_issuer
+except ImportError:  # older SDK without the strict issuer check: nothing to relax
+    pass
+
+
 @dataclass
 class McpTool:
     """One tool from one server, in app-internal form."""

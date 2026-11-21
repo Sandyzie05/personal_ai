@@ -335,3 +335,23 @@ class TestOAuthCallbackServer:
 
         assert server.redirect_uri.startswith("http://localhost:")
         assert server.port > 0
+
+
+def test_google_root_issuer_trailing_slash_accepted_other_mismatches_rejected():
+    """Gmail sign-in broke on 'https://accounts.google.com != https://accounts.google.com/' (SDK strict compare)."""
+    from types import SimpleNamespace
+
+    import pytest
+    from mcp.client.auth import OAuthFlowError
+    from mcp.client.auth import oauth2
+
+    import src.agents.mcp  # noqa: F401  (installs the relaxed check)
+
+    check = oauth2.validate_metadata_issuer
+    check(SimpleNamespace(issuer="https://accounts.google.com"), "https://accounts.google.com/")
+    check(SimpleNamespace(issuer="https://accounts.google.com/"), "https://accounts.google.com")
+    for issuer, expected in (("https://evil.example", "https://accounts.google.com/"),
+                             ("https://a.example/tenant", "https://a.example/tenant/"),
+                             ("http://accounts.google.com", "https://accounts.google.com/")):
+        with pytest.raises(OAuthFlowError):
+            check(SimpleNamespace(issuer=issuer), expected)
