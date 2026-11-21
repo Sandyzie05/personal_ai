@@ -652,6 +652,8 @@ def _render_mcp_server_card(
                 )
 
         if server.get("enabled", False):
+            if server.get("kind") == "remote":
+                _render_oauth_client(vault, server)
             if st.button("Test read access", icon=":material/fact_check:", key=f"mcp_probe_{server_id}",
                          help="Signs in if needed (browser), lists tools and makes one read-only call."):
                 with st.spinner("Testing (a browser window may open)..."):
@@ -679,6 +681,34 @@ def _render_mcp_server_card(
                     st.markdown(f"**{tool.name}** — {badge}")
                     if tool.description:
                         st.caption(tool.description)
+
+
+def _render_oauth_client(vault: Any, server: Dict[str, Any]) -> None:
+    """The user's own OAuth client for servers without dynamic registration (Google). One form, one Save."""
+    from src.agents.mcp import VaultTokenStorage, server_scope
+
+    storage = VaultTokenStorage(vault, server["id"])
+    current = storage.preregistered_client_id()
+    with st.expander(":material/key: OAuth client" + (" (your own client set)" if current else "")):
+        st.caption(
+            "Needed when the server does not let apps register themselves (Google: Cloud Console → enable the Gmail "
+            "API and Gmail MCP API → OAuth consent screen with yourself as test user → Credentials → OAuth client ID, "
+            "type Desktop app; Google's personal-mode setup works too). A Web application client also needs the "
+            "redirect URI http://localhost:<port>/callback registered and PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT=<port> "
+            "set before make run. Stored encrypted in the vault. Saving a new client signs you out of the old one."
+        )
+        if current:
+            st.text(f"Client ID: {current[:12]}…")
+        with st.form(f"mcp_oauth_{server['id']}", border=False):
+            cid = st.text_input("Client ID", placeholder="1234-abc.apps.googleusercontent.com")
+            secret = st.text_input("Client secret", type="password")
+            scope = st.text_input("Scope (space-separated; least privilege)", value=server_scope(server) or "",
+                                  help="Gmail defaults to gmail.readonly. Never add send/modify/delete scopes here.")
+            if st.form_submit_button("Save OAuth client"):
+                if cid.strip():
+                    storage.set_preregistered_client(cid, secret)
+                store.save_mcp_server(vault, {**server, "oauth_scope": scope.strip()})
+                st.success("Saved. Press Test read access to sign in.")
 
 
 def _render_probe(r: Optional[Dict[str, Any]]) -> None:

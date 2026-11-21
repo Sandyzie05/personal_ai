@@ -463,6 +463,15 @@ agent, deny by default.)
   insufficient_scope) is now granted in the browser. Output = counts, tool name, ok flag, code-built error; no server text.
 - Email Digest agent: tools fitted to the server schema, each recent thread read (≤ 10, newest message) and passed only to
   `digest_emails` (quarantine); a needs-auth prefetch now tells the user how to sign in instead of "unavailable".
+- **Own OAuth client + read-only scope (fix).** Google's authorization server has no `registration_endpoint` and no
+  client-metadata documents (checked against its public metadata), so the SDK's dynamic registration got a 404 and Gmail
+  could never be authorized for reads (listing tools works without auth, which hid this). The user now enters their own
+  OAuth client (Agents → MCP Servers → OAuth client; Desktop app type, or Web with a fixed
+  `PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT`), stored encrypted in the server's `mcp_oauth_<id>` record; saving one drops old
+  tokens. Scope is pinned: with no challenge scope the SDK requested EVERY scope the resource lists (send, delete, full
+  mail). `server_scope` requests `gmail.readonly` for Gmail (or the server's saved least-privilege scope) and overrides the
+  SDK's choice at authorization time. Google sign-in adds `access_type=offline&prompt=consent` so a refresh token is
+  issued. Registration errors map to a code-built hint; the server's HTML body is neither shown nor logged.
 - Gmail tool/arg names are fitted to the server's schema (only read-only names; `ReadOnlyMcp` re-checks each call).
 
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)

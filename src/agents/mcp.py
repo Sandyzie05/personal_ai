@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, urlparse
 
 from mcp import types
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError
+from mcp.client.auth.exceptions import OAuthRegistrationError
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
@@ -46,7 +47,7 @@ from mcp.shared.auth import (
 )
 
 from src.agents import store
-from src.config import MCP_OAUTH_TIMEOUT_SECONDS, MCP_TOOL_RESULT_MAX_CHARS
+from src.config import MCP_OAUTH_CALLBACK_PORT, MCP_OAUTH_TIMEOUT_SECONDS, MCP_TOOL_RESULT_MAX_CHARS
 from src.data_vault import DataVaultError
 
 # A hung MCP server (remote or stdio) must not wedge the Streamlit rerun
@@ -94,8 +95,9 @@ class _NeedsAuth(McpError):
 
 
 # The SDK logs a full traceback for our expected non-interactive "needs auth" signal; the UI already shows it.
+# Registration failures dump the server's HTML page; the UI shows a code-built hint instead.
 logging.getLogger("mcp.client.auth.oauth2").addFilter(
-    lambda r: not (r.exc_info and isinstance(r.exc_info[1], _NeedsAuth))
+    lambda r: not (r.exc_info and isinstance(r.exc_info[1], (_NeedsAuth, OAuthRegistrationError)))
 )
 
 
@@ -151,6 +153,12 @@ def _to_mcp_error(exc: Exception, server_name: str) -> McpError:
         )
     if isinstance(exc, McpError):
         return exc
+    if isinstance(exc, OAuthRegistrationError):  # response body (HTML) is server text: never shown
+        return McpError(
+            f"Server '{server_name}' does not let apps register themselves. Add your own OAuth client ID "
+            "(and secret) for it in Agents → MCP Servers → OAuth client, then Test read access.",
+            needs_auth=True,
+        )
     if isinstance(exc, OAuthFlowError):
         # Covers failed refresh, unusable registration, token exchange -
         # the remediation for all of them is (re-)authorization.
@@ -163,7 +171,7 @@ def _to_mcp_error(exc: Exception, server_name: str) -> McpError:
         isinstance(leaf, BaseExceptionGroup) and leaf.exceptions
     ):  # anyio TaskGroup hides the real cause
         leaf = leaf.exceptions[0]
-    if isinstance(leaf, (_NeedsAuth, OAuthFlowError)):
+    if isinstance(leaf, (_NeedsAuth, OAuthFlowError)):  # incl. OAuthRegistrationError
         return _to_mcp_error(leaf, server_name)
     if (
         leaf is not exc
@@ -253,6 +261,25 @@ class VaultTokenStorage:
         record["client_info"] = info.model_dump(mode="json")
         self._save(record)
 
+    def set_preregistered_client(self, client_id: str, client_secret: str = "") -> None:
+        """The user's own OAuth client (servers without dynamic registration, e.g. Google). Encrypted in this record;
+        replacing it drops tokens issued to the previous client."""
+        record = self._load()
+        record["client_info"] = OAuthClientInformationFull(
+            client_id=client_id.strip(),
+            client_secret=client_secret.strip() or None,
+            token_endpoint_auth_method="client_secret_post" if client_secret.strip() else "none",
+            redirect_uris=["http://localhost/callback"],
+        ).model_dump(mode="json")
+        record["preregistered"] = True
+        record.pop("tokens", None)
+        record.pop("expires_at", None)
+        self._save(record)
+
+    def preregistered_client_id(self) -> Optional[str]:
+        record = self._load()
+        return (record.get("client_info") or {}).get("client_id") if record.get("preregistered") else None
+
     def has_credentials(self) -> bool:
         """Sync check for the UI: stored tokens or a registered client."""
         record = self._load()
@@ -263,7 +290,17 @@ class VaultTokenStorage:
 
 class _VaultOAuthProvider(OAuthClientProvider):
     """Restores the stored token expiry so an expired access token is refreshed silently (refresh_token grant)
-    instead of being sent and bounced into an interactive re-authorization."""
+    instead of being sent and bounced into an interactive re-authorization. `pinned_scope` replaces the SDK's scope
+    choice, which falls back to EVERY scope the resource lists (for Gmail: send, delete, full mail)."""
+
+    def __init__(self, *args: Any, pinned_scope: Optional[str] = None, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._pinned_scope = pinned_scope
+
+    async def _perform_authorization_code_grant(self):
+        if self._pinned_scope:
+            self.context.client_metadata.scope = self._pinned_scope
+        return await super()._perform_authorization_code_grant()
 
     async def _initialize(self) -> None:
         await super()._initialize()
@@ -290,7 +327,7 @@ class _OAuthCallbackServer:
     def __init__(self):
         self._event = threading.Event()
         self._params: Dict[str, str] = {}
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._make_handler())
+        self._server = ThreadingHTTPServer(("127.0.0.1", MCP_OAUTH_CALLBACK_PORT), self._make_handler())
         self.port = self._server.server_address[1]
         self.redirect_uri = f"http://localhost:{self.port}/callback"
         self._thread: Optional[threading.Thread] = None
@@ -367,6 +404,30 @@ def extract_tool_result_text(
     if len(text) > max_chars:
         text = text[:max_chars] + "\n[truncated]"
     return text
+
+
+GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+
+
+def server_scope(server: Dict[str, Any]) -> Optional[str]:
+    """The OAuth scope to request: the server's saved scope, else read-only for Gmail (least privilege), else the
+    SDK's choice."""
+    scope = str(server.get("oauth_scope") or "").strip()
+    if scope:
+        return scope
+    if re.search(r"gmail|google mail", str(server.get("name", "")), re.I) or "gmailmcp.googleapis.com" in str(
+        server.get("url", "")
+    ):
+        return GMAIL_READONLY_SCOPE
+    return None
+
+
+def _google_offline(url: str) -> str:
+    """Google issues a refresh token only with access_type=offline (+ consent); without it, silent refresh is
+    impossible and every hour needs the browser."""
+    if urlparse(url).netloc == "accounts.google.com" and "access_type=" not in url:
+        return url + "&access_type=offline&prompt=consent"
+    return url
 
 
 _PROBE_QUERY = re.compile(r"^(search|list)_")
@@ -616,6 +677,7 @@ class McpManager:
             assert callback_server is not None
 
             async def redirect_handler(url: str) -> None:
+                url = _google_offline(url)
                 self.last_auth_url = url
                 await asyncio.to_thread(webbrowser.open, url)
 
@@ -653,6 +715,7 @@ class McpManager:
             storage,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
+            pinned_scope=server_scope(server),
         )
 
     async def _list_tools_async(

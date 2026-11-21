@@ -4,6 +4,13 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: Gmail needs your own OAuth client; scope pinned read-only
+
+- Google has no dynamic client registration (`/register` 404). Agents → MCP Servers → *OAuth client* takes your client
+  ID/secret (encrypted); `PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT` for Web-type clients.
+- Security: the SDK would have requested every Gmail scope (send/delete/full mail); now `gmail.readonly` is pinned.
+  Google sign-in requests offline access so tokens refresh silently. No HTML error dumps in the terminal.
+
 ## (pending) - 2026-11-21 - fix: Gmail silent token refresh, Test read access, Email Digest agent
 
 - Root cause of "authorization expired" right after Reconnect: token expiry was never persisted, so stale tokens were sent

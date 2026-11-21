@@ -188,6 +188,9 @@ DEFAULT_AGENT_MAX_TOOL_ROUNDS = int(
 # How long the local OAuth callback listener waits for the user to finish
 # authorizing a remote MCP server in the browser.
 MCP_OAUTH_TIMEOUT_SECONDS = int(os.environ.get("PERSONAL_AI_MCP_OAUTH_TIMEOUT", "300"))
+# 0 = a random free port per sign-in (fine for Google "Desktop app" clients). A Google "Web application" client needs
+# a fixed one: set e.g. 8765 and add http://localhost:8765/callback to its Authorized redirect URIs.
+MCP_OAUTH_CALLBACK_PORT = int(os.environ.get("PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT", "0"))
 
 # A tool's result is truncated to this many characters before it re-enters
 # the model's context (a single tool can return large payloads - e.g. a

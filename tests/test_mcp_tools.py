@@ -436,3 +436,46 @@ def test_probe_reports_listing_and_read_call(tmp_path, monkeypatch):
     r = m.probe(sid)
     assert r["listed"] and (r["read"], r["write"]) == (1, 1) and r["probe_ok"] and calls == ["search_threads"]
     assert store.get_mcp_server(vault, sid)["last_status"] == "connected"
+
+
+def test_registration_404_gives_own_client_hint_without_server_html():
+    from mcp.client.auth.exceptions import OAuthRegistrationError
+
+    from src.agents.mcp import _to_mcp_error
+
+    e = _to_mcp_error(BaseExceptionGroup("tg", [OAuthRegistrationError("Registration failed: 404 <!DOCTYPE html>")]), "Gmail")
+    assert e.needs_auth and "own OAuth client" in str(e) and "<" not in str(e)
+
+
+def test_preregistered_client_is_used_and_scope_pinned_read_only(tmp_path):
+    from src.agents.mcp import GMAIL_READONLY_SCOPE, _google_offline, _VaultOAuthProvider, server_scope
+    from mcp.shared.auth import OAuthClientMetadata
+
+    storage = VaultTokenStorage(make_vault(tmp_path), "gm")
+    storage.set_preregistered_client("abc.apps.googleusercontent.com", "s3cret")
+    assert storage.preregistered_client_id() == "abc.apps.googleusercontent.com"
+    assert server_scope({"name": "Gmail"}) == GMAIL_READONLY_SCOPE and server_scope({"name": "Robinhood"}) is None
+    assert server_scope({"name": "Gmail", "oauth_scope": "x"}) == "x"
+    seen = []
+
+    class Stop(Exception):
+        pass
+
+    async def redirect(url):
+        seen.append(url)
+        raise Stop()
+
+    async def cb():
+        raise Stop()
+
+    meta = OAuthClientMetadata(client_name="t", redirect_uris=["http://localhost:1/callback"], token_endpoint_auth_method="none")
+    p = _VaultOAuthProvider("https://gmailmcp.googleapis.com/mcp/v1", meta, storage, redirect_handler=redirect,
+                            callback_handler=cb, pinned_scope=GMAIL_READONLY_SCOPE)
+    asyncio.run(p._initialize())
+    assert p.context.client_info.client_id == "abc.apps.googleusercontent.com"  # no dynamic registration needed
+    p.context.client_metadata.scope = "https://mail.google.com/ https://www.googleapis.com/auth/gmail.send"  # SDK's pick
+    with pytest.raises(Stop):
+        asyncio.run(p._perform_authorization_code_grant())
+    assert "gmail.readonly" in seen[0] and "gmail.send" not in seen[0] and "mail.google.com" not in seen[0]
+    assert _google_offline("https://accounts.google.com/o/oauth2/v2/auth?a=1").endswith("access_type=offline&prompt=consent")
+    assert _google_offline("https://example.com/auth?a=1") == "https://example.com/auth?a=1"
