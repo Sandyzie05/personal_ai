@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:45:40+00:00",
+  "generated_at": "2026-11-21T18:50:13+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -18,7 +18,7 @@
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.666,
+      "measured": 0.663,
       "pass": true,
       "hard": false
     },
@@ -186,7 +186,7 @@
     {
       "metric": "Stress set: action + figures correct (coordinated)",
       "target": "100% of non-pending",
-      "measured": "100% (44/44; 8 pending)",
+      "measured": "100% (52/52; 0 pending)",
       "pass": true,
       "hard": true
     },
@@ -248,7 +248,7 @@
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.666,
+        "ratio": 0.663,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3
@@ -310,7 +310,7 @@
         7
       ],
       "ambiguous": [
-        0,
+        8,
         8
       ]
     },

@@ -477,8 +477,8 @@ def _two_cards() -> Tuple[Dict[str, Any], ...]:
 
 
 STRESS: List[StressCase] = _build()
-# Ambiguous cases need P3's clarify step; until it lands they are reported but not gated.
-PENDING_P3 = {c.id for c in STRESS if c.kind == "ambiguous"}
+# Ambiguous cases were reported-not-gated until P3's clarify step landed; P3 is in, so nothing is pending.
+PENDING_P3: set = set()
 
 
 def evaluate() -> Dict[str, Any]:

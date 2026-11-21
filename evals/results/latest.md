@@ -1,10 +1,10 @@
-# Eval results (2026-11-21T18:45:40+00:00)
+# Eval results (2026-11-21T18:50:13+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
 | Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.403 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.666 | info |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.663 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |
@@ -28,7 +28,7 @@
 | ToT bounded search: max nodes / LLM critic reviews (one per non-converged case) | <= 9 / <= cases | 7 / 3 of 8 | PASS |
 | Core Memory: unauthorized commits | 0 | 0 / 114 attempts | PASS |
 | Core Memory: pending survives restart | yes | true | PASS |
-| Stress set: action + figures correct (coordinated) | 100% of non-pending | 100% (44/44; 8 pending) | PASS |
+| Stress set: action + figures correct (coordinated) | 100% of non-pending | 100% (52/52; 0 pending) | PASS |
 | Stress set, B1 single-agent baseline | info | 30/52 | info |
 | Evidence relevance: wrong-record citations caught | 100% | 100% (7/7) | PASS |
 | Planner chose the expected specialists (golden + stress) | >= 90% | 100% (72/72) | PASS |

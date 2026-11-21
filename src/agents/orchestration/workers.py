@@ -124,6 +124,57 @@ def named_account(
     return hits[0] if len(hits) == 1 else None
 
 
+PERIOD_WORDS = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|"
+    r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|q[1-4]|quarters?|quarterly|20\d\d|this|last|latest|recent\w*|current|"
+    r"previous|past|months?|monthly|weeks?|years?|today|ytd)\b",
+    re.I,
+)
+AMOUNT_WORDS = re.compile(
+    r"\b(?:how much|what (?:was|is|were|are) my|total|amount|owe|due|cost)\b", re.I
+)
+CLARIFY = {  # fixed templates (S16): only counts and allowlisted labels are interpolated
+    "period": 'Which period do you mean? Name a month or quarter, e.g. "September 2026" or "Q3 2026".',
+    "account": "Which account do you mean? You have {n} {category} accounts on file: {labels}. "
+    "Name one (its nickname or last 4 digits).",
+    "ticker": 'Which ticker do you mean? Name it, e.g. "$NVDA" or "research AAPL".',
+}
+
+
+def ambiguity(query: str, records: Sequence[Dict[str, Any]]) -> Optional[str]:
+    """P3: `period` | `account` | `ticker` when the question cannot be answered without guessing, else None.
+    Pure and rule-based; at most one type per turn (checked in this order)."""
+    bills = bool(BILL_WORDS.search(query))
+    if bills and AMOUNT_WORDS.search(query) and not PERIOD_WORDS.search(query):
+        return "period"
+    category = _category(query)
+    if (
+        bills
+        and category
+        and len(account_labels(records, category)) >= 2
+        and not named_account(query, records, category)
+    ):
+        return "account"
+    if (
+        MARKET_WORDS.search(query)
+        and not _tickers(query)
+        and not bills
+        and not HOLDINGS_WORDS.search(query)
+    ):
+        return "ticker"
+    return None
+
+
+def clarify_question(kind: str, query: str, records: Sequence[Dict[str, Any]]) -> str:
+    if kind != "account":
+        return CLARIFY[kind]
+    category = _category(query)
+    labels = account_labels(records, category)
+    return CLARIFY["account"].format(
+        n=len(labels), category=category.replace("_", " "), labels=", ".join(labels[:6])
+    )
+
+
 def plan_for(query: str, max_symbols: int = 3) -> Plan:
     """Rule-based planner: deterministic and auditable. Market work depends on expense work
     when both are asked, so the budget constraint flows through the bus."""

@@ -7,6 +7,7 @@ All processing happens locally using open-source AI models.
 """
 
 import streamlit as st
+import secrets
 import sys
 import os
 from pathlib import Path
@@ -583,10 +584,17 @@ class PersonalAIInterface:
     ) -> None:
         """Coordinator turn: plan -> parallel specialists -> deterministic merge -> escalation."""
         from src.agents.orchestration import service
-        from src.agents.orchestration.workers import render_report
+        from src.agents.orchestration.workers import _md, render_report
         from src.ai_engine.engine import worker_client
         from src.interface.forecast import _scenario_factory
 
+        # P3: a reply to the clarifying question is re-planned together with the question it answers.
+        pending = st.session_state.pop("coord_clarify", None)
+        query = (
+            f"{pending['query']} {user_query}"
+            if pending and pending.get("session") == active_id
+            else user_query
+        )
         try:
             coordinator = service.build_coordinator(
                 self.vault,
@@ -598,19 +606,36 @@ class PersonalAIInterface:
             with st.status("Coordinator delegating to specialists...", expanded=True):
                 report = service.run_query(
                     coordinator,
-                    user_query,
+                    query,
                     only=agent.get("role")
                     if agent.get("id") != "builtin-coordinator"
                     else None,
                     planner_client=worker_client(self.chat_engine.ollama_client),
                 )
-            service.propose_from_report(self.vault, report)
-            answer = render_report(report)
-            answer += (
-                "\n\n_Parallel specialists: "
-                + ("overlapped" if report.parallel_overlap else "single step")
-                + f", {report.wall_s:.1f}s._"
-            )
+            clarify = next((e for e in report.escalations if e.kind == "clarify"), None)
+            if clarify is not None:
+                st.session_state["coord_clarify"] = {
+                    "session": active_id,
+                    "query": query,
+                }
+                answer = _md(clarify.detail)
+            else:
+                service.propose_from_report(self.vault, report)
+                answer = render_report(report)
+                answer += (
+                    "\n\n_Parallel specialists: "
+                    + ("overlapped" if report.parallel_overlap else "single step")
+                    + f", {report.wall_s:.1f}s._"
+                )
+            st.session_state["coord_last"] = {
+                "session": active_id,
+                "run_id": secrets.token_hex(6),
+                "escalations": [
+                    {"kind": e.kind, "claim_key": e.claim_key[:80]}
+                    for e in report.escalations
+                    if e.kind != "clarify"
+                ],
+            }
         except ValueError as exc:  # refusals, nothing delegable
             answer = str(exc)
         except (

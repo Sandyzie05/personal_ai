@@ -7,7 +7,7 @@ from src.config import FORECAST_STEP_TIMEOUT_SECONDS, PERSONAL_AI_LLM_PLANNER
 
 from . import memory, schedule
 from .bus import MessageBus
-from .coordinator import Coordinator, RunReport
+from .coordinator import Coordinator, Escalation, RunReport
 from .schemas import Plan
 from .policy import RequestRefused, screen
 from .ingest import (
@@ -19,6 +19,8 @@ from .ingest import (
 )
 from .verifier import records_evidence, verify_claims
 from .workers import (
+    ambiguity,
+    clarify_question,
     expense_worker,
     forecaster_worker,
     llm_plan,
@@ -153,6 +155,20 @@ def run_query(
     refusal = screen(query)
     if refusal:
         raise RequestRefused(refusal.kind)
+    records = getattr(coordinator, "records", None) or []
+    unclear = ambiguity(query, records)
+    if unclear:  # P3: one templated question, no steps run, nothing guessed
+        return RunReport(
+            steps=[],
+            claims={},
+            conflicts=[],
+            wall_s=0.0,
+            sum_step_s=0.0,
+            parallel_overlap=False,
+            escalations=[
+                Escalation("clarify", clarify_question(unclear, query, records))
+            ],
+        )
     plan = None
     if planner_client is not None and PERSONAL_AI_LLM_PLANNER:
         try:
@@ -162,7 +178,6 @@ def run_query(
     plan = plan or plan_for(query)
     if only:
         plan = _restrict(plan, only)
-    records = getattr(coordinator, "records", None) or []
     plan = Plan(
         steps=tuple(
             s.model_copy(
