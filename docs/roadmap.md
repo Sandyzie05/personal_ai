@@ -452,6 +452,8 @@ Slots in scope (Forecast first; other pages later):
 
 | Item | Note |
 |---|---|
+| LangGraph parity eval (optional) | Rebuild `plan_for` plans as a LangGraph `StateGraph` in `evals/` only; assert the same claims/escalations as `Coordinator.run` on the 30 golden tasks. No runtime dependency, no egress. Do this before any LangGraph adoption (`platform_plan.md` D13) |
+| Thought tree as read-only MCP resource (W4 plan) | `tot://<snapshot_id>`; optional, mention as planned if the write-up cites it |
 | News into ToT as quarantined, templated sentiment counts (was B17) | headlines are untrusted; injection eval must stay 0 |
 | stock_predictor port gaps (was B18) | ATR/volume in `technical_score`, fundamentals provider, optional 63-session horizon (`forecaster.md` Part 1) |
 | Optional LLM thought proposer | behind `Thought` validation, same call budget |
