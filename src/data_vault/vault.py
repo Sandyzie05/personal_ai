@@ -153,6 +153,7 @@ INTERNAL_VAULT_KEYS = {
     "agents_index",
     "mcp_servers",
     "agent_activity_log",
+    "agent_overrides",  # user tweaks to built-in agents (Agents tab)
     # Core Memory (pending proposals are UNAPPROVED, possibly untrusted-derived: must never be
     # indexed into RAG or shown as documents) and the scheduler.
     "core_memory",

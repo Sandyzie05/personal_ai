@@ -108,7 +108,7 @@ def seeded_vault():
 def test_opening_each_section_makes_no_network_calls(tmp_path, monkeypatch):
     calls = []
     at = _launch(tmp_path, monkeypatch, fake_providers(calls=calls))
-    for section in ("Recommendations", "Validation", "Events", "Drilldown & System", "Screens"):
+    for section in ("Watchlist", "Track record", "Events", "Drilldown", "Screens"):
         goto(at, section)
     assert calls == []
     assert at.session_state["synthetic_vault"].writes == []
@@ -116,20 +116,20 @@ def test_opening_each_section_makes_no_network_calls(tmp_path, monkeypatch):
 
 def test_recommendations_labelled_research_lean_with_partial_failure(tmp_path, monkeypatch):
     at = _launch(tmp_path, monkeypatch, fake_providers(fail={"MSFT"}))
-    goto(at, "Recommendations")
+    goto(at, "Watchlist")
     at.text_input[0].set_value("AAPL, MSFT, bad ticker")
     click(at, "Compute research leans")
     body = texts(at)
     assert "Research lean" in body and "not a buy/sell" in body
     assert "MSFT: market data unavailable" in body
     assert "Rejected" in body
-    assert at.table and "research lean" in at.table[0].value.columns
-    assert "buy" not in " ".join(str(c) for c in at.table[0].value.columns).lower()
+    assert at.dataframe and "research lean" in at.dataframe[0].value.columns
+    assert "buy" not in " ".join(str(c) for c in at.dataframe[0].value.columns).lower()
 
 
 def test_recommendations_all_unavailable_is_explicit(tmp_path, monkeypatch):
     at = _launch(tmp_path, monkeypatch, fake_providers(fail={"*"}))
-    goto(at, "Recommendations")
+    goto(at, "Watchlist")
     click(at, "Compute research leans")
     assert "No symbol passed" in texts(at)
     assert "market data unavailable" in texts(at)
@@ -137,12 +137,12 @@ def test_recommendations_all_unavailable_is_explicit(tmp_path, monkeypatch):
 
 def test_validation_empty_state_and_csv_download(tmp_path, monkeypatch):
     at = _launch(tmp_path, monkeypatch, fake_providers())
-    goto(at, "Validation")
+    goto(at, "Track record")
     assert "nothing to validate" in texts(at)
     assert not at.download_button
 
     at = _launch(tmp_path, monkeypatch, fake_providers(), vault=seeded_vault())
-    goto(at, "Validation")
+    goto(at, "Track record")
     assert at.download_button and at.download_button[0].label == "Download validation CSV"
     assert any("Directional accuracy: insufficient sample" in m.value for m in at.markdown)
 
@@ -151,7 +151,7 @@ def test_validation_flags_unreadable_records(tmp_path, monkeypatch):
     vault = seeded_vault()
     vault.records[forecast_page.SNAPSHOT_PREFIX + "broken"] = {"forecast": {"x": 1}}
     at = _launch(tmp_path, monkeypatch, fake_providers(), vault=vault)
-    goto(at, "Validation")
+    goto(at, "Track record")
     assert any("could not be read" in w.value for w in at.warning)
 
 
@@ -174,16 +174,19 @@ def test_events_unavailable_and_untrusted_rendering(tmp_path, monkeypatch):
 
 def test_drilldown_and_system_health(tmp_path, monkeypatch):
     at = _launch(tmp_path, monkeypatch, fake_providers())
-    goto(at, "Drilldown & System")
+    goto(at, "Track record")
     assert "No provider calls yet" in texts(at)
+    goto(at, "Drilldown")
     at.text_input[0].set_value("AAPL")
     click(at, "Load technicals")
     body = texts(at)
     assert "Unavailable: atr" in body and "Research lean" in body
+    assert at.table and "meaning" in at.table[0].value.columns
+    goto(at, "Track record")
     assert any("healthy" in str(t.value.to_dict()) for t in at.table)
 
     at = _launch(tmp_path, monkeypatch, fake_providers(fail={"*"}))
-    goto(at, "Drilldown & System")
+    goto(at, "Drilldown")
     at.text_input[0].set_value("AAPL")
     click(at, "Load technicals")
     assert any("unavailable" in w.value for w in at.warning)
@@ -194,13 +197,13 @@ def test_screens_run_and_unavailable(tmp_path, monkeypatch):
     goto(at, "Screens")
     click(at, "Run screen")
     assert "Analyzed 50 of 50" in texts(at)
-    assert at.table
+    assert at.dataframe
 
     at = _launch(tmp_path, monkeypatch, fake_providers(fail={"*"}))
     goto(at, "Screens")
     click(at, "Run screen")
     assert any("unavailable" in w.value for w in at.warning)
-    assert not at.table
+    assert not at.dataframe
 
 
 if __name__ == "__main__":

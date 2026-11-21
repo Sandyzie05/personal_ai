@@ -195,9 +195,14 @@ FORECAST_HTTP_MAX_BYTES = 4_000_000
 FORECAST_CACHE_TTL_SECONDS = 300.0
 FORECAST_CACHE_MAX_ENTRIES = 64
 FORECAST_RESEARCH_DEADLINE_SECONDS = 45.0
-FORECAST_SCENARIO_DEADLINE_SECONDS = 60.0
+# 4 critics share PERSONAL_AI_INFERENCE_CONCURRENCY slots, so the run budget covers ceil(4 / slots) rounds of one call
+# each (a 60 s total let the second pair time out on a 27B model). Explainer calls get one more round.
+FORECAST_SPECIALIST_CALL_SECONDS = float(os.environ.get("PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS", "45"))
+FORECAST_SCENARIO_DEADLINE_SECONDS = min(
+    300.0, -(-4 // PERSONAL_AI_INFERENCE_CONCURRENCY) * FORECAST_SPECIALIST_CALL_SECONDS
+)
 FORECAST_MODEL_CALL_BUDGET = 8
-FORECAST_MODEL_MAX_TOKENS = 400
+FORECAST_MODEL_MAX_TOKENS = 700  # 400 truncated reasoning-model JSON
 FORECAST_SNAPSHOT_MAX_CHARS = 18000
 FORECAST_MODEL_OUTPUT_MAX_CHARS = 5000
 # Prefixed names win; the providers' conventional names (as people usually write them in .env) also work.

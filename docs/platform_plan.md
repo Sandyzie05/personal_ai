@@ -47,6 +47,7 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S14 | oMLX host must be loopback unless explicitly opted in; the bearer token is never sent through redirects/proxies | `omlx_client.py` | `test_audit_regressions.py` |
 | S15 | The vault (sqlite) is touched only on the calling thread: workers get snapshots, audit writes happen after the run | `service.py`, `ingest.py` | `test_audit_regressions.py` |
 | S16 | Untrusted-derived text never reaches a `Finding.summary`/prompt: summaries are templated, free-text schema fields are closed enums or tight allowlists, all rendered output is markdown-escaped | `schemas.py`, `ingest.py`, `workers.render_report` | eval row, `test_audit_regressions.py` |
+| S17 | Workflow-slot agents: tools, output schema and budget are fixed by the slot; user tweaks touch only `EDITABLE_FIELDS`; the shared safety rules stay last; slot runs log ids/status only | `agents/slots.py`, `store.builtin_agent`, `templates.compose_instructions` | `test_agent_overrides.py`, `test_slots_explain.py`, `test_agents_page_smoke.py` |
 | S12 | Skills are instructions only (no personal data); installer never overwrites user edits | `orchestration/skill_pack.py` | `test_orchestration_service.py` |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
@@ -87,6 +88,8 @@ retrieval loops inside the retriever.
 | `.../service.py` | UI wiring | `build_coordinator(vault, get_records, scenario_factory, extra_workers)`, `run_query` (applies policy), `propose_from_report` |
 | `src/agents/{runtime,mcp,store,skills}.py` | v1 agent loop, MCP, vault records | see `multi_agent_design.md` |
 | `src/forecaster/*.py` | Public-data research | `research`, `scenarios`, `outcomes`, `technical`, `recommend`, `screens`, `news`, `report`, `health`, `providers` |
+| `src/agents/slots.py` | Workflow slots: fixed default agent per AI step, tool clamp, skills folded in | `SLOTS`, `agent_for(vault, slot_id)`, `critic_agents(vault)`, `log_run` |
+| `src/forecaster/explain.py` | Thesis / watchlist explainer agents (closed schema, grounded numbers) | `explain_thesis`, `explain_leans` |
 | `src/forecaster/tot.py` | Tree-of-Thought thesis search (Week 4) | `search(snapshot, critique) -> ThoughtTree`; `Thought`, `Node`; design + rationale in [forecaster.md](forecaster.md) Part 2 |
 | `src/ai_engine/engine.py` | Client factory | `build_chat_client`, `build_embed_client`, `client_kwargs_from_config`, `EngineDisabledError` |
 | `src/ai_engine/omlx_client.py` | oMLX client | OpenAI-shape chat/embeddings, tool-call mapping (`_to_openai_messages`, `_from_openai_message`) |

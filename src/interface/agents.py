@@ -139,24 +139,37 @@ def _agent_form(
     k = lambda name: f"{key_prefix}_{name}"
     base = store.new_agent_defaults()
     agent = agent or base
+    builtin = bool(agent.get("built_in")) and str(agent.get("id", "")).startswith("builtin-")
+    if builtin:
+        st.caption("System agent: identity, role rules, tool limits and the shared safety rules are fixed. "
+                   "You can tweak the model, temperature, max tokens, extra instructions, skills"
+                   + (" and tool servers." if agent.get("max_tool_rounds") else ".")
+                   + " Reset restores the shipped defaults.")
+        with st.expander("Fixed role rules", expanded=False):
+            st.text(agent.get("role_rules", ""))
 
-    name = st.text_input("Name", value=agent.get("name", ""), key=k("name"))
+    name = st.text_input("Name", value=agent.get("name", ""), key=k("name"), disabled=builtin)
     description = st.text_input(
-        "Description", value=agent.get("description", ""), key=k("description")
+        "Description", value=agent.get("description", ""), key=k("description"), disabled=builtin
     )
     icon = st.text_input(
         "Icon (Material Symbol)",
         value=agent.get("icon", ":material/agent_duo:"),
         key=k("icon"),
+        disabled=builtin,
     )
 
     capabilities = clients.model_capabilities()
-    models = _model_options(clients, agent.get("model") or DEFAULT_CHAT_MODEL)
+    current = agent.get("model") or ("" if builtin and not agent.get("model") else DEFAULT_CHAT_MODEL)
+    models = _model_options(clients, current or DEFAULT_CHAT_MODEL)
+    if builtin and "" not in models:
+        models = [""] + models  # "" = the app's configured (worker) model
     model = st.selectbox(
         "Model",
         models,
-        index=models.index(agent.get("model") or DEFAULT_CHAT_MODEL),
-        format_func=lambda m: f"{m} (tools)" if "tools" in capabilities.get(m, []) else m,
+        index=models.index(current) if current in models else 0,
+        format_func=lambda m: "App default (configured chat / worker model)" if not m
+        else f"{m} (tools)" if "tools" in capabilities.get(m, []) else m,
         key=k("model"),
     )
 
@@ -201,11 +214,13 @@ def _agent_form(
             value=int(agent.get("max_tool_rounds", DEFAULT_AGENT_MAX_TOOL_ROUNDS)),
             step=1,
             key=k("max_rounds"),
+            disabled=builtin,
         )
 
     instructions = st.text_area(
-        "Instructions (added to the agent's system prompt)",
-        value=agent.get("instructions", ""),
+        "Extra instructions (added after the role rules, before the safety rules)" if builtin
+        else "Instructions (added to the agent's system prompt)",
+        value=agent.get("extra_instructions", "") if builtin else agent.get("instructions", ""),
         height=120,
         key=k("instructions"),
     )
@@ -214,6 +229,7 @@ def _agent_form(
         "Ground answers in your vault (RAG)",
         value=bool(agent.get("rag_enabled", True)),
         key=k("rag_enabled"),
+        disabled=builtin,
     )
     scope = st.multiselect(
         "RAG scope (empty = all categories)",
@@ -236,6 +252,7 @@ def _agent_form(
         default=[sid for sid in (agent.get("mcp_server_ids") or []) if sid in server_options],
         format_func=lambda sid: server_labels.get(sid, sid),
         key=k("servers"),
+        disabled=builtin and not agent.get("max_tool_rounds"),
     )
 
     skill_list = skills.list_skills()
@@ -252,6 +269,7 @@ def _agent_form(
         "Require confirmation before state-changing tools",
         value=bool(agent.get("require_tool_confirmation", True)),
         key=k("require_confirm"),
+        disabled=builtin,
     )
 
     # Warnings the user should see before saving (design doc §9):
@@ -279,7 +297,8 @@ def _agent_form(
         "temperature": temperature,
         "max_tokens": int(max_tokens),
         "context_window_tokens": int(context_window),
-        "instructions": instructions,
+        "instructions": agent.get("instructions", "") if builtin else instructions,
+        "extra_instructions": instructions if builtin else "",
         "rag_enabled": bool(rag_enabled),
         "rag_scope_categories": list(scope),
         "mcp_server_ids": list(server_ids),
@@ -292,7 +311,8 @@ def _agent_form(
 def _render_agents_tab(vault: Any, clients: Any) -> None:
     details = clients.model_details()
     servers = store.list_mcp_servers(vault)
-    agents = [store.general_agent()] + store.list_agents(vault)
+    custom = store.list_agents(vault)
+    system = store.list_builtin_agents(vault)
 
     editing = st.session_state.get("agents_editing_id")  # "new" or an agent id
     if editing is None:
@@ -300,11 +320,21 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
             st.session_state["agents_editing_id"] = "new"
             st.rerun()
 
+    group = st.segmented_control(
+        "Show", ["My agents", "Forecast workflow", "Platform"], default="My agents", key="agents_group"
+    ) or "My agents"
+    agents = ([store.general_agent()] + custom if group == "My agents"
+              else [a for a in system if a.get("group") == ("Forecast" if group == "Forecast workflow" else "Platform")])
+    if group == "Forecast workflow":
+        st.caption("These agents run the Forecast page's AI steps. Each step uses its agent here; tweak them to change "
+                   "model, temperature or instructions. Tools, output format and time budget are fixed per step.")
+
     for agent in agents:
         with st.container(border=True):
             head_col, actions_col = st.columns([5, 2])
             with head_col:
                 badge = " `built-in`" if agent.get("built_in") else ""
+                badge += " `tweaked`" if agent.get("tweaked") else ""
                 st.markdown(
                     f"{agent.get('icon', ':material/agent:')} **{agent['name']}**{badge}"
                 )
@@ -316,13 +346,20 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
                     if s["id"] in (agent.get("mcp_server_ids") or [])
                 ]
                 st.caption(
-                    f"Model {agent.get('model', '?')} · "
+                    f"Model {agent.get('model') or 'app default'} · "
                     f"{len(attached)} tool server(s) · "
                     f"RAG {'on' if agent.get('rag_enabled') else 'off'} · "
                     f"skills: {len(agent.get('skills') or [])}"
                 )
             with actions_col:
-                if not agent.get("built_in"):
+                if str(agent.get("id", "")).startswith("builtin-"):
+                    if st.button("Tweak", key=f"agent_edit_{agent['id']}"):
+                        st.session_state["agents_editing_id"] = agent["id"]
+                        st.rerun()
+                    if agent.get("tweaked") and st.button("Reset", key=f"agent_reset_{agent['id']}"):
+                        store.reset_agent(vault, agent["id"])
+                        st.rerun()
+                elif not agent.get("built_in"):
                     if st.button("Edit", key=f"agent_edit_{agent['id']}"):
                         st.session_state["agents_editing_id"] = agent["id"]
                         st.rerun()
@@ -336,7 +373,7 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
             if existing is None:
                 st.session_state.pop("agents_editing_id", None)
                 st.rerun()
-        title = "New Agent" if existing is None else f"Edit {existing['name']}"
+        title = "New Agent" if existing is None else f"{'Tweak' if existing.get('built_in') else 'Edit'} {existing['name']}"
         with st.expander(f":material/edit: {title}", expanded=True):
             fields = _agent_form(clients, details, servers, existing, key_prefix=editing)
             save_col, cancel_col = st.columns([1, 1])

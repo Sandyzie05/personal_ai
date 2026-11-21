@@ -4,6 +4,21 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat: Track F - Forecast overhaul on configurable workflow agents
+
+- F1 critics: the model no longer has to echo snapshot/role/scenario/source ids (code fills them; a contradicting echo is still
+  rejected); `<think>` blocks and code fences stripped; closed `invalid_reason`; queue-aware budget
+  (`FORECAST_SPECIALIST_CALL_SECONDS` x ceil(4 / concurrency), 90 s at concurrency 2); max tokens 400 -> 700; latency per critic.
+- F2 built-in agents are tweakable (vault `agent_overrides`, internal key; editable fields only; Reset); Agents tab lists
+  My agents / Forecast workflow / Platform.
+- F3/F4 `src/agents/slots.py`: fixed default agent per AI step, tools clamped, skills folded in; 4 critic agents + thesis and
+  watchlist explainers (`src/forecaster/explain.py`, closed schemas, numbers must come from the input); new skill
+  `forecast-critic`; critic agents also used by the Coordinator.
+- F5-F9 Forecast page: Research is one flow (evidence + chart -> AI review with agent chips -> verdict -> track); Watchlist with
+  sparklines and AI explanation; Events layout; Screens/Drilldown with charts and "Research this ticker"; Track record explains
+  what it measures, System health shows configured sources. F10 Chat selector lists every chat-capable system agent + custom.
+- Invariant S17 (slot agents). Tests: `test_agent_overrides.py`, `test_slots_explain.py`, new AppTests; 770 pass, `make eval` PASS.
+
 ## (pending) - 2026-11-21 - docs: plan Track F (Forecast overhaul on configurable agents)
 
 - `roadmap.md`: Track F (F1-F10) goes before the P-cards (user decision). Workflow slots with fixed default agents that are

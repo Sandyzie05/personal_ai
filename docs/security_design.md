@@ -267,7 +267,7 @@ CLI the user runs locally; nothing is enabled by default.
 
 The authenticated Streamlit app now has a Forecast page for explicit public
 US-ticker research at 5/21 trading-session horizons. Clicking **Research
-ticker** requests public provider data; **Run local specialists** is a separate
+ticker** requests public provider data; **Run AI review** (formerly Run local specialists) is a separate
 action using the existing inference factory and saved settings. The
 specialist endpoint must name a loopback IP or `localhost`;
 remote saved inference endpoints are rejected by this page. Forecast-only
@@ -392,10 +392,22 @@ Public provider requests (Yahoo chart/search, Alpha Vantage, FRED) send a fixed 
 override `PERSONAL_AI_HTTP_USER_AGENT`) instead of httpx's default, which Yahoo rate-limits. It identifies the app only,
 never the user or host. SEC requests keep the user-configured contact UA that SEC requires. No other egress change.
 
+## Forecast workflow agents (2026-11-21)
+
+- Built-in agents are tweakable through `agent_overrides` (an internal vault key: encrypted, never indexed or listed as a
+  document). Only `EDITABLE_FIELDS` apply (model, temperature, max tokens, extra instructions, skills, MCP servers); a tool-less
+  role stays tool-less; role rules and the shared safety rules are not editable and the safety rules are always last.
+- Workflow slots (`src/agents/slots.py`) clamp tools at call time (forecast slots: none), fix the output schema and the budget.
+  Critic and explainer inputs are public snapshot data only; the vault, chat and holdings never reach them.
+- Critics no longer echo identity fields; code fills snapshot, role, scenario and source ids, and an echoed value that disagrees
+  is still rejected. Evidence ids must come from the snapshot. Explainer output is rejected if it cites unknown ids/symbols or
+  contains a number absent from its input; it is rendered with `st.text` (no markdown).
+- Activity log entries for slot runs carry ids, status, latency and a closed reason only (no prompt or model text).
+
 ## Planned controls (2026-11-20)
 
 Specified in `docs/roadmap.md`, not implemented: composed (multi-hop / shared-memory) leakage eval (P4), Core Memory read path with a
-no-bus-edge rule, proposed invariant S17 (P5), verifier relevance check (P2), reviewer decision log without values (P6).
+no-bus-edge rule, proposed invariant S18 (P5), verifier relevance check (P2), reviewer decision log without values (P6).
 
 ## Model configuration
 

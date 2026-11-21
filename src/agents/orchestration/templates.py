@@ -1,4 +1,8 @@
-"""Built-in agent configs (code constants, like the 'general' agent: not editable/deletable).
+"""Built-in agent configs: code-constant defaults the user can TWEAK (not delete) in the Agents tab.
+
+Tweaks are stored as overrides in the vault (store.agent_overrides) and only EDITABLE_FIELDS apply; the role
+rules and the shared safety rules (_COMMON, always last) are not editable. Workflow-slot agents (critics,
+explainers) also have their tools, output schema and budget fixed by the slot (src/agents/slots.py).
 
 Each follows store.new_agent_defaults(); the user binds MCP servers (Gmail, brokerage) in the
 Agents page. Rules that matter for security are ALSO enforced in code (bus, quarantine, memory
@@ -39,7 +43,31 @@ _ROLES = {
                    "bullish/base/bearish with uncertainty and disagreement.", False),
     "verifier": ("Verifier", ":material/fact_check:", "Checks claims against cited evidence and arithmetic",
                  "Recompute numbers with tools and check each claim has valid evidence; flag unsupported claims. (The coordinator also applies a deterministic grounding check to every run.)", True),
+    # Forecast workflow agents (slots forecast.*): public evidence only, no tools, no vault/RAG.
+    "critic-macro": ("Macro Critic", ":material/public:", "Forecast critic: rates, inflation, policy, broad market",
+                     "You are the macro critic for one stock. Assess rates, inflation, policy and broad-market support "
+                     "or pressure from the macro evidence cards. If macro evidence is missing, say so: stance mixed, "
+                     "low confidence.", False),
+    "critic-valuation": ("Valuation Critic", ":material/price_check:", "Forecast critic: valuation evidence",
+                         "You are the valuation critic. Assess valuation evidence (price position, filings). There are "
+                         "no analyst fundamentals: say explicitly when valuation data is missing and keep confidence low.", False),
+    "critic-event": ("Event Critic", ":material/event:", "Forecast critic: catalysts, filings, adverse events",
+                     "You are the event critic. Assess company catalysts, filing recency and demand evidence, including "
+                     "adverse events. Absence of events is not evidence of support.", False),
+    "critic-downside": ("Downside Critic", ":material/trending_down:", "Forecast critic: fragility and invalidation",
+                        "You are the downside critic. Assess fragility, volatility, contradictions between evidence "
+                        "families and what would invalidate an upbeat reading.", False),
+    "thesis-explainer": ("Thesis Explainer", ":material/lightbulb:", "Explains the selected forecast thesis",
+                         "Explain, in at most three short sentences, why the selected scenario won and what would change "
+                         "it. Cite evidence ids. Do not add numbers that are not in the evidence.", False),
+    "watchlist-explainer": ("Watchlist Explainer", ":material/list_alt:", "Explains research leans per symbol",
+                            "For each symbol, explain its research lean in at most two short sentences using only the "
+                            "supplied indicators. Never use buy/sell language.", False),
 }
+CHAT_ROLES = ("coordinator", "expense", "forecaster", "market")  # roles the Chat selector can route to
+FORECAST_ROLES = ("critic-macro", "critic-valuation", "critic-event", "critic-downside",
+                  "thesis-explainer", "watchlist-explainer")
+EDITABLE_FIELDS = ("model", "temperature", "max_tokens", "extra_instructions", "skills", "mcp_server_ids")
 
 
 # Skill slugs (skills/*.md) attached per role; every role gets the two safety skills.
@@ -52,16 +80,33 @@ _SKILLS = {
     "market": ["market-research-brief", "untrusted-content-handling", "data-minimization"],
     "forecaster": ["market-research-brief", "forecast-evaluation", "conflict-escalation"],
     "verifier": ["conflict-escalation", "personal-finance-analysis"],
+    "critic-macro": ["forecast-critic"],
+    "critic-valuation": ["forecast-critic"],
+    "critic-event": ["forecast-critic"],
+    "critic-downside": ["forecast-critic"],
+    "thesis-explainer": ["forecast-critic"],
+    "watchlist-explainer": ["market-research-brief"],
 }
+
+
+def compose_instructions(rules: str, extra: str = "") -> str:
+    """Role rules, then the user's tweak, then the shared safety rules - always last so a tweak cannot override them."""
+    extra = (extra or "").strip()
+    return f"{rules}\n\n{extra}\n\n{_COMMON}" if extra else f"{rules}\n\n{_COMMON}"
 
 
 def _build(role: str) -> Dict[str, Any]:
     name, icon, desc, rules, rag = _ROLES[role]
+    forecast = role in FORECAST_ROLES
     return {**store.new_agent_defaults(), "id": f"builtin-{role}", "name": name, "icon": icon,
-            "description": desc, "instructions": f"{rules}\n\n{_COMMON}", "rag_enabled": rag,
+            "description": desc, "role_rules": rules, "extra_instructions": "",
+            "instructions": compose_instructions(rules), "rag_enabled": rag,
             "role": role, "built_in": True, "skills": _SKILLS[role],
             "max_tool_rounds": 6 if role in ("market", "email", "portal") else 0,
-            "temperature": 0.2}
+            "temperature": 0.0 if forecast else 0.2, "max_tokens": 700 if forecast else 2048,
+            # "" = the app's configured chat model (or PERSONAL_AI_OMLX_WORKER_MODEL for forecast workers)
+            "model": "" if forecast else store.new_agent_defaults()["model"],
+            "chat_capable": role in CHAT_ROLES, "group": "Forecast" if forecast else "Platform"}
 
 
 BUILTIN_AGENTS: Dict[str, Dict[str, Any]] = {f"builtin-{r}": _build(r) for r in _ROLES}

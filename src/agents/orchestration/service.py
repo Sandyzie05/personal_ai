@@ -51,7 +51,10 @@ def build_coordinator(vault: Any, get_records: Callable[[], Sequence[Dict[str, A
     snapshot = list(get_records())
     bus = MessageBus(None, canaries=_canaries(snapshot))
     providers = PublicDataProviders()
-    swarm = ScenarioSwarmService(scenario_factory) if scenario_factory else None
+    from src.agents.slots import critic_agents
+
+    # Critic agents (tweakable in the Agents tab) are read here, on the calling thread, like the records.
+    swarm = ScenarioSwarmService(scenario_factory, agents=critic_agents(vault)) if scenario_factory else None
     workers = {
         "expense": expense_worker(lambda: snapshot),
         "forecaster": forecaster_worker(ResearchPredictionService(providers=providers), swarm),

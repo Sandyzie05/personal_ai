@@ -10,6 +10,7 @@ Keys used:
   agents_index        {"agents": [Agent, ...]}
   mcp_servers         {"servers": [McpServer, ...]}
   agent_activity_log  {"entries": [ActivityEntry, ...]}  (capped)
+  agent_overrides     {"overrides": {builtin_id: {field: value}}}  (tweaks to built-ins)
   agent_run_<sid>     transient in-flight run state (see runtime.py)
 """
 
@@ -23,6 +24,7 @@ from src.data_vault import DataVaultError
 AGENTS_INDEX_KEY = "agents_index"
 MCP_SERVERS_KEY = "mcp_servers"
 ACTIVITY_LOG_KEY = "agent_activity_log"
+OVERRIDES_KEY = "agent_overrides"
 
 # The built-in agent that preserves the pre-multi-agent behavior. It is a
 # code constant, NOT a vault record: not editable, not deletable, and
@@ -116,16 +118,69 @@ def get_agent(vault: Any, agent_id: str) -> Optional[Dict[str, Any]]:
     if not agent_id:
         return None
     if agent_id.startswith("builtin-"):
-        import copy
-
-        from src.agents.orchestration.templates import BUILTIN_AGENTS
-
-        found = BUILTIN_AGENTS.get(agent_id)
-        return copy.deepcopy(found) if found else None
+        return builtin_agent(vault, agent_id)
     for agent in list_agents(vault):
         if agent.get("id") == agent_id:
             return agent
     return None
+
+
+def _overrides(vault: Any) -> Dict[str, Dict[str, Any]]:
+    if vault is None:
+        return {}
+    return dict(_load(vault, OVERRIDES_KEY, {"overrides": {}}).get("overrides") or {})
+
+
+def builtin_agent(vault: Any, agent_id: str) -> Optional[Dict[str, Any]]:
+    """Template + the user's tweaks (EDITABLE_FIELDS only). Role rules and _COMMON are never overridable."""
+    import copy
+
+    from src.agents.orchestration.templates import BUILTIN_AGENTS, EDITABLE_FIELDS, compose_instructions
+
+    found = BUILTIN_AGENTS.get(agent_id)
+    if not found:
+        return None
+    agent = copy.deepcopy(found)
+    tweak = {k: v for k, v in (_overrides(vault).get(agent_id) or {}).items() if k in EDITABLE_FIELDS}
+    if agent.get("max_tool_rounds", 0) == 0:
+        tweak.pop("mcp_server_ids", None)  # a tool-less role stays tool-less
+    agent.update(tweak)
+    agent["instructions"] = compose_instructions(agent["role_rules"], agent.get("extra_instructions", ""))
+    agent["tweaked"] = bool(tweak)
+    return agent
+
+
+def list_builtin_agents(vault: Any) -> List[Dict[str, Any]]:
+    from src.agents.orchestration.templates import BUILTIN_AGENTS
+
+    return [builtin_agent(vault, agent_id) for agent_id in BUILTIN_AGENTS]
+
+
+def reset_agent(vault: Any, agent_id: str) -> bool:
+    """Drop the user's tweaks to a built-in agent (back to the shipped defaults)."""
+    data = _load(vault, OVERRIDES_KEY, {"overrides": {}})
+    if agent_id not in (data.get("overrides") or {}):
+        return False
+    del data["overrides"][agent_id]
+    _save(vault, OVERRIDES_KEY, data)
+    return True
+
+
+def _update_builtin(vault: Any, agent_id: str, agent: Dict[str, Any]) -> bool:
+    from src.agents.orchestration.templates import BUILTIN_AGENTS, EDITABLE_FIELDS
+
+    template = BUILTIN_AGENTS.get(agent_id)
+    if not template:
+        return False
+    tweak = {k: agent[k] for k in EDITABLE_FIELDS if k in agent and agent[k] != template.get(k)}
+    data = _load(vault, OVERRIDES_KEY, {"overrides": {}})
+    data.setdefault("overrides", {})
+    if tweak:
+        data["overrides"][agent_id] = tweak
+    else:
+        data["overrides"].pop(agent_id, None)
+    _save(vault, OVERRIDES_KEY, data)
+    return True
 
 
 def create_agent(vault: Any, agent: Dict[str, Any]) -> str:
@@ -143,9 +198,12 @@ def create_agent(vault: Any, agent: Dict[str, Any]) -> str:
 
 
 def update_agent(vault: Any, agent_id: str, agent: Dict[str, Any]) -> bool:
-    """Replace an agent's fields by id. Built-in and unknown ids: no-op."""
+    """Replace a custom agent's fields by id. Built-ins (`builtin-*`) store only their editable tweaks; General and
+    unknown ids: no-op."""
     if agent_id == GENERAL_AGENT_ID:
         return False
+    if agent_id.startswith("builtin-"):
+        return _update_builtin(vault, agent_id, agent)
     index = _index(vault, AGENTS_INDEX_KEY, "agents")
     for stored in index["agents"]:
         if stored.get("id") == agent_id:

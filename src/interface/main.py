@@ -361,12 +361,13 @@ class PersonalAIInterface:
         # BEFORE the selectbox is built - a value missing from `options`
         # would otherwise raise a StreamlitAPIException on this render.
         agent_list = (
-            [agent_store.general_agent(), agent_store.get_agent(self.vault, "builtin-coordinator")]
-            + [agent_store.get_agent(self.vault, f"builtin-{r}") for r in ("expense", "forecaster", "market")]
+            [agent_store.general_agent()]
+            + [a for a in agent_store.list_builtin_agents(self.vault) if a.get("chat_capable")]
             + agent_store.list_agents(self.vault)
         )
         agent_ids = [a["id"] for a in agent_list]
-        agent_names = {a["id"]: a["name"] for a in agent_list}
+        agent_names = {a["id"]: ("System · " if str(a["id"]).startswith("builtin-") else "") + a["name"]
+                       for a in agent_list}
         if st.session_state.get("active_agent_id") not in agent_ids:
             session = next((s for s in sessions if s.get("id") == active_id), None)
             session_agent = (session or {}).get("agent_id")
@@ -780,6 +781,7 @@ class PersonalAIInterface:
                 list(NAV_PAGES.keys()),
                 format_func=lambda key: NAV_PAGES[key],
                 label_visibility="collapsed",
+                key="nav_page",  # lets "Tweak" chips on other pages jump to the Agents tab
             )
 
             st.divider()

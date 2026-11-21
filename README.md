@@ -95,7 +95,7 @@ and select **Trading-session horizons** (5 or 21). For trackable forecasts,
 provide and attest a complete official exchange-session sequence before
 **Research ticker**; the run captures that schedule with its evidence.
 Without it, research is explicitly unscheduled. Review provider coverage,
-evidence dates and visible failures. **Run local specialists** is a separate
+evidence dates and visible failures. **Run AI review** (critic agents, verdict, explainer) is a separate
 optional action using configured local inference; it receives public
 evidence, not your vault documents or chat.
 

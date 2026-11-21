@@ -46,6 +46,11 @@ class MemoryVault:
     def list_keys(self):
         return list(self.records)
 
+    def store_data(self, key, payload, encrypt=True):  # mutable records (e.g. the agent activity log)
+        self.writes.append(key)
+        self.records[key] = deepcopy(payload)
+        return True
+
     def store_immutable_data(self, key, payload):
         previous = self.records.get(key)
         if previous is not None and previous != payload:
@@ -205,20 +210,26 @@ def test_specialists_run_only_by_explicit_action_with_public_snapshot(page, monk
     seen = []
 
     async def analyze(self, snapshot):
+        from datetime import datetime, timezone
+
+        from src.forecaster.scenarios import ScenarioReport
+
         seen.append(snapshot)
-        return SimpleNamespace(to_api=lambda: {"status": "partial", "coverage": .5})
+        return ScenarioReport(snapshot_id=snapshot.snapshot_id, created_at=datetime.now(timezone.utc), status="failed",
+                              specialists=(), coverage=0, support_score=None, disagreement_score=None,
+                              fragility_score=None, verdict="unavailable", model_calls=0, limitations=())
 
     monkeypatch.setattr(ScenarioSwarmService, "analyze", analyze)
     at = research_page(page)
     vault = at.session_state["synthetic_vault"]
     vault.records["private_document"] = {"text": "never forwarded"}
     assert seen == []
-    click(at, "Run local specialists")
+    click(at, "Run AI review")
     assert seen[0].snapshot_id == ResearchPrediction.model_validate(
         at.session_state["forecast_research_result"]
     ).snapshot.snapshot_id
     assert "never forwarded" not in seen[0].model_dump_json()
-    assert not vault.writes
+    assert set(vault.writes) <= {"agent_activity_log"}  # audit ids/status only; no forecast saved
 
 
 def test_mutated_preview_loses_save_approval(page):
@@ -380,3 +391,43 @@ def test_main_forecast_navigation_stays_behind_login_gate(tmp_path, monkeypatch)
 
 if __name__ == "__main__":
     _test_page()
+
+
+class _FakeAgentClient:
+    """Answers critics with a valid opinion and the explainer with a grounded explanation."""
+    max_tokens = None
+    model = "fake-local"
+    temperature = 0.0
+    context_window_tokens = 32768
+
+    def chat(self, *, messages, **kwargs):
+        body = messages[1]["content"]
+        if body.startswith("ROLE:"):
+            packet = json.loads(body.split("PUBLIC_SNAPSHOT:")[1])
+            ev = packet["evidence"][0]["evidence_id"]
+            reply = {"stance": "supports", "confidence": .7, "evidence_ids": [ev], "key_reason": "Trend holds.",
+                     "what_changes_my_view": "A close below the average.", "risks": ["Thin evidence."]}
+        else:
+            data = json.loads(body[len("INPUT:"):])
+            ev = data["evidence"][0]["evidence_id"]
+            reply = {"summary": "Trend evidence supports the selected scenario.",
+                     "what_would_change": "Contrary macro evidence.", "evidence_ids": [ev]}
+        return {"message": {"content": "<think>ok</think>" + json.dumps(reply)}}
+
+
+def test_ai_review_shows_agents_critics_and_verdict(page, monkeypatch):
+    monkeypatch.setattr(forecast_page, "_scenario_factory",
+                        lambda vault: (lambda remaining_seconds=60: _FakeAgentClient()))
+    at = research_page(page)
+    chips = [m.value for m in at.markdown if "critic" in m.value.lower()]
+    assert any("Macro Critic" in c for c in chips) and any("Downside Critic" in c for c in chips)
+    assert any(b.label == "Tweak" for b in at.button)
+    click(at, "Run AI review")
+    critics = at.table[0].value
+    assert list(critics["status"]) == ["completed"] * 4
+    assert any("Verdict" in h.value for h in at.subheader)
+    # this fixture's snapshot has no scoreable evidence family, so the thesis search must abstain visibly
+    assert any("Abstained" in m.value for m in at.markdown) or any("Selected scenario" in m.label for m in at.metric)
+    log = at.session_state["synthetic_vault"].records.get("agent_activity_log", {}).get("entries", [])
+    assert {e["slot_id"] for e in log} >= {"forecast.critic.macro", "forecast.thesis_explainer"}
+    assert all(set(e) <= {"ts", "kind", "slot_id", "agent_id", "status", "latency_ms", "invalid_reason"} for e in log)
