@@ -59,7 +59,8 @@ def agent_chip(vault, slot_id, *, run=None):
     with st.container(border=True):
         left, right = st.columns([5, 1])
         left.markdown(
-            f"{agent.get('icon', '')} **{agent['name']}** · {SLOTS[slot_id].label}"
+            f"{agent.get('icon', '')} **{agent['name']}**"
+            + ("" if agent["name"].lower() == SLOTS[slot_id].label.lower() else f" · {SLOTS[slot_id].label}")
         )
         bits = [
             f"model: {agent.get('model') or 'app default'}",

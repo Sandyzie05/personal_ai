@@ -35,7 +35,7 @@ def test_chat_auth_header_matches_for_streaming_and_non_streaming(stream, api_ke
         if stream:
             assert list(result) == [{"message": {"content": "synthetic"}}]
         else:
-            assert result == {"message": {"content": "synthetic"}}
+            assert result == {"message": {"content": "synthetic"}, "done_reason": None}
         request = urlopen.call_args.args[0]
         assert request.get_header("Authorization") == (
             f"Bearer {api_key}" if api_key else None

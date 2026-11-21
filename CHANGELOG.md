@@ -4,6 +4,17 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: critic JSON robustness, explainer reasons, AI review UI
+
+- Live ADBE run on the 4B: 3/4 critics `not_json`, explainer `schema`. Parser now uses `raw_decode` (ignores a repeated
+  object / trailing note) with `strict=False` (raw newlines in strings); oMLX `finish_reason=length` now reports `truncated`.
+  Critics record closed diagnostics (`output_chars`, `finish_reason`; never model text). Prompts ask for brevity.
+- Explainer: an invented number is now `invented_number` (was lumped into `schema`); prompt says to copy numbers exactly.
+- UI: plain-language invalid reasons; diagnostics + thought-tree tables replace raw JSON; clearer rule-based verdict and a
+  note when critics were not needed (ToT converged in round 1); explainer purpose caption; no duplicated chip label or
+  "Saved forecasts" header.
+- Chat: fixed Streamlit warning (`active_agent_id` selectbox set both `index=` and a session-state key).
+
 ## (pending) - 2026-11-21 - fix: Forecast page readability + watchlist hiding tickers
 
 - Research "Why these scores": one signal table (input + per-horizon effect, from new `HorizonPrediction.drivers`) and a
