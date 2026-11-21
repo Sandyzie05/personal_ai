@@ -20,7 +20,7 @@ def hhmm(text: str) -> time:
     return time(int(h), int(m))
 
 
-def parse_yahoo_5m(payload: dict, symbol: str) -> list[Bar]:
+def parse_yahoo_5m(payload: dict, symbol: str, intraday: bool = True) -> list[Bar]:
     """Fail closed: wrong symbol or misaligned arrays raise; incomplete bars are skipped."""
     (res,) = payload["chart"]["result"]
     if res["meta"]["symbol"].replace("-", ".").upper() != symbol.upper():
@@ -35,7 +35,7 @@ def parse_yahoo_5m(payload: dict, symbol: str) -> list[Bar]:
         if any(x is None for x in row):
             continue
         dt = datetime.fromtimestamp(t, NY)
-        if OPEN <= dt.time() < CLOSE and dt.weekday() < 5:
+        if dt.weekday() < 5 and (not intraday or OPEN <= dt.time() < CLOSE):
             out.append(Bar(dt, *map(float, row)))
     return sorted(out)
 

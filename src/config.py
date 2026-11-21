@@ -268,3 +268,13 @@ TRADER_MC_DRAWS = 10_000
 TRADER_MC_MAX_DRAWS = 20_000  # hard cap (S23)
 TRADER_MC_SEED = 19
 TRADER_LOOKBACK_SESSIONS = 60
+# Trader paper agents (Track T2, docs/trader.md "Paper agents"). Local simulated ledger only; nothing is sent anywhere.
+TRADER_AGENT_MAX_CALLS = 30  # LLM decisions per run; cached decisions are reused for free
+TRADER_AGENT_CALL_SECONDS = 45.0
+TRADER_AGENT_MAX_TOKENS = 300
+TRADER_PAPER_START_CASH = 5000.0  # per agent account
+TRADER_HISTORY_DAYS = 365  # paper trades older than this are pruned
+TRADER_SWING_MAX_HOLD = 10  # sessions a daily-setup trade may stay open
+TRADER_SLIPPAGE_BPS = 5.0  # charged on entry and exit
+TRADER_MAX_SYMBOLS = 5
+TRADER_SIGNAL_MC_DRAWS = 2_000  # per-signal odds feature (cheaper than the Plan view's 10,000)

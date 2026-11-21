@@ -425,6 +425,11 @@ seeded and capped (`TRADER_MC_MAX_DRAWS`). New bus edge `coordinator->trader` (`
 are templated numbers (S16). `policy.screen` unchanged: order wording stays refused (rows added to `evals/refusal.py`). Residual
 risk: free unofficial data can lag or be wrong; a simulation is not a prediction; the upstream broker skill is deliberately not ported.
 
+**Paper agents (T5).** New vault key `trader_paper_v1` (encrypted; trades, decisions and run counts only, pruned after 365 days). Four
+new tool-less slots on the local critic model; prompts carry code-built relative numbers only (no ticker, date or price, so no
+personal or identifying text and no memorised-history leak); replies are closed enums validated by `TraderDecision`/`TraderReview`;
+model text is never rendered or stored; audit via `slots.log_run` (ids, status, timing). The ledger never leaves the vault (S24).
+
 ## Capstone cards and Robinhood research (2026-11-21, PR #30)
 
 - **Composed leak closed (P4):** the coordinator passed every finding of a dependency step into the dependent worker, so the

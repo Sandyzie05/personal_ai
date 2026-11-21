@@ -54,7 +54,7 @@ def analyze(symbol: str, bars: list[Bar], stop="or-mid", target_r=2.0, max_loss=
     odds = history = lean = None
     try:
         odds = timemachine.simulate(past, plan, res["at"], seed, draws)
-        lean = timemachine.verdict(odds)
+        lean = timemachine.verdict(odds, target_r)
         history = timemachine.replay(
             past,
             lambda d: (lambda r: r if r["state"] == "triggered" else None)(entry.check(d)),
