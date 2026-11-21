@@ -184,6 +184,7 @@ def compute() -> Dict[str, Any]:
     tot = run_reasoning()
     st = run_stress()
     ts_ok, ts_n = st["tool_selection"]
+    esc = st["escalation"]
     rows = [
         (
             "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -378,6 +379,27 @@ def compute() -> Dict[str, Any]:
             "Stress set, B1 single-agent baseline",
             "info",
             f"{st['b1_passed']}/{st['n']}",
+            True,
+            False,
+        ),
+        (
+            "Escalation precision (ask/escalate vs labels)",
+            ">= 90%",
+            f"{esc['precision']:.0%} (tp {esc['tp']}, fp {esc['fp']})",
+            esc["precision"] >= 0.9,
+            True,
+        ),
+        (
+            "Escalation recall (ask/escalate vs labels)",
+            ">= 90%",
+            f"{esc['recall']:.0%} (tp {esc['tp']}, fn {esc['fn']})",
+            esc["recall"] >= 0.9,
+            True,
+        ),
+        (
+            "Escalations per run (stress set)",
+            "info",
+            f"mean {esc['per_run_mean']}, max {esc['per_run_max']}",
             True,
             False,
         ),

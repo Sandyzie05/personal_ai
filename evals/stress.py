@@ -585,6 +585,7 @@ def evaluate() -> Dict[str, Any]:
     return {
         "relevance": (caught, len(wrong)),
         "missing": (reported, len(ledger)),
+        "escalation": escalation_metrics(gated),
         "n": len(results),
         "gated": len(gated),
         "passed": sum(r.passed for r in gated),
@@ -597,6 +598,26 @@ def evaluate() -> Dict[str, Any]:
         ],
         "tool_selection": (sum(want == got for want, got in agents), len(agents)),
         "results": results,
+    }
+
+
+def escalation_metrics(results) -> Dict[str, Any]:
+    """P6: positive = the label says ask/escalate (the user must step in); negative = answer/caveat. Refusals are
+    neither. Precision/recall of the system's own ask/escalate decisions against those labels."""
+    pos, neg = {"ask", "escalate"}, {"answer", "caveat"}
+    scored = [r for r in results if r.case.expected_action in pos | neg]
+    tp = sum(r.case.expected_action in pos and r.action in pos for r in scored)
+    fp = sum(r.case.expected_action in neg and r.action in pos for r in scored)
+    fn = sum(r.case.expected_action in pos and r.action not in pos for r in scored)
+    counts = [len(r.report.escalations) for r in results if r.report is not None]
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "precision": tp / (tp + fp) if tp + fp else 0.0,
+        "recall": tp / (tp + fn) if tp + fn else 0.0,
+        "per_run_mean": round(sum(counts) / len(counts), 2) if counts else 0.0,
+        "per_run_max": max(counts, default=0),
     }
 
 

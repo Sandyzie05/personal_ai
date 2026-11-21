@@ -1,10 +1,10 @@
-# Eval results (2026-11-21T18:54:32+00:00)
+# Eval results (2026-11-21T18:56:28+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
-| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.411 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.672 | info |
+| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.405 | PASS |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.673 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |
@@ -30,6 +30,9 @@
 | Core Memory: pending survives restart | yes | true | PASS |
 | Stress set: action + figures correct (coordinated) | 100% of non-pending | 100% (56/56; 0 pending) | PASS |
 | Stress set, B1 single-agent baseline | info | 34/56 | info |
+| Escalation precision (ask/escalate vs labels) | >= 90% | 100% (tp 31, fp 0) | PASS |
+| Escalation recall (ask/escalate vs labels) | >= 90% | 100% (tp 31, fn 0) | PASS |
+| Escalations per run (stress set) | info | mean 1.09, max 4 | info |
 | Missing statements reported, never invented | 100% | 100% (3/3) | PASS |
 | Evidence relevance: wrong-record citations caught | 100% | 100% (7/7) | PASS |
 | Planner chose the expected specialists (golden + stress) | >= 90% | 100% (76/76) | PASS |
