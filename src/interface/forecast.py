@@ -88,23 +88,31 @@ def _scenario_factory(vault):
     return factory
 
 
+ROLE_LABEL = {"macro": "Macro", "valuation": "Valuation", "event": "Event", "downside": "Downside"}
+
+
 def _research(vault):
     from src.forecaster.research import ResearchPredictionService
 
+    tabs = _tabs_module()
+    st.subheader("1 · Evidence")
     with st.form("forecast_research"):
-        symbol = st.text_input("Public US ticker", placeholder="AAPL")
-        horizons = st.multiselect("Trading-session horizons", [5, 21], default=[5, 21])
-        st.caption(
-            "Optional schedule for current-session close eligibility and outcome tracking. "
-            "Without it, current-day candles are excluded conservatively and research is unscheduled."
-        )
-        schedule = st.text_area(
-            "Official session sequence (JSON array)",
-            placeholder='[{"exchange":"XNAS","session":"2026-10-19",'
-            '"closes_at":"2026-10-19T20:00:00Z"}, ...]',
-        )
-        confirmed = st.checkbox("I verified this is a complete official exchange-session sequence")
-        requested = st.form_submit_button("Research ticker")
+        left, right = st.columns([2, 2])
+        symbol = left.text_input("Public US ticker", placeholder="AAPL", key="forecast_symbol")
+        horizons = right.multiselect("Trading-session horizons", [5, 21], default=[5, 21])
+        with st.expander("Advanced: outcome tracking (optional)"):
+            st.caption(
+                "To save a forecast that can be scored later, paste the official exchange-session sequence from the "
+                "origin through the target and confirm it. No holiday calendar is fetched or guessed. Without it, "
+                "current-day candles are excluded conservatively and research is unscheduled."
+            )
+            schedule = st.text_area(
+                "Official session sequence (JSON array)",
+                placeholder='[{"exchange":"XNAS","session":"2026-10-19",'
+                '"closes_at":"2026-10-19T20:00:00Z"}, ...]',
+            )
+            confirmed = st.checkbox("I verified this is a complete official exchange-session sequence")
+        requested = st.form_submit_button("Research ticker", type="primary")
     if requested:
         try:
             sessions = ()
@@ -121,78 +129,183 @@ def _research(vault):
             with st.spinner("Researching public sources…"):
                 prediction = asyncio.run(ResearchPredictionService().research(request))
             st.session_state["forecast_research_result"] = prediction.to_api()
-            st.session_state["forecast_scenarios"] = None
-            st.session_state["forecast_prepared"] = None
+            for key in ("forecast_scenarios", "forecast_prepared", "forecast_tree", "forecast_explanation"):
+                st.session_state[key] = None
         except Exception:
             st.error("Research unavailable or invalid ticker/horizons. No forecast was saved.")
     raw = st.session_state.get("forecast_research_result")
     if not raw:
+        st.caption("Enter a ticker and press Research ticker. Nothing is fetched until you do.")
         return
     prediction = ResearchPrediction.model_validate(raw)
-    st.subheader(f"{prediction.snapshot.symbol} · {prediction.status}")
+    snap = prediction.snapshot
+    st.subheader(f"{snap.symbol} · {prediction.status}")
     st.warning(prediction.disclaimer)
-    st.caption(
-        f"As of {prediction.snapshot.as_of.isoformat()} · "
-        f"snapshot {prediction.snapshot.snapshot_id} · scorer {prediction.scorer_version}"
-    )
-    for horizon in prediction.horizons:
-        st.write(
-            f"**{horizon.horizon_sessions} sessions · {horizon.outlook}** — "
-            f"heuristic {horizon.heuristic_score:.2f}, coverage {horizon.coverage:.0%}, "
-            f"expected excess return {horizon.expected_excess_return_pct:.2f}%"
-        )
-        for reason in horizon.reasoning:
-            st.caption(reason)
-    for limitation in prediction.limitations:
-        st.caption(limitation)
-    for issue in prediction.snapshot.issues:
+    cols = st.columns(max(1, len(prediction.horizons)) + 1)
+    last = snap.market.bars[-1] if snap.market and snap.market.bars else None
+    cols[0].metric("Last close", f"{(last.adjusted_close or last.close):.2f}" if last else "n/a",
+                   help=f"Session {last.session}" if last else None)
+    for col, h in zip(cols[1:], prediction.horizons):
+        col.metric(f"{h.horizon_sessions}-session outlook", h.outlook,
+                   f"{h.expected_excess_return_pct:+.2f}% vs benchmark", delta_color="off",
+                   help=f"Heuristic score {h.heuristic_score:.2f}, coverage {h.coverage:.0%}. Uncalibrated.")
+    if snap.market:
+        tabs.price_chart(snap.market)
+    sources = {p.source_id for p in prediction.source_provenance}
+    issues = {i.source_id: i for i in snap.issues}
+    st.caption("Sources: " + " · ".join(
+        f"{sid} {'⚠ ' + issues[sid].code if sid in issues else '✓'}" for sid in sorted(sources | set(issues))))
+    for issue in snap.issues:
         st.warning(f"{issue.source_id}: {issue.code} — {issue.message}")
-    st.subheader("Provider provenance")
-    st.json([item.to_api() for item in prediction.source_provenance], expanded=False)
-    st.caption("Public evidence only; no vault documents, chat, holdings, or account data.")
-    if st.button("Run local specialists"):
+    with st.expander("Why these scores"):
+        for h in prediction.horizons:
+            st.markdown(f"**{h.horizon_sessions} sessions**")
+            for reason in h.reasoning:
+                st.caption(reason)
+        for limitation in prediction.limitations:
+            st.caption(limitation)
+        st.caption(f"As of {snap.as_of.isoformat()} · snapshot {snap.snapshot_id[:12]}… · scorer {prediction.scorer_version}")
+    with st.expander("Details: provider provenance"):
+        st.subheader("Provider provenance")
+        st.json([item.to_api() for item in prediction.source_provenance], expanded=False)
+        st.caption("Public evidence only; no vault documents, chat, holdings, or account data.")
+    _ai_review(vault, prediction, tabs)
+    st.subheader("4 · Track (optional)")
+    _prepare_forecast(vault, prediction, st.session_state.get("forecast_scenarios"))
+
+
+def _ai_review(vault, prediction, tabs):
+    from src.agents.slots import CRITIC_SLOTS, agent_for, critic_agents, log_run
+
+    st.subheader("2 · AI review")
+    st.caption("Four critic agents review the same frozen public evidence in parallel; a Tree-of-Thought search weighs "
+               "competing bullish / base / bearish theses; the explainer agent says why the winner won. No tools, no "
+               "vault data. Each agent is tweakable in the Agents tab.")
+    report_raw = st.session_state.get("forecast_scenarios")
+    runs = {r["role"]: r for r in (report_raw or {}).get("specialists", [])}
+    chip_cols = st.columns(2)
+    for i, (role, slot_id) in enumerate(CRITIC_SLOTS.items()):
+        with chip_cols[i % 2]:
+            tabs.agent_chip(vault, slot_id, run=runs.get(role))
+    tabs.agent_chip(vault, "forecast.thesis_explainer", run=st.session_state.get("forecast_explanation_run"))
+    if st.button("Run AI review", type="primary"):
+        from src.forecaster.explain import explain_thesis
         from src.forecaster.scenarios import ScenarioSwarmService
+        from src.forecaster.tot import search
 
         try:
-            with st.spinner("Running local public-evidence specialists…"):
-                report = asyncio.run(
-                    ScenarioSwarmService(client_factory=_scenario_factory(vault)).analyze(
-                        prediction.snapshot
-                    )
-                )
+            factory = _scenario_factory(vault)
+            with st.spinner("Critic agents reviewing the public evidence…"):
+                report = asyncio.run(ScenarioSwarmService(
+                    client_factory=factory, agents=critic_agents(vault)).analyze(prediction.snapshot))
+            for result in report.specialists:
+                log_run(vault, CRITIC_SLOTS[result.role], result.agent_id, result.status, result.latency_ms,
+                        result.invalid_reason)
+            tree = search(prediction.snapshot, lambda: report)
+            explanation, status, reason, started = None, "skipped", None, datetime.now(timezone.utc)
+            if tree.selected_id:
+                with st.spinner("Explainer agent writing the verdict…"):
+                    explanation, status, reason = explain_thesis(
+                        factory(remaining_seconds=60), agent_for(vault, "forecast.thesis_explainer"),
+                        prediction.snapshot, tree)
+            ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            log_run(vault, "forecast.thesis_explainer", "builtin-thesis-explainer", status, ms, reason)
             st.session_state["forecast_scenarios"] = report.to_api()
+            st.session_state["forecast_tree"] = tree.to_api() if hasattr(tree, "to_api") else tree.model_dump(mode="json")
+            st.session_state["forecast_explanation"] = explanation.model_dump() if explanation else None
+            st.session_state["forecast_explanation_run"] = {"status": status, "invalid_reason": reason, "latency_ms": ms}
             st.session_state["forecast_prepared"] = None
+            st.rerun()
         except Exception:
-            st.error("Local specialists unavailable. Research remains unchanged; nothing saved.")
-    st.caption(
-        "Specialist requests disable redirects/environment proxies and use finite connect/read "
-        "timeouts bounded by the remaining run budget. These are inactivity timeouts, not hard "
-        "cancellation: a continuously active server may outlive the run. "
-        "No tools or vault context are available to specialists."
-    )
-    scenarios = st.session_state.get("forecast_scenarios")
-    if scenarios:
+            st.error("AI review unavailable (is the local model server running?). Research is unchanged; nothing saved.")
+    if not report_raw:
+        st.caption("Not run yet. Takes up to "
+                   f"{_deadline_text()} on one laptop; models run locally only.")
+        return
+    st.table([{
+        "critic": ROLE_LABEL[r["role"]], "status": r["status"] + (f" ({r['invalid_reason']})" if r.get("invalid_reason") else ""),
+        "stance": (r.get("opinion") or {}).get("stance", "—"),
+        "confidence": f"{(r.get('opinion') or {}).get('confidence', 0):.2f}" if r.get("opinion") else "—",
+        "seconds": f"{r['latency_ms'] / 1000:.1f}" if r.get("latency_ms") is not None else "—",
+        "evidence cited": len((r.get("opinion") or {}).get("evidence_ids", ())),
+    } for r in report_raw["specialists"]])
+    for r in report_raw["specialists"]:
+        if r.get("opinion"):
+            with st.expander(f"{ROLE_LABEL[r['role']]} critic: {r['opinion']['stance']}"):
+                st.text(r["opinion"]["key_reason"])
+                st.caption("What would change this view: " + r["opinion"]["what_changes_my_view"])
+                st.caption("Risks: " + "; ".join(r["opinion"]["risks"]))
+        elif r.get("reason"):
+            st.caption(f"{ROLE_LABEL[r['role']]}: {r['reason']}")
+    _verdict(prediction)
+    with st.expander("Details: raw critic report and thought tree"):
         st.subheader("Specialist scenarios")
-        st.json(scenarios, expanded=False)
-    _prepare_forecast(vault, prediction, scenarios)
+        st.json(report_raw, expanded=False)
+        st.json(st.session_state.get("forecast_tree") or {}, expanded=False)
+
+
+def _deadline_text():
+    from src.config import FORECAST_SCENARIO_DEADLINE_SECONDS
+
+    return f"{int(FORECAST_SCENARIO_DEADLINE_SECONDS)} s"
+
+
+def _verdict(prediction):
+    from src.forecaster.tot import ThoughtTree
+
+    st.subheader("3 · Verdict")
+    raw = st.session_state.get("forecast_tree")
+    if not raw:
+        return
+    tree = ThoughtTree.model_validate(raw)
+    pick = tree.node(tree.selected_id) if tree.selected_id else None
+    runner = tree.node(tree.runner_up_id) if tree.runner_up_id else None
+    with st.container(border=True):
+        if pick is None:
+            st.markdown(f"**Abstained** ({tree.termination}): the evidence does not support any thesis strongly enough.")
+            return
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Selected scenario", pick.thought.scenario, f"driver: {pick.thought.driver}", delta_color="off")
+        c2.metric("Thesis score", f"{pick.score:.2f}", f"margin {tree.margin:.2f}" if tree.margin is not None else None,
+                  delta_color="off")
+        c3.metric("Runner-up", runner.thought.scenario if runner else "none",
+                  f"{runner.score:.2f}" if runner else None, delta_color="off")
+        flags = []
+        heuristic = next((h.outlook for h in prediction.horizons if h.horizon_sessions == 21), None)
+        if {heuristic, pick.thought.scenario} == {"bullish", "bearish"}:
+            flags.append("disagrees with the heuristic outlook")
+        if tree.margin is not None and tree.margin < 0.10:
+            flags.append("close call")
+        if pick.depth == 2 and "critic" not in pick.components:
+            flags.append("critics unavailable")
+        if flags:
+            st.warning("Uncertain: " + ", ".join(flags) + ". Treat as research, not a conclusion.")
+        explanation = st.session_state.get("forecast_explanation")
+        if explanation:
+            st.text(explanation["summary"])
+            st.caption("What would change this: " + explanation["what_would_change"])
+            st.caption("Cites: " + ", ".join(e[:10] for e in explanation["evidence_ids"]))
+        else:
+            run = st.session_state.get("forecast_explanation_run") or {}
+            st.caption(f"Explainer {run.get('status', 'not run')}"
+                       + (f" ({run['invalid_reason']})" if run.get("invalid_reason") else "")
+                       + f"; rule-based summary: {pick.thought.scenario} driven by {pick.thought.driver} evidence, "
+                       f"{sum(n.status == 'pruned' for n in tree.nodes)} of {len(tree.nodes)} branches pruned, "
+                       f"{tree.termination}.")
 
 
 def _prepare_forecast(vault, prediction, scenarios):
     from src.forecaster.outcomes import create_forecast
 
-    st.subheader("Prepare an outcome-tracked forecast")
-    st.info(
-        "Research is unscheduled until you supply a complete official exchange-session "
-        "sequence including the origin and every intervening session through the target. "
-        "No holiday calendar is fetched or verified. Calendar-day/weekend guesses are not supported."
-    )
     sessions = prediction.snapshot.sessions
     if not sessions:
         st.caption(
-            "Research is unscheduled. Supply and attest the sequence above, then click "
-            "Research ticker again before preparing a tracked forecast."
+            "Research is unscheduled, so it cannot be saved for scoring. To track it, open "
+            "\"Advanced: outcome tracking\" above, paste and confirm the official session sequence, "
+            "then click Research ticker again."
         )
         return
+    st.markdown("**Prepare an outcome-tracked forecast**")
     st.caption("Uses the exact attested sequence captured with this research, not unsent form edits.")
     st.json([item.to_api() for item in sessions], expanded=False)
     with st.form("forecast_schedule"):
@@ -217,6 +330,7 @@ def _prepare_forecast(vault, prediction, scenarios):
                 "forecast": forecast.to_api(),
                 "research": prediction.to_api(),
                 "scenarios": scenarios,
+                "thesis": st.session_state.get("forecast_tree"),
                 "session_sequence": [item.to_api() for item in sessions],
                 "calendar_assertion": "user-verified complete official sequence; not independently verified",
             }
@@ -310,22 +424,20 @@ def _tabs_module():
 
 def render_forecast_page(vault):
     st.header("Forecast")
-    st.caption("Requested US ticker research · 5/21 trading sessions · no trading or scheduling.")
+    st.caption("Public-evidence stock research with local AI critics · 5/21 trading sessions · never trades.")
     st.warning("Heuristic scores and model scenarios are not calibrated probabilities or financial advice.")
-    st.info(
-        "Research ticker explicitly requests public market/provider data. Local specialists are "
-        "a separate action using existing inference settings. Only Save forecast / Save outcome "
-        "writes the displayed snapshot to the encrypted vault."
-    )
     tabs = _tabs_module()
     section = st.segmented_control(
         "Section", tabs.SECTIONS, default="Research", key="forecast_section"
     ) or "Research"
     try:
         if section == "Research":
+            st.caption(tabs.SECTION_HELP["Research"])
             _research(vault)
-            _outcomes(vault)
+            with st.expander("Saved forecasts and outcomes"):
+                _outcomes(vault)
         else:
-            tabs.render_section(section, vault, SNAPSHOT_PREFIX, OUTCOME_PREFIX)
+            tabs.render_section(section, vault, SNAPSHOT_PREFIX, OUTCOME_PREFIX,
+                                client_factory=lambda: _scenario_factory(vault))
     except (DataVaultError, ValueError, TypeError):
         st.error("Forecast data unavailable. Nothing was automatically saved or modified.")

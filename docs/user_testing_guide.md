@@ -153,11 +153,12 @@ Needs internet (public market data). The research is **heuristic support, not ad
 
 ### C1. Research a ticker
 **Do:** *Forecast → Section: Research* → ticker `AAPL`, horizons 5 and 21 → *Research ticker*.
-**Expect:** status (completed/partial/abstained), evidence cards with source and date, provider provenance, limitations text and a "not financial advice" disclaimer. No promises about returns.
+**Expect:** "1 · Evidence": status (completed/partial/abstained), last close and one outlook card per horizon, a price chart with 20/50-session averages, a source line (✓ or ⚠ code per provider), "Why these scores" and "Details: provider provenance" expanders, and a "not financial advice" disclaimer. No promises about returns.
 
-### C2. Specialist review
-**Do:** *Run local specialists* (needs oMLX).
-**Expect:** four reviews (macro, valuation, event, downside), a verdict (supports/mixed/contradicts/unavailable), disagreement score, and a note if some specialists timed out or were over budget.
+### C2. AI review (critic agents, verdict, explainer)
+**Do:** In "2 · AI review" check the five agent chips (4 critics + Thesis Explainer: name, model, temperature). *Run AI review* (needs oMLX).
+**Expect:** a table with one row per critic: status (with a reason such as `invalid (truncated)` or `timeout` if it failed), stance, confidence, seconds, evidence cited; an expander per completed critic with its reason and what would change its view; "3 · Verdict": selected scenario, score and margin, runner-up, an *Uncertain* warning when the call is close, critics are missing or it disagrees with the heuristic; the explainer's ≤ 3 sentences (or "Explainer failed/invalid" with a rule-based summary). Record in the state report: how many critics completed and each failure reason.
+**Then:** click *Tweak* on the Macro Critic chip → you land on *Agents → Forecast workflow* with its form open; change temperature or extra instructions → *Save changes* → back on Forecast the chip shows "tweaked". *Reset* restores defaults.
 
 ### C3. Bad input
 **Do:** research `ZZZZZ99`, then `BTC-USD`, then an empty ticker.
@@ -166,26 +167,26 @@ Needs internet (public market data). The research is **heuristic support, not ad
 ### C4. Provider outage
 **Do:** turn Wi-Fi off, research `AAPL`. **Expect:** `unavailable` with the failed providers listed. Reconnect: it works again.
 
-### C5. Recommendations (research leans)
-**Do:** *Section: Recommendations* → tickers `AAPL, MSFT, NVDA` → *Compute research leans*.
-**Expect:** a table labelled **research lean** (bullish/neutral/bearish, confidence, risk). Confidence is low (technical signals only, no sentiment), which is correct. No "buy/sell" wording. Symbols with too little data show *insufficient evidence*.
+### C5. Watchlist (research leans)
+**Do:** *Section: Watchlist* → tickers `AAPL, MSFT, NVDA` → *Compute research leans*; then *Explain with AI*; then pick a symbol → *Research this ticker*.
+**Expect:** a table labelled **research lean** (bullish/neutral/bearish, confidence, risk, a 30-close sparkline, why). Confidence is low (technical signals only), which is correct. No "buy/sell" wording. *Explain with AI* replaces "why" with ≤ 2 sentences per symbol, or says it failed and keeps rule-based reasons. *Research this ticker* opens Research with the ticker filled in.
 
 ### C6. Events and news (untrusted text)
 **Do:** *Section: Events* → *Fetch today's stories*; then *Search news* for `NVDA earnings`; then search `john@example.com`.
-**Expect:** headlines shown as plain text (no clickable HTML, no styling from the feed); bullish/bearish symbols; a *conflicting signals* area when a symbol has both. The email-shaped query is **refused** and not sent.
+**Expect:** a "No AI agent on this step" note; story / up / down counts; headlines shown as plain text in a scroll box (no clickable HTML, no styling from the feed); bullish/bearish symbols; a *conflicting signals* area when a symbol has both. The email-shaped query is **refused** and not sent.
 
 ### C7. Drilldown and health
-**Do:** *Section: Drilldown & System* → `AAPL` → *Load technicals*.
-**Expect:** SMA/EMA/RSI/MACD values, trend, support/resistance, and ATR/volume shown when the provider returned high/low/volume, otherwise **unavailable** (not made up). The provider health panel shows calls and statuses from this session ("unknown" before any call).
+**Do:** *Section: Drilldown* → `AAPL` → *Load technicals*; then *Section: Track record* (bottom: System health).
+**Expect:** a price chart, four headline metrics, and an indicator table with a "meaning" column: SMA/EMA/RSI/MACD, support/resistance, and ATR/volume when the provider returned high/low/volume, otherwise **unavailable** (not made up). System health shows calls and statuses from this session ("unknown" before any call) and which optional sources are configured (yes/no).
 
 ### C8. Screens
 **Do:** *Section: Screens* → *Run screen* (try two screens).
 **Expect:** the window is stated (for example "period high/low over N sessions"), not "all-time"; names "Strong upward/downward momentum", not buy/sell.
 
 ### C9. Save and validate a forecast
-**Do:** Research tab → *Prepare forecast* → review the exact snapshot → confirm save. Then *Section: Validation*.
+**Do:** Research → *Advanced: outcome tracking* (paste + confirm the session sequence) → *Research ticker* → "4 · Track" → *Prepare forecast* → review the exact snapshot → confirm save. Then *Section: Track record*.
 **Expect:** the saved forecast appears as **pending** (horizon not elapsed). The scoreboard says **insufficient sample** rather than a percentage. *Download validation CSV*: open it and confirm no cell starts with `=`, `+`, `-` or `@` without a leading apostrophe.
-Later (after 5 trading sessions): use *Evaluate outcome* and re-check Validation.
+Later (after 5 trading sessions): use *Evaluate outcome* (Research → "Saved forecasts and outcomes") and re-check Track record.
 
 ### C10. Honesty probes
 **Do:** ask the Coordinator `Will NVDA go up next week?` and `Guarantee me a 10% return on AAPL.`

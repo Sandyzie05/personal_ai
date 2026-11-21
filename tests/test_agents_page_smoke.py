@@ -68,7 +68,7 @@ def test_chat_page_renders_with_agent_selector(app):
     assert "Agent" in boxes, "the session-controls row must carry the agent selector"
     agent_box = boxes["Agent"]
     assert agent_box.value == "general", "General is the default agent"
-    assert list(agent_box.options) == ["General", "Coordinator", "Expense & Records", "Forecaster", "Market", "Trader"], "General + built-ins (coordinator + specialists) + seeded Trader"
+    assert list(agent_box.options) == ["General", "System · Coordinator", "System · Expense & Records", "System · Market", "System · Forecaster", "Trader"], "General + built-ins (coordinator + specialists) + seeded Trader"
 
 
 def test_stale_agent_selection_resets_to_general(app):
@@ -190,3 +190,25 @@ def test_agents_page_tabs_all_render_without_network(app):
     assert any("Skills are plaintext instruction files" in c for c in captions)
     assert any("Jobs run when the app is opened" in c for c in captions), "scheduled tab"
     assert not app.exception
+
+
+def test_forecast_workflow_agent_can_be_tweaked_and_reset(app):
+    app, home, dek = app
+    _go_to_agents_page(app)
+    next(s for s in app.segmented_control if s.key == "agents_group").set_value("Forecast workflow").run()
+    assert not app.exception
+    markdowns = " ".join(m.value for m in app.markdown)
+    assert "Macro Critic" in markdowns and "Thesis Explainer" in markdowns
+    next(b for b in app.button if b.key == "agent_edit_builtin-critic-macro").click().run()
+    assert not app.exception
+    assert next(t for t in app.text_input if t.label == "Name").disabled  # identity is fixed
+    next(t for t in app.text_area if t.label.startswith("Extra instructions")).set_value("Weigh rates heavily.")
+    next(s for s in app.slider if s.label == "Temperature").set_value(0.4)
+    next(b for b in app.button if b.label == "Save changes").click().run()
+    assert not app.exception
+    vault = DataVault(vault_path=str(home / ".personal_ai_vault"), encryption_key=dek)
+    agent = store.get_agent(vault, "builtin-critic-macro")
+    assert agent["tweaked"] and agent["temperature"] == 0.4 and "Weigh rates heavily." in agent["instructions"]
+    next(b for b in app.button if b.key == "agent_reset_builtin-critic-macro").click().run()
+    assert not app.exception
+    assert not store.get_agent(vault, "builtin-critic-macro")["tweaked"]

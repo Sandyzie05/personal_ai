@@ -14,14 +14,15 @@ Updated after every card (also mirrored on the Miro board, frame "Progress journ
 ```mermaid
 flowchart LR
   W1[W1 proposal + assessment] --> W2[W2 reasoning, memory, tools] --> W3[W3 RAG R0-R6] --> W4[W4 ToT forecaster] --> W5[W5 multi-agent] --> W6[W6 safety plan] --> D[Docs + roadmap<br/>2026-11-20]
-  D --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
+  D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
   P8 --> P9[P9 live run] & P10[P10 RAG calibration] --> P11[P11 final submission]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
   classDef todo fill:#eeeeee,color:#333,stroke:#9e9e9e
   classDef user fill:#1565c0,color:#fff,stroke:#0d47a1
   class W1,W2,W3,W4,W5,W6 done
-  class D now
+  class D,FX,F done
+  class FL now
   class P1,P2,P3,P12,P5,P4,P6,P7,P8,P11 todo
   class P9,P10 user
 ```
@@ -58,7 +59,10 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Labelled stress set with expected action | PLANNED | P1 (W5, W6) |
 | Escalation precision/recall + reviewer decision log | PLANNED | P6 (W6) |
 | Repeat-run / perturbed-condition stability | PLANNED | P7 (W6) |
-| Forecaster: research, 4 parallel specialists, outcome tracking | DONE | `forecaster.md` Part 1 |
+| Forecaster: research, 4 parallel critic agents, ToT verdict, explainer, outcome tracking | DONE offline (Track F); live critic completion USER | F1 live check in the next state report |
+| Built-in agents tweakable in the Agents tab; every AI step has an assigned agent + chip | DONE | F2, F3 (`test_agent_overrides.py`, `test_agents_page_smoke.py`) |
+| Chat selector lists every agent in the system | DONE | F10 |
+| LLM news analyst behind quarantine (Events) | PLANNED | F7 remainder |
 | Tree-of-Thought thesis search (beam 3, depth 2, ≤ 9 nodes) | DONE offline | `forecaster.md` Part 2, eval 8/8 |
 | ToT held-out evaluation + calibration (Brier) | PLANNED | P8 (W4, W5, W6) |
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
@@ -103,11 +107,13 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 | W6 | Single-source answers proceed with a caveat | Open | P2 |
 | W6 | Reviewer accept / correct / dismiss, logged; overrides become test cases | Open | P6 |
 | W6 feedback | Safety results consistent across repeated tests and changing conditions | Open | P7 |
-| W6 feedback | No unintended flow between agents or into shared memory | Open | P4 (+ P5 rule S17) |
+| W6 feedback | No unintended flow between agents or into shared memory | Open | P4 (+ P5 rule S18) |
 
 ## 2. Order
 
+**Track F first (user decision 2026-11-21):** `F1 → F2 → F3 → F4 → F5 → F6 → F7 → F8 → F9 → F10`, then
 `P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) then `P9, P10` (user runs live) then `P11` (final packaging).
+F2-F3 are the agent-slot foundation; F4-F9 rebuild one Forecast section each on top of it.
 P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 so the leakage eval also covers memory reads.
 
 ## 3. Conventions for every card
@@ -121,6 +127,119 @@ P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 s
   the `security_design.md` changelog when security behaviour changed, and add a `CHANGELOG.md` entry.
 
 ## 4. Cards
+
+### Track F. Forecast overhaul on configurable agents (do first)
+
+**Problem (model-laptop test, 2026-11-21).** Research output is a wall of raw numbers and JSON; specialist review failed
+(2 `invalid`, 2 `timeout`, 0 coverage) with no reason shown; Recommendations, Drilldown, System and Screens crashed (NumPy 1.26 vs
+pyarrow, fixed in PR #23); Events broken; Validation unexplained. Built-in agents are code constants (`store.update_agent` is a
+no-op for them) and the forecast specialists do not use the Agents system at all (prompts hardcoded in `forecaster/scenarios.py`).
+
+**Target design (user decisions).**
+- Every AI step is a **workflow slot** with a **fixed default agent**. The user **tweaks that agent in the Agents tab** (model,
+  temperature, max tokens, extra instructions, skills, MCP servers/tools within the slot's allowlist) and can **reset to default**.
+- Locked by the slot in code, never editable: tool allowlist, output schema, time/token/call budget, the shared safety rules
+  (`templates._COMMON`), untrusted-input rules (S1, S16). Prompts are defence in depth; schemas and budgets are the control.
+- Every feature that runs an agent shows a chip: **"Agent: <name> · <model> · Tweak in Agents"**, plus per-run status and time.
+- The Chat agent selector lists **every agent in the system** (General, all built-ins that are chat-capable, all custom agents).
+
+Slots in scope (Forecast first; other pages later):
+
+| Slot | Default agent | Tools | Output |
+|---|---|---|---|
+| `forecast.critic.macro` / `.valuation` / `.event` / `.downside` | `builtin-critic-<role>` | none | `SpecialistOpinion` (evidence ids from the snapshot) |
+| `forecast.thesis_explainer` | `builtin-thesis-explainer` | none | `ThesisExplanation` (closed fields + ≤ 3 sentences citing evidence ids) |
+| `forecast.news_analyst` | `builtin-news-analyst` | none; input = quarantined headline facts only | closed-enum sentiment counts per topic |
+| `forecast.watchlist_explainer` | `builtin-watchlist-explainer` | none | per-symbol closed reason codes + ≤ 2 sentences |
+
+#### F1. Specialist reliability on one laptop — DONE offline 2026-11-21 (live: USER)
+
+- **Now:** `scenarios.ScenarioSwarmService` runs 4 calls under one 60 s deadline (`FORECAST_SCENARIO_DEADLINE_SECONDS`) while
+  `PERSONAL_AI_INFERENCE_CONCURRENCY=2`, so 2 calls queue and time out on a 27B model. `max_tokens` is capped at 400
+  (`FORECAST_MODEL_MAX_TOKENS`); any non-JSON, truncated or wrongly cited answer becomes `invalid` with no reason.
+- **Build:**
+  1. Record a closed `invalid_reason` per specialist: `not_json | truncated | schema | unknown_evidence | source_mismatch |
+     empty` (no model text). Show it in the UI and the activity log.
+  2. Strip a leading `<think>…</think>` block before JSON parsing; request JSON via the existing `format=` schema.
+  3. Queue-aware budget: per-call deadline = remaining run budget, and the run deadline =
+     `ceil(4 / concurrency) × FORECAST_SPECIALIST_CALL_SECONDS` (new config, default 45). Default the critics to
+     `PERSONAL_AI_OMLX_WORKER_MODEL` when set. Raise `FORECAST_MODEL_MAX_TOKENS` to 700 for critics.
+  4. `make state-report` adds: last run's specialist statuses + reasons + latency (counts/enums only). *As built:* the script
+     cannot unlock the vault, so the user copies the AI review table's status/reason/seconds into the report's `<LIVE>` section.
+- **Accept:** unit tests per `invalid_reason`; fake-client test with concurrency 2 and 4 critics completes in budget;
+  live (user): ≥ 3/4 critics `completed` on AAPL, recorded in the next state report.
+
+#### F2. Editable built-in agents (overrides + reset) — DONE
+
+- **Build:** vault key `agent_overrides` (`{agent_id: {field: value}}`), added to `INTERNAL_VAULT_KEYS` (S13). `store.get_agent`
+  merges template + override; `store.update_agent` on a `builtin-*` id writes only allowlisted fields
+  (`model, temperature, max_tokens, extra_instructions, skills, mcp_servers, enabled_tools`); `store.reset_agent(id)` deletes the
+  override. Instructions sent = slot rules + template rules + `extra_instructions` + `_COMMON` (order fixed; `_COMMON` last).
+  Agents tab: built-ins get an Edit form (same form as custom agents, locked fields shown read-only) and "Reset to default".
+- **Accept:** tests: override persists across restart; locked fields ignored; reset restores template; `_COMMON` always present;
+  AppTest edits a built-in and resets it. `make eval` unchanged.
+
+#### F3. Workflow slot registry + agent chip — DONE
+
+- **Build:** `src/agents/slots.py`: `SLOTS = {slot_id: Slot(default_agent, allowed_tools, output_schema, budget, chat_capable)}`;
+  `agent_for(vault, slot_id)` returns the (merged) default agent; tools outside `allowed_tools` are dropped at call time, not just
+  hidden. `interface/components.py::agent_chip(slot_id)` renders name, model, status, "Tweak in Agents" link (sets the Agents tab
+  selection). Activity log entries gain `slot_id`, `agent_id`, `latency_ms`, `status` (no content).
+- **Accept:** tests: slot tool allowlist enforced even if the agent lists more tools; chip renders in AppTest.
+
+#### F4. Dedicated critic agents wired to slots — DONE (Forecast page and Coordinator)
+
+- **Build:** add `builtin-critic-{macro,valuation,event,downside}` to `templates._ROLES` with role prompts moved from
+  `scenarios.PROMPTS` (single source), skills `skills/critic-<role>.md` (what evidence counts, when to say uncertain, citation
+  rules), no tools. `ScenarioSwarmService` takes `agent_for(vault, "forecast.critic.<role>")` per role: model, temperature,
+  max_tokens, instructions. ToT (`tot.py`) is unchanged; it still calls the swarm once at depth 2.
+- **Accept:** tests: tweaking the macro critic's temperature/model reaches its client; prompts come from templates only
+  (grep test: no role prompt left in `scenarios.py`); `make eval` ToT rows unchanged.
+
+#### F5. Research section redesign (one flow) — DONE
+
+- **Flow:** ticker + horizon → **Evidence** (price chart with SMA 20/50 and Bollinger, plotly; indicator cards; provider chips with
+  status; "missing inputs" list) → **AI review** (one row per critic: agent chip, status, reason, latency, stance + confidence,
+  cited evidence ids clickable to the evidence card) → **Verdict card** (ToT selected scenario, margin, runner-up, why in the
+  explainer's ≤ 3 sentences, "what would change this", uncertainty flags) → **Track** (save forecast; session-sequence input
+  moved into an "Advanced: outcome tracking" expander with a plain explanation).
+- Raw JSON (provenance, scenario report) only in a "Details" expander. Empty, loading and error states for every block.
+- **Accept:** AppTest with fake providers + fake critics: each block renders; failure of any provider or critic shows a reason, not a
+  traceback; no `st.json` outside "Details".
+
+#### F6. Watchlist (was Recommendations) — DONE
+
+- Table with lean, confidence, risk, a sparkline per symbol, closed reason codes; `forecast.watchlist_explainer` adds ≤ 2 sentences
+  per symbol citing evidence ids. "Research" button per row opens F5 for that ticker.
+- **Accept:** AppTest renders 3 symbols; explainer failure degrades to reason codes only.
+
+#### F7. Events (fix + news analyst) — PARTIAL: crash fixed (PR #23), layout + "no agent" chip done; LLM news analyst still PLANNED
+
+- Diagnose the current failure first (user to paste the screen). Headlines stay untrusted: show title/source/time as escaped text
+  links; the `forecast.news_analyst` slot sees only quarantine output and returns closed-enum sentiment counts per topic (this also
+  delivers roadmap §6 "news into ToT" as an optional `news` driver behind the same schema).
+- **Accept:** injection eval row stays 0; AppTest with a hostile headline renders it inert.
+
+#### F8. Screens and Technical drilldown — DONE (line chart + SMA; candlestick not added)
+
+- Screens: sortable table + mini-charts, "Research" per row. Drilldown: candlestick + indicators chart, indicator table with plain
+  explanations, unavailable inputs listed with why.
+- **Accept:** AppTest for both with fake market data.
+
+#### F9. Track record (was Validation) + System health — DONE
+
+- Explain what is measured (directional accuracy, coverage, abstention, benchmark-relative return, naive baselines from
+  `report.summarize`) and why it is empty until horizons elapse; per-forecast timeline. System health: provider status chips,
+  last latency, which keys are configured (yes/no).
+- **Accept:** AppTest with seeded synthetic forecast/outcome pairs.
+
+#### F10. Chat selector lists every agent — DONE
+
+- `main.py` agent selector: General + every `chat_capable` slot agent + every custom agent, grouped ("System", "Mine"). Routing
+  stays as today (coordinator roles via `run_query(only=role)`, others through the v1 runtime).
+- **Accept:** AppTest: a newly created custom agent and a tweaked built-in both appear and answer.
+
+### Track P. Capstone feedback cards
 
 ### P1. Labelled stress set with an expected action (W5, W6)
 
@@ -217,7 +336,7 @@ P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 s
   2. New schema `CoreFact{key, value≤200, approved_at, trust}` with `extra="forbid"` in `schemas.py`.
   3. Coordinator use: memory facts go **only** into `render_report` as a separate "From your approved memory" section and into the
      expense step as an optional baseline (e.g. `budget_baseline:<period>`). They are **never** sent on any bus edge to
-     market/forecaster/email/portal. Add this as invariant S17 in `platform_plan.md` §2.
+     market/forecaster/email/portal. Add this as invariant S18 in `platform_plan.md` §2.
   4. A `forget(token, item_id)` in `memory.py` using the same UI-minted token pattern as `approve`; forgotten items are deleted,
      not superseded.
 - **Files:** `memory.py`, `schemas.py`, `service.py`, `workers.py::render_report`, `interface/agents.py`, tests.

@@ -51,8 +51,31 @@ and saving needs an explicit click bound to the exact content shown.
 
 ### In the UI (Forecast page)
 
-Section picker: **Research** (ticker research, local specialists, save and evaluate) · **Recommendations** (research leans) · **Validation** (scoreboard, CSV) ·
-**Events** (news and conflicts) · **Drilldown & System** (technicals, provider health) · **Screens**. Nothing is fetched on page load; each section runs on a button.
+Sections: **Research** · **Watchlist** · **Events** · **Screens** · **Drilldown** · **Track record**. Nothing is fetched on page
+load; each section runs on a button, and Watchlist/Screens/Drilldown rows have *Research this ticker*.
+
+Research is one flow: **1 Evidence** (outlook cards, price chart with SMA 20/50, source status, "why" and provenance in expanders)
+→ **2 AI review** (agent chips; *Run AI review* runs the 4 critic agents in parallel, then the ToT search with their report as
+the critic, then the thesis explainer) → **3 Verdict** (selected scenario, margin, runner-up, uncertainty flags, explainer
+text) → **4 Track** (optional; needs the attested session sequence from "Advanced: outcome tracking").
+
+### Workflow agents (slots)
+
+Every AI step is a slot in `src/agents/slots.py` with a fixed default agent from `templates.py`:
+
+| Slot | Agent | Output (validated in code) |
+|---|---|---|
+| `forecast.critic.{macro,valuation,event,downside}` | `builtin-critic-<role>` | `scenarios.ModelOpinion` → `SpecialistOpinion` (identity, scenario and source ids filled by code) |
+| `forecast.thesis_explainer` | `builtin-thesis-explainer` | `explain.ThesisExplanation` (cites only the thesis' evidence ids) |
+| `forecast.watchlist_explainer` | `builtin-watchlist-explainer` | `explain.WatchlistExplanation` (only listed symbols) |
+
+The user tweaks these agents in *Agents → Forecast workflow* (model, temperature, max tokens, extra instructions, skills); tweaks
+are vault overrides (`agent_overrides`), *Reset* removes them. Fixed by the slot: no tools, the output schema, the budget
+(`FORECAST_SPECIALIST_CALL_SECONDS` × ⌈4 / `PERSONAL_AI_INFERENCE_CONCURRENCY`⌉, max tokens ≤ `FORECAST_MODEL_MAX_TOKENS`), and
+the prompt order *slot rules → skills → role rules → extra instructions → shared safety rules*. Explainer output may not contain
+a number absent from its input. A rejected answer records a closed `invalid_reason` (`empty | not_json | truncated | schema |
+unknown_evidence`); `<think>` blocks and code fences are stripped first. Each run logs slot, agent, status, latency and reason
+(no text) to the activity log. Events has **no** agent yet: headlines must go through quarantine first (roadmap F7).
 
 ### Known limits and stock_predictor port gaps (reviewed 2026-11-02)
 

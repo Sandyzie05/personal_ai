@@ -208,3 +208,54 @@ def test_remaining_budget_reaches_native_transport_and_stalled_workers_release_s
     assert len(timeouts) == 4
     assert all(0 < timeout <= .1 for timeout in timeouts)
     assert all(0 < budget <= .1 for budget in budgets[:4])
+
+
+class RawClient(Client):
+    """Returns a raw string so tests can model reasoning blocks, fences and truncation."""
+
+    def __init__(self, render):
+        super().__init__()
+        self.render = render
+        self.seen = {}
+
+    def chat(self, *, messages, **kwargs):
+        self.seen = {"system": messages[0]["content"], "temperature": self.temperature, "model": self.model,
+                     "max_tokens": self.max_tokens}
+        packet = json.loads(messages[1]["content"].split("PUBLIC_SNAPSHOT:")[1])
+        body = json.dumps(dict(stance="mixed", confidence=.6, evidence_ids=[packet["evidence"][0]["evidence_id"]],
+                               key_reason="Mixed.", what_changes_my_view="More data.", risks=["Thin."]))
+        return {"message": {"content": self.render(body)}}
+
+
+@pytest.mark.parametrize("render,status,reason", [
+    (lambda b: "<think>weigh macro first</think>\n" + b, "completed", None),
+    (lambda b: "```json\n" + b + "\n```", "completed", None),
+    (lambda b: b, "completed", None),  # no identity echo needed
+    (lambda b: "<think>still thinking about rates and", "invalid", "truncated"),
+    (lambda b: b[:-15], "invalid", "truncated"),
+    (lambda b: "I think the outlook is mixed.", "invalid", "not_json"),
+    (lambda b: "", "invalid", "empty"),
+])
+def test_specialist_parsing_reports_closed_invalid_reason(render, status, reason):
+    report = asyncio.run(ScenarioSwarmService(lambda remaining_seconds: RawClient(render)).analyze(snapshot()))
+    result = report.specialists[0]
+    assert result.status == status and result.invalid_reason == reason
+    if status == "completed":
+        assert result.opinion.scenario == "base" and result.opinion.source_ids == ("yahoo-chart",)
+
+
+def test_agent_settings_reach_the_critic_client_but_slot_rules_stay_first():
+    clients = []
+
+    def factory(remaining_seconds):
+        clients.append(RawClient(lambda b: b))
+        return clients[-1]
+
+    agents = {"macro": {"id": "builtin-critic-macro", "instructions": "Weigh rates heavily.", "temperature": .4,
+                        "model": "small-worker", "max_tokens": 5000}}
+    report = asyncio.run(ScenarioSwarmService(factory, agents=agents).analyze(snapshot()))
+    seen = next(c.seen for c in clients if "rates heavily" in c.seen["system"])
+    assert seen["system"].startswith("Use only the supplied public evidence")
+    assert seen["temperature"] == .4 and seen["model"] == "small-worker"
+    assert seen["max_tokens"] == ForecastSettings().model_max_tokens  # budget cap wins over the agent setting
+    assert report.specialists[0].agent_id == "builtin-critic-macro"

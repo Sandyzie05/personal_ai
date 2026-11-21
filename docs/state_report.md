@@ -50,6 +50,7 @@ make eval-live: PASS/FAIL/not run; pass rate: …
 ## User testing (docs/user_testing_guide.md)
 | Step id (A1…E6) | Pass/Fail/Skip | Symptom (shape only, no data) | Latency s | Notes |
 ## Live measurements (roadmap P9)
+AI review (Forecast): critics completed N/4; per critic status (invalid_reason) and seconds: … | explainer: status |
 RAG question: N s | Coordinator cross-domain: N s, steps N, escalations kinds: … | ToT converged ticker: N s, nodes N, LLM calls N |
 ToT depth-2 ticker: N s, nodes N, LLM calls N | peak oMLX RSS: N GB | memory pressure peak: …
 ## Vault (from the UI, counts only)
