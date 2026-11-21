@@ -4,6 +4,11 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: token refresh at the real endpoint; probe uses search_threads; error categories
+
+- "Token refresh failed: 404": refresh went to the MCP server's origin; AS metadata is now stored at sign-in and reused.
+- Test read access prefers mail search (`search_threads`) over `list_drafts`; probe and Sync show a closed error category.
+
 ## (pending) - 2026-11-21 - fix: Gmail needs your own OAuth client; scope pinned read-only
 
 - Google has no dynamic client registration (`/register` 404). Agents → MCP Servers → *OAuth client* takes your client

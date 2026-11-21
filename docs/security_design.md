@@ -472,6 +472,10 @@ agent, deny by default.)
   mail). `server_scope` requests `gmail.readonly` for Gmail (or the server's saved least-privilege scope) and overrides the
   SDK's choice at authorization time. Google sign-in adds `access_type=offline&prompt=consent` so a refresh token is
   issued. Registration errors map to a code-built hint; the server's HTML body is neither shown nor logged.
+- **Refresh endpoint (fix).** Authorization-server metadata is discovered only during a full sign-in, so a fresh provider
+  refreshed at `<mcp-origin>/token` (404 on Google) and fell back to "needs auth". The metadata (public endpoints only, no
+  secrets) is now kept in the server's encrypted `mcp_oauth_<id>` record and restored. Probe/Sync tool errors are shown as
+  a closed category (permission / scope, not signed in, API not enabled, invalid arguments, other), never server text.
 - Gmail tool/arg names are fitted to the server's schema (only read-only names; `ReadOnlyMcp` re-checks each call).
 
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)

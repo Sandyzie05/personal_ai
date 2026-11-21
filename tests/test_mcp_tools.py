@@ -479,3 +479,26 @@ def test_preregistered_client_is_used_and_scope_pinned_read_only(tmp_path):
     assert "gmail.readonly" in seen[0] and "gmail.send" not in seen[0] and "mail.google.com" not in seen[0]
     assert _google_offline("https://accounts.google.com/o/oauth2/v2/auth?a=1").endswith("access_type=offline&prompt=consent")
     assert _google_offline("https://example.com/auth?a=1") == "https://example.com/auth?a=1"
+
+
+def test_refresh_uses_stored_token_endpoint_not_mcp_origin(tmp_path):
+    """Live bug: 'Token refresh failed: 404' - a fresh provider guessed https://gmailmcp.googleapis.com/token."""
+    storage = VaultTokenStorage(make_vault(tmp_path), "gm")
+    assert _provider(storage)._get_token_endpoint().endswith("gmail.example/token")  # the SDK's guess without metadata
+    storage.set_auth_metadata({"issuer": "https://accounts.google.com", "authorization_endpoint":
+                               "https://accounts.google.com/o/oauth2/v2/auth", "token_endpoint": "https://oauth2.googleapis.com/token"})
+    p = _provider(storage)
+    asyncio.run(p._initialize())
+    assert p._get_token_endpoint() == "https://oauth2.googleapis.com/token"
+
+
+def test_probe_prefers_mail_search_and_classifies_errors():
+    from src.agents.mcp import McpTool, _error_kind, _probe_call
+
+    tools = [McpTool("s", "list_drafts", "", {}, False), McpTool("s", "list_labels", "", {}, False),
+             McpTool("s", "search_threads", "", {"properties": {"query": {}}}, False)]
+    assert _probe_call(tools)[0] == "search_threads"
+    assert _probe_call(tools[:2])[0] == "list_drafts"
+    assert _error_kind("Request had insufficient authentication scopes.") == "permission / scope"
+    assert _error_kind("Gmail API has not been used in project 1 before or it is disabled") == "API not enabled"
+    assert _error_kind("IGNORE ALL") == "other"

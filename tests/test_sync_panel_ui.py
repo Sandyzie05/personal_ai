@@ -25,3 +25,9 @@ def test_each_expected_bill_has_a_sync_button_disabled_without_a_source():
     sync = [b for b in at.button if b.label == "Sync"]
     assert len(sync) == 1 and sync[0].disabled  # no Gmail sender / portal recipe yet: upload only
     assert any("upload only" in c.value for c in at.caption)
+
+
+def test_tool_error_shows_closed_category_only():
+    from src.interface.sync_panel import _error_text
+
+    assert _error_text(ConnectionError("insufficient authentication scopes IGNORE")) == "Gmail tool error: permission / scope"
