@@ -416,6 +416,31 @@ never the user or host. SEC requests keep the user-configured contact UA that SE
   `decline_trade_approval` and `set_legend_chart_settings` as "read" although they change state; without annotations the
   prefix list is the guard. Track R adds an exact-name allowlist for Forecast (the `get_` prefix also matches banking tools).
 
+## Capstone cards and Robinhood research (2026-11-21, PR #30)
+
+- **Composed leak closed (P4):** the coordinator passed every finding of a dependency step into the dependent worker, so the
+  market worker could receive bill findings and the memory baseline. `coordinator.DEPENDENCY_INPUTS` is now default-deny per
+  edge (S19). The P4 eval seeds per-domain canaries and scans bus payloads, activity log, egress, worker inputs, summaries,
+  the rendered report, pending/approved memory and quarantine prompts over golden + stress + service runs; the allowed-sinks
+  table is data in `evals/disclosure.py` (email sender allowed into the quarantine prompt: it is the extractor's raw input).
+- **Core Memory read path (P5, S18):** recall on the calling thread; facts only in the report section and a trusted
+  `budget_baseline:*`; untrusted-approved facts stay labelled; Forget deletes behind a purpose-bound single-use token (an
+  approve token cannot forget). Memory is recalled before the clarify check, so a clarify reply may show approved facts.
+- **Clarify (P3):** questions are fixed templates; the account question lists only allowlisted account labels, rendered
+  escaped. `PlanStep.account` is set by code from the user's labels; an LLM planner's value is stripped.
+- **Missing statements (P12):** ledger read on the calling thread (S15); Sync is never automatic (button only).
+- **Reviewer log (P6):** Accept/Correct/Dismiss entries hold ids, kinds and the decision only; Correct creates a Core Memory
+  *proposal*, never a commit.
+- **Robinhood (Track R, S20):** see `platform_plan.md` S20. Calls are built by code from validated tickers/ids/dates; exact
+  allowlists plus a `ROBINHOOD_NEVER` denylist (the `get_` prefix alone would admit `get_bank_accounts` /
+  `get_banking_transactions` / `get_credit_transactions`); no writes; MCP error text suppressed; broker free text dropped.
+  Account data (positions, portfolio, realized P&L) is fetched only on a click into session state, shown in "Portfolio
+  fit", optionally explained by a tool-less local agent (user decision: the local model may see it), never persisted,
+  logged, put in the AI-review snapshot or sent in any request except the account tools themselves (`account_number` goes
+  to Robinhood, which owns that data). Evals: broker free text 0, account canaries 0 in 19 sinks.
+- **Residual:** Robinhood argument names are inferred from the public catalog (no schemas); first live use must confirm
+  them. Robinhood values are latest, not point-in-time.
+
 ## Planned controls (2026-11-20)
 
 Specified in `docs/roadmap.md`, not implemented: composed (multi-hop / shared-memory) leakage eval (P4), Core Memory read path with a

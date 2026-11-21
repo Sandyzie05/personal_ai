@@ -195,6 +195,23 @@ critics already contribute through their score, and conservative tie-breaking su
   caches. See [ai_engine.md](ai_engine.md) "Memory budget".
 - The coordinator deadline covers that step plus one dependent wave.
 
+### 4a. Held-out evaluation and calibration (P8, 2026-11-21)
+
+- **Generator** (`evals/tot_synth.py`): the label is planted first (scenario = seed % 3), then evidence is drawn around it:
+  trend drift d·U(0.02, 0.10) + 0.6% noise per step; 3 families with signal d·U(0.3, 0.9) + N(0, 0.35), 0-2 sign-flipped,
+  |signal| < 0.15 reads neutral; 4 critics each right with p = 0.6, confidence U(0.4, 0.9); 10% of cases without critics.
+- **Split:** dev seeds 0-99 for all tuning; 100-199 burned (first held-out; raw Brier lost to critic-vote); gated held-out 200-299.
+- **Rubric fix found on dev:** directional support ignored neutral families, so one weak card among neutral ones scored 1.0 and
+  converged without critics. Support is now × (directional families / all families). `TOT_CONVERGE_SCORE` 0.75 → 0.8 (dev grid);
+  every other `TOT_*` unchanged.
+- **Calibration:** p(scenario) ∝ score^k, k fitted per method on dev only (ToT 7, linear 2, vote 5).
+- **Held-out (200-299):** accuracy ToT 0.76 / linear 0.59 / vote 0.70; Brier (calibrated) 0.414 / 0.488 / 0.430; abstention
+  0.02 / 0.00 / 0.03. **Limit:** on raw normalised scores critic-vote has the better Brier (0.378 vs 0.473).
+- Saved forecasts carry `thesis_selected_id`, `thesis_runner_up_id`, `thesis_margin`, `thesis_scenario` (optional; old ids
+  unchanged) so realized outcomes can later compare ToT with the heuristic.
+- **Robinhood evidence (Track R):** new card types `fundamental`, `earnings`, `options` and ToT drivers `valuation`,
+  `earnings`, `options` when a Robinhood MCP server is connected; the heuristic score is unchanged by them.
+
 ### 5. Roles and implementation tools
 
 | ToT role | Implementation here | Course tool it corresponds to, and why it is not imported |

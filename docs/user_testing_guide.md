@@ -198,6 +198,16 @@ Later (after 5 trading sessions): use *Evaluate outcome* (Research → "Saved fo
 
 ---
 
+### C-R. Robinhood (optional, needs your Robinhood account)
+
+1. Agents → MCP Servers → add a server named e.g. "Robinhood Trading", URL `https://agent.robinhood.com/mcp/trading`,
+   enable it and authorize in the browser.
+2. Forecast → Research a ticker: "Data sources" lists Robinhood; the AI review cites fundamentals/earnings/options cards.
+3. Step 5 "Portfolio fit (private)" → *Load*: your position context for that ticker (never saved).
+4. Watchlist → import a Robinhood watchlist; Events → *Load earnings calendar*; Saved forecasts → *Fill closes from Robinhood*.
+5. Expect: no button anywhere places orders, alerts or watchlist changes. If a step returns nothing, report the step and the
+   status line (not the data) — the tool argument names may need adjusting.
+
 ## Part D: Security spot checks (10 minutes)
 
 | # | Check | How | Expect |

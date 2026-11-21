@@ -54,6 +54,10 @@ Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforce
 - Core Memory: agents `propose`; only the Core Memory UI tab calls `memory.approve`. No agent-facing commit path.
 - Out-of-scope asks (trade, pay, shell, diagnose, reveal secrets) are refused by `policy.screen` before planning.
 - Gmail/brokerage MCP access is read-only (`ingest.ReadOnlyMcp`); do not add write tools to agent templates.
+- Robinhood calls are code-built from validated tickers/ids only, through the exact-name allowlists in
+  `forecaster/robinhood.py` (S20); account data never enters the AI-review snapshot, logs or any non-account request.
+- Dependency findings pass between workers only via `coordinator.DEPENDENCY_INPUTS` (S19); Core Memory is read only via
+  `memory.recall` and never travels on a bus edge (S18).
 - Ollama is disabled by default; build LLM clients through `engine.build_chat_client`.
 - After any change here run `make test` AND `make eval` (must print `Overall: PASS`); update
   `docs/roadmap.md` §1 status, `docs/platform_plan.md` §5 metrics and `docs/security_design.md` in the same change.

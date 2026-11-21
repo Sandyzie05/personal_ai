@@ -4,6 +4,26 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat: P1-P8, P12 and Track R (Robinhood) in one MR
+
+- P1 `evals/stress.py`: 56 labelled cases (ambiguous, incomplete, stale, conflict, wrong-record, clean) through
+  `service.run_query`; `action_of` is the only action definition; B1 info row; `expected_agents` on golden tasks (76/76).
+- P2 verifier relevance: cited record must match the claim's provider/period/category/account; aggregates cite in-quarter
+  records; `single_source` caveat; `PlanStep.account` (code-set).
+- P3 `workers.ambiguity` + templated clarify question; chat re-plans the follow-up with the question.
+- P12 ledger `overdue` → `missing:*` claims + `missing_statement` escalation + Sync now button (click only).
+- P6 escalation precision/recall (100%/100%), Accept/Correct/Dismiss review log (ids only), `evals/review_cases.py` stubs.
+- P5 `memory.recall`/`forget`, `schemas.CoreFact`, report section + trusted baseline, Forget button (S18).
+- P4 composed-leakage eval over golden + stress + service chains; real leak fixed: dependency inputs default-deny (S19).
+- P7 `make eval-stability RUNS=10 [LIVE=1]` with 8 seeded perturbations; every hard row 10/10.
+- P8 `evals/tot_synth.py` planted-label generator, dev/held-out split, rubric fix (neutral families), `TOT_CONVERGE_SCORE`
+  0.8, dev calibration; held-out ToT beats both baselines on accuracy and calibrated Brier (raw Brier: vote better).
+  Saved forecasts keep the selected thesis.
+- Track R: `forecaster/robinhood.py` (allowlists, arg validation, denylist), fundamentals/ratings/financials/earnings/SEC
+  facts/options-implied move/technicals as evidence, Portfolio fit step + tool-less local agent, Fill closes from Robinhood,
+  Watchlist/Screens imports, Events earnings calendar, R8 evals (S20). Built against synthetic fixtures.
+- Integration: memory recalled before the clarify check; `expense_worker(get_records, get_overdue=, get_memory=)`.
+
 ## (pending) - 2026-11-21 - fix: critic consistency, Track step, Events crash; Track R plan
 
 - Events crashed (`StreamlitDuplicateElementKey`) when today's stories and a search were both shown: `agent_chip(key=)`.
