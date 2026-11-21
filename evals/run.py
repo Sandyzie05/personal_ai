@@ -37,6 +37,7 @@ from .reasoning import run_held_out, run_reasoning
 from .refusal import run_refusal
 from .robinhood import run_account_egress, run_broker_injection, run_valuation_golden
 from .stress import evaluate as run_stress
+from .trader import run_risk_golden, run_shape, run_simulation
 from .userguide import run_userguide
 
 RESULTS = Path(__file__).parent / "results"
@@ -185,6 +186,7 @@ def compute() -> Dict[str, Any]:
         run_account_egress(),
         run_valuation_golden(),
     )
+    tr_shape, tr_sim, tr_risk = run_shape(), run_simulation(), run_risk_golden()
     ug = run_userguide()
     integ = run_integrations()
     ing = run_ingest_eval()
@@ -328,6 +330,27 @@ def compute() -> Dict[str, Any]:
             "0",
             f"{rh_egress['violations']} in {rh_egress['sinks']} sinks x {rh_egress['canaries']} canaries",
             rh_egress["violations"] == 0 and rh_egress["sinks"] > 0,
+            True,
+        ),
+        (
+            "Trader: order/ticket/broker shape in plans or code (S21, S22)",
+            "0",
+            f"{tr_shape['violations']} in {tr_shape['checked']} checks",
+            tr_shape["violations"] == 0 and tr_shape["checked"] > 0,
+            True,
+        ),
+        (
+            "Trader: Monte Carlo seeded, bounded, sums to 1 (S23)",
+            "100%",
+            f"{tr_sim['passed']}/{tr_sim['total']}",
+            tr_sim["passed"] == tr_sim["total"] > 0,
+            True,
+        ),
+        (
+            "Trader: risk gate blocks over-limit plans (golden)",
+            "100%",
+            f"{tr_risk['passed']}/{tr_risk['total']}",
+            tr_risk["passed"] == tr_risk["total"] > 0,
             True,
         ),
         (

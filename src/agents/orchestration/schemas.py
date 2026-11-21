@@ -75,6 +75,13 @@ class SymbolRequest(Strict):  # coordinator -> forecaster
     horizon_sessions: Literal[5, 21] = 5
 
 
+class TraderRequest(Strict):  # coordinator -> trader (advice only; no sizes, accounts or order fields)
+    symbol: str = Field(pattern=r"^[A-Z]{1,5}([.-][A-Z])?$")
+    setup: Literal["orb"] = "orb"
+    stop: Literal["or-mid", "or-low"] = "or-mid"
+    target_r: Literal[1.0, 2.0] = 2.0
+
+
 class HoldingsSummary(
     Strict
 ):  # coordinator -> market (no account ids, no lot-level data)
@@ -146,6 +153,7 @@ class StatementFacts(Strict):
 EDGES = {
     ("expense", "market"): CashflowDelta,
     ("coordinator", "forecaster"): SymbolRequest,
+    ("coordinator", "trader"): TraderRequest,
     ("coordinator", "market"): HoldingsSummary,
     ("email", "coordinator"): EmailFacts,
     ("portal", "expense"): StatementFacts,

@@ -52,6 +52,9 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S18 | Approved Core Memory is read only via `memory.recall` on the calling thread; recalled facts go only to the report's "From your approved memory" section and (trusted cash-flow facts) the expense step's `budget_baseline:*`; never on a bus edge, never to market/forecaster/email/portal inputs, never into RAG; untrusted-approved facts stay labelled; Forget deletes behind a purpose-bound (`forget`) single-use UI token | `memory.py`, `service.run_query`, `coordinator.dependency_inputs` | `test_core_memory_recall.py`, `test_composition_leaks.py`, eval P4/P5 rows |
 | S19 | Dependency findings reach a dependent worker only through a per-edge allowlist (`coordinator.DEPENDENCY_INPUTS`: expense→market `cashflow_delta:*`, brokerage→market `holdings`; everything else nothing) | `coordinator.py` | `test_composition_leaks.py` (positive control), eval P4 row |
 | S20 | Robinhood: code-built calls only (fixed tool, validated ticker/id/date args, never model-built); exact-name allowlists + `ROBINHOOD_NEVER` denylist (banking, credit, orders, `decline_*`, `set_*`); no writes; broker free text dropped; account data only in Portfolio fit + a tool-less local agent, never in the AI-review snapshot, logs or any request except account tools | `forecaster/robinhood.py`, `mcp.SENSITIVE_TOOL_PREFIXES` | `test_robinhood.py`, `evals/robinhood.py` |
+| S21 | Trader (Track T): output has no order/ticket shape and no write tool is reachable; upstream `trader-broker` not ported | `trader/` schemas (`extra="forbid"`), Robinhood allowlists | `evals/trader.py` shape row, `test_trader_agent.py` |
+| S22 | Trader sizing/risk use only user-entered limits (`TRADER_*`); broker account figures never enter trader inputs/outputs | `trader/sizing.py`, `trader/risk.py` | `evals/trader.py` shape row (no broker/MCP import in `src/trader`) |
+| S23 | Trader Monte Carlo is seeded (deterministic), bounded by `TRADER_*` caps, labelled a simulation | `trader/timemachine.py` | `evals/trader.py` simulation row, `test_trader_engines.py` |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
 obedience is not relied on (schema validation is); Chroma index is plaintext if persisted (currently in-memory; see `security_design.md`); no live
@@ -180,6 +183,7 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Core Memory recall / superseded-or-forgotten returned (P5) | ≥ 9/10 / 0 | 9/9 / 0 | |
 | Composed leakage: canaries outside allowed sinks (P4) | 0 | 0 (114 runs, 969 sinks, 102 hops) | golden + stress + service chains with memory |
 | Robinhood: broker free text / account canaries / valuation golden (Track R) | 0 / 0 / 100% | 0/5 / 0 in 19 sinks × 3 / 3/3 | synthetic fixtures; no live account |
+| Trader: plan shape / seeded Monte Carlo / risk golden (Track T) | 0 / 100% / 100% | 0 in 13 checks / 4/4 / 5/5 | synthetic bars; advice only |
 | Stability: every hard row across `RUNS=10` perturbed runs (P7) | 100% | 10/10 each | shuffle, duplicates, paraphrase, jitter, workers 1/2, concurrency 1 |
 
 **How success is scored.** A golden task passes only if *every* expected claim is present with the expected value (±0.01) or the

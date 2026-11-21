@@ -4,6 +4,12 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat: Trader forecast section (Track T, advice only)
+
+- Adapted day-trader-skill (MIT) to `src/trader/` (scan, entry, exit_plan, sizing, risk, timemachine, pipeline), `PublicDataProviders.intraday`
+  (Yahoo 5m), `trader_worker` + `coordinator->trader` edge, Forecast -> Trader tab, `TRADER_*` config, 3 eval rows, refusal rows,
+  `docs/trader.md`, S21-S23. Broker/alerts/analyst/pelosi skills not ported; paper orders = planned T9. `plan_for` unchanged.
+
 ## (pending) - 2026-11-21 - fix: Robinhood calls returned nothing; Track record UI
 
 - Root cause: `McpManager.call_tool` capped results at 8000 chars (chat-context guard) and appended `[truncated]`, so any

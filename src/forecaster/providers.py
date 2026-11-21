@@ -203,6 +203,14 @@ class PublicDataProviders:
                     issue_source, "unavailable", "Public provider adapter failed."
                 ) from None
 
+    async def intraday(self, symbol: str):
+        """60 days of 5-minute bars for the Trader tab (docs/trader.md). Same allowlisted route and UA as market()."""
+        from ..trader.bars import parse_yahoo_5m
+
+        symbol = canonical_symbol(symbol)
+        data = await self._json("yahoo-chart", symbol, params={"range": "60d", "interval": "5m"})
+        return parse_yahoo_5m(data, symbol)
+
     async def market(self, request: ResearchRequest) -> ProviderResult[MarketData]:
         request = ResearchRequest.model_validate(request)
         if request.as_of is not None:

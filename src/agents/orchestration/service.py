@@ -23,6 +23,7 @@ from .workers import (
     clarify_question,
     expense_worker,
     forecaster_worker,
+    trader_worker,
     llm_plan,
     market_worker,
     named_account,
@@ -103,6 +104,7 @@ def build_coordinator(
         "expense": expense_worker(lambda: snapshot, get_overdue=lambda: overdue, get_memory=lambda: memory_box["facts"]),
         "forecaster": forecaster_worker(ResearchPredictionService(providers=providers), swarm),
         "market": market_worker(providers, bus),
+        "trader": trader_worker(providers),
         **(extra_workers or {}),
     }
     # MCP reads touch the vault (OAuth tokens), so they are PREFETCHED on this thread in run_query; pool-thread

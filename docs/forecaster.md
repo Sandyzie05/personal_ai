@@ -21,6 +21,8 @@ ticker ─► validate ─► providers (public, fixed routes) ─► EvidenceSn
 ```
 ### Modules
 
+Trader (intraday plan, advice only): see [trader.md](trader.md).
+
 | Module | Role |
 |---|---|
 | `providers.py` | `PublicDataProviders`: fixed allowlisted routes (Yahoo chart + news search, Alpha Vantage, FRED, SEC EDGAR), timeouts, size caps, retry only transient errors, queries containing personal identifiers are refused. Returns typed results with explicit `completed / partial / unavailable`. |

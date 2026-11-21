@@ -416,6 +416,15 @@ never the user or host. SEC requests keep the user-configured contact UA that SE
   `decline_trade_approval` and `set_legend_chart_settings` as "read" although they change state; without annotations the
   prefix list is the guard. Track R adds an exact-name allowlist for Forecast (the `get_` prefix also matches banking tools).
 
+## Trader (Track T, 2026-11-21)
+
+Advice-only intraday planning (`docs/trader.md`). New data path: Yahoo 5-minute bars through the existing allowlisted `yahoo-chart`
+route (no new host, no new credential). Controls: S21 no order/ticket shape and no broker/MCP import in `src/trader` (eval row +
+`TraderPlan` `extra="forbid"`); S22 sizing and risk read only user-entered `TRADER_*` limits, never account data; S23 Monte Carlo
+seeded and capped (`TRADER_MC_MAX_DRAWS`). New bus edge `coordinator->trader` (`TraderRequest`, `extra="forbid"`); worker findings
+are templated numbers (S16). `policy.screen` unchanged: order wording stays refused (rows added to `evals/refusal.py`). Residual
+risk: free unofficial data can lag or be wrong; a simulation is not a prediction; the upstream broker skill is deliberately not ported.
+
 ## Capstone cards and Robinhood research (2026-11-21, PR #30)
 
 - **Composed leak closed (P4):** the coordinator passed every finding of a dependency step into the dependent worker, so the

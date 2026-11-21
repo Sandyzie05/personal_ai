@@ -492,6 +492,42 @@ def _missing(
     return out
 
 
+def trader_worker(providers) -> Worker:
+    """Trader plan as templated findings (S16, S21): numbers and fixed phrases only, no model or feed text."""
+    from src.trader.pipeline import analyze
+
+    def run(step: PlanStep, inputs) -> List[Finding]:
+        sym = step.symbol
+        check_cancel()
+        plan = analyze(sym, asyncio.run(providers.intraday(sym)))
+        key = f"trader:{sym}"
+        if plan.state != "triggered" or plan.qty is None:
+            return [
+                Finding(
+                    agent="trader", claim_key=f"{key}:entry", value=plan.state, confidence=0.5,
+                    status="uncertain" if plan.state != "no_data" else "unavailable",
+                    summary=f"Opening-range breakout: {plan.state}."
+                    + (f" Range {plan.or_low:.2f}-{plan.or_high:.2f}." if plan.or_high else ""),
+                )
+            ]
+        o = plan.odds or {}
+        return [
+            Finding(
+                agent="trader", claim_key=f"{key}:plan", value=plan.verdict, confidence=0.5,
+                summary=f"Plan: entry {plan.entry:.2f}, stop {plan.stop:.2f}, target {plan.target:.2f}, {plan.qty} shares "
+                f"(sized by {plan.sized_by}), max loss ${plan.max_loss:.2f}, reward:risk {plan.reward_risk:.2f}. Risk check {plan.verdict}.",
+            ),
+            Finding(
+                agent="trader", claim_key=f"{key}:odds", value=plan.lean, confidence=0.4,
+                status="ok" if o else "unavailable",
+                summary=(f"Simulation ({o['draws']} draws, seed {o['seed']}): target first {o['target_first']:.0%}, stop first "
+                         f"{o['stop_first']:.0%}, neither {o['neither']:.0%}. A simulation, not a prediction.") if o else "No odds: too little history.",
+            ),
+        ]
+
+    return run
+
+
 def forecaster_worker(research, swarm=None) -> Worker:
     """ResearchPredictionService -> heuristic outlooks, then a Tree-of-Thought thesis search that calls the
     specialist swarm only when depth 1 is not decisive (docs/forecaster.md Part 2)."""
