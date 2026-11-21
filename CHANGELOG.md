@@ -4,6 +4,11 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: discover token endpoint for old tokens; opt-in probe error detail
+
+- Remaining "Token refresh failed: 404": tokens saved before PR #40 had no metadata; looked up once from public metadata.
+- *Show server error* toggle under a failed Test read access (inert text) to diagnose "failed: other".
+
 ## (pending) - 2026-11-21 - fix: token refresh at the real endpoint; probe uses search_threads; error categories
 
 - "Token refresh failed: 404": refresh went to the MCP server's origin; AS metadata is now stored at sign-in and reused.

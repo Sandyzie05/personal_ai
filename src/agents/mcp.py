@@ -301,6 +301,37 @@ class VaultTokenStorage:
         return self._client_info_from(record.get("client_info")) is not None
 
 
+async def _discover_as_metadata(server_url: str) -> Optional[OAuthMetadata]:
+    """RFC 9728 protected-resource metadata -> first authorization server -> RFC 8414 / OIDC metadata. Unauthenticated
+    GETs of public documents; the issuer must match the advertised server (root trailing slash tolerated)."""
+    parsed = urlparse(server_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    client = create_mcp_http_client()
+    try:
+        prm = None
+        for url in (f"{origin}/.well-known/oauth-protected-resource{parsed.path.rstrip('/')}",
+                    f"{origin}/.well-known/oauth-protected-resource"):
+            r = await client.get(url)
+            if r.status_code == 200:
+                prm = r.json()
+                break
+        servers = (prm or {}).get("authorization_servers") or []
+        if not servers:
+            return None
+        issuer = str(servers[0])
+        base = issuer.rstrip("/")
+        for url in (f"{base}/.well-known/oauth-authorization-server", f"{base}/.well-known/openid-configuration"):
+            r = await client.get(url)
+            if r.status_code == 200:
+                meta = OAuthMetadata.model_validate(r.json())
+                return meta if _issuers_match(str(meta.issuer).rstrip("/") + "/", base + "/") else None
+        return None
+    except Exception:
+        return None
+    finally:
+        await client.aclose()
+
+
 class _VaultOAuthProvider(OAuthClientProvider):
     """Restores the stored token expiry so an expired access token is refreshed silently (refresh_token grant)
     instead of being sent and bounced into an interactive re-authorization. `pinned_scope` replaces the SDK's scope
@@ -327,6 +358,11 @@ class _VaultOAuthProvider(OAuthClientProvider):
         storage = self.context.storage
         if self.context.oauth_metadata is None and isinstance(storage, VaultTokenStorage):
             self.context.oauth_metadata = storage.auth_metadata()
+            if self.context.oauth_metadata is None and self.context.can_refresh_token():
+                # Tokens stored before metadata was kept: look the token endpoint up once (public metadata only).
+                self.context.oauth_metadata = await _discover_as_metadata(self.context.server_url)
+                if self.context.oauth_metadata is not None:
+                    storage.set_auth_metadata(self.context.oauth_metadata.model_dump(mode="json"))
         expires = storage.expires_at() if isinstance(storage, VaultTokenStorage) else None
         if expires is not None:
             self.context.token_expiry_time = expires - 60  # refresh a minute early
@@ -609,6 +645,7 @@ class McpManager:
                 out["probe_ok"] = result.ok
                 if not result.ok:
                     out["probe_reason"] = _error_kind(result.text)
+                    out["probe_detail"] = (result.text or "")[:400]  # shown only on request, as inert text
 
         try:
             asyncio.run(self._with_session(server, run, interactive=interactive))

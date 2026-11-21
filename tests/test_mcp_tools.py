@@ -502,3 +502,41 @@ def test_probe_prefers_mail_search_and_classifies_errors():
     assert _error_kind("Request had insufficient authentication scopes.") == "permission / scope"
     assert _error_kind("Gmail API has not been used in project 1 before or it is disabled") == "API not enabled"
     assert _error_kind("IGNORE ALL") == "other"
+
+
+def test_tokens_without_stored_metadata_discover_the_token_endpoint(tmp_path, monkeypatch):
+    """Tokens saved before metadata was kept: refresh must not guess <mcp-origin>/token (live 404 on Google)."""
+    from types import SimpleNamespace
+
+    import src.agents.mcp as m
+
+    docs = {
+        "https://gmail.example/.well-known/oauth-protected-resource/mcp": {"authorization_servers": ["https://accounts.google.com/"]},
+        "https://accounts.google.com/.well-known/oauth-authorization-server": {
+            "issuer": "https://accounts.google.com", "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_endpoint": "https://oauth2.googleapis.com/token"},
+    }
+
+    class FakeHttp:
+        async def get(self, url):
+            return SimpleNamespace(status_code=200 if url in docs else 404, json=lambda: docs[url])
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(m, "create_mcp_http_client", lambda *a, **k: FakeHttp())
+    storage = VaultTokenStorage(make_vault(tmp_path), "gm")
+    asyncio.run(storage.set_tokens(OAuthToken(access_token="a", refresh_token="r", expires_in=1)))
+    asyncio.run(storage.set_client_info(OAuthClientInformationFull(client_id="c", redirect_uris=["http://localhost/cb"])))
+    p = _provider(storage)
+    p.context.server_url = "https://gmail.example/mcp"
+    asyncio.run(p._initialize())
+    assert p._get_token_endpoint() == "https://oauth2.googleapis.com/token"
+    assert storage.auth_metadata() is not None  # looked up once, then reused
+
+    docs["https://accounts.google.com/.well-known/oauth-authorization-server"]["issuer"] = "https://evil.example"
+    storage.vault.store_data(storage.key, {k: v for k, v in storage._load().items() if k != "auth_metadata"})
+    p = _provider(storage)
+    p.context.server_url = "https://gmail.example/mcp"
+    asyncio.run(p._initialize())
+    assert p.context.oauth_metadata is None  # issuer mismatch: not trusted
