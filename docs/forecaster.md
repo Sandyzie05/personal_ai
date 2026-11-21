@@ -53,7 +53,7 @@ and saving needs an explicit click bound to the exact content shown.
 
 ### In the UI (Forecast page)
 
-Sections: **Research** · **Watchlist** · **Events** · **Screens** · **Drilldown** · **Track record**. Nothing is fetched on page
+Sections: **Research** · **Watchlist** · **Events** · **Screens** · **Drilldown** · **Trader** ([trader.md](trader.md)) · **Track record**. Nothing is fetched on page
 load; each section runs on a button, and Watchlist/Screens/Drilldown rows have *Research this ticker*.
 
 Research is one flow: **1 Evidence** (outlook cards, price chart with SMA 20/50, source status, "why" and provenance in expanders)
@@ -70,6 +70,10 @@ Every AI step is a slot in `src/agents/slots.py` with a fixed default agent from
 | `forecast.critic.{macro,valuation,event,downside}` | `builtin-critic-<role>` | `scenarios.ModelOpinion` → `SpecialistOpinion` (identity, scenario and source ids filled by code) |
 | `forecast.thesis_explainer` | `builtin-thesis-explainer` | `explain.ThesisExplanation` (cites only the thesis' evidence ids) |
 | `forecast.watchlist_explainer` | `builtin-watchlist-explainer` | `explain.WatchlistExplanation` (only listed symbols) |
+| `forecast.news_analyst` | `builtin-news-analyst` | `news_analyst.NewsFacts` via quarantine (closed labels) |
+| `forecast.portfolio_fit` | `builtin-portfolio-fit` | `PortfolioNote` (private, local model) |
+| `forecast.trader.{orb,breakout,bounce}` | `builtin-trader-<strategy>` | `trader.agents.TraderDecision` (closed choices; code sizes and risk-checks) |
+| `forecast.trader.reviewer` | `builtin-trader-reviewer` | `trader.agents.TraderReview` (checked against the code's verdict) |
 
 The user tweaks these agents in *Agents → Forecast workflow* (model, temperature, max tokens, extra instructions, skills); tweaks
 are vault overrides (`agent_overrides`), *Reset* removes them. Fixed by the slot: no tools, the output schema, the budget

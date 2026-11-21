@@ -9,11 +9,12 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 
 ## 00. Start here (handoff for the next session, updated 2026-11-21)
 
-**State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R8) and the offline part of P11, in
-one MR (PR #30). `make test` 861 pass, `make eval` Overall PASS (45 rows), `make eval-rag` PASS, `make eval-stability RUNS=10`
-PASS. Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
+**State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R8) and the offline part of P11
+(PR #30), then Track T Trader: plan view T0-T4 (PR #31) and AI paper agents T5 (PR #32). `make test` 898 pass, `make eval`
+Overall PASS (51 rows), `make eval-rag` PASS, `make eval-stability RUNS=10` PASS (last run before Track T). Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
 other. **What is left is USER work:** P9 (live run), P10 (RAG calibration on the real embedder), and first live Robinhood
-connection (confirm tool argument names, see Track R "Live check"). Then P11's final numbers.
+connection (confirm tool argument names, see Track R "Live check"), and a first Trader paper-agent backtest with the local
+model (Track T "Live check"). Then P11's final numbers.
 
 **Waiting on the user (model laptop), in this order:**
 0. Download `lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit` into oMLX; confirm its id in `curl 127.0.0.1:8000/v1/models`
@@ -22,6 +23,8 @@ connection (confirm tool argument names, see Track R "Live check"). Then P11's f
    `user_testing_guide.md` §0 step 6) → `venv/bin/pip check`.
 2. Restart `make run`; Forecast → AAPL → *Research ticker* → *Run AI review*. Optionally tweak a critic (Agents → Forecast
    workflow) and run again.
+4. Forecast → Trader → *Paper agents*: tickers `SPY, AAPL` → *Run backtest (past year)* (up to 30 model calls, minutes on
+   the 4B). Note new decisions / invalid replies from the green line, then *Review agents*. Run it again: decisions are reused.
 3. Paste a state report (opencode prompt below). The `<LIVE>` section must list critics completed N/4 with each status,
    `invalid_reason` and seconds.
 
@@ -155,8 +158,10 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-All agent-doable cards are done (2026-11-21, PR #30). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
-Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live), then P11 final numbers.
+All agent-doable cards are done (2026-11-21, PRs #30-#32). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
+Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live),
+Trader live check (USER: paper-agent backtest with the local model, invalid-reply rate; Track T), then P11 final numbers. Track T
+(PRs #31-#32) is done offline; T9 broker orders stays planned and needs user sign-off.
 
 ## 3. Conventions for every card
 
@@ -399,7 +404,9 @@ separate decision).
   *Accept:* `make test`, `make eval` (S24 rows). *Live (USER):* run a backtest on 2-3 tickers with the local model; check invalid-reply rate.
 - **T9 Broker orders (PLANNED, not built).** Alpaca-paper or real orders need new invariants and explicit user sign-off.
 
-**Live check (USER).** Yahoo 5-minute fetch on the real network; Robinhood quote/indicator argument names; optional Robinhood intraday interval.
+**Live check (USER).** Yahoo daily + 5-minute fetch verified on the real network 2026-11-21 (SPY: 251 daily bars, 60 days of 5m,
+71 signals, baseline only). Still USER: a paper-agent backtest with the local model (invalid-reply rate, minutes per run); optional
+Robinhood intraday interval.
 
 ### Track P. Capstone feedback cards
 

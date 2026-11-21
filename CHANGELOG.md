@@ -11,6 +11,8 @@
 - Local paper ledger in the vault (`src/trader/paper.py`, 1-year retention), backtest (1y daily / 60d 5m) + forward runs, baseline that
   takes every signal, scoreboard with equity curve, monthly P&L, prediction accuracy/Brier, trade log (Forecast -> Trader -> Paper agents).
 - `PublicDataProviders.daily_history`, `risk.check(window=)`, upstream break-even verdict in `timemachine.verdict`; S24; 3 eval rows.
+- Docs/Miro sync: roadmap §00/§2, platform_plan §3.1/§3.3/§3.4/§6/D14, forecaster.md slots + sections, architecture diagram,
+  user_testing_guide C-T, README, security_design contents/summary; Miro frames 0-3, 5, 6 updated (Track T cards, Trader node, metrics).
 
 ## (pending) - 2026-11-21 - feat: Trader forecast section (Track T, advice only)
 
