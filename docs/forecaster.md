@@ -1,10 +1,83 @@
-# Reasoning design: where the platform branches, and where it does not
+# Forecaster (`src/forecaster/`)
+
+Part 1 is the forecasting system: modules, rules, UI. Part 2 is the Tree-of-Thought (ToT) reasoning design, and why every
+other workflow stays linear. Remaining work: [roadmap.md](roadmap.md) (P8, P9, §6). Index: [README.md](README.md).
+
+## Part 1. Forecasting system
+
+Research support for US stocks and ETFs: gather dated public evidence, freeze it, let independent specialists review it, and (only if you choose)
+save the forecast so it can be scored after its horizon. **It never trades and never promises returns.** Scores are uncalibrated heuristics.
+
+### Flow
+
+```
+ticker ─► validate ─► providers (public, fixed routes) ─► EvidenceSnapshot (immutable, hashed)
+                                                              ├─► research prediction (heuristic, 5 / 21 sessions)
+                                                              └─► ToT thesis search (tot.py): ≤6 theses ─► rubric ─► scenario-diverse beam (3)
+                                                                    └─ only if not decisive: ScenarioSwarm critics (macro · valuation · event · downside,
+                                                                       parallel, one shared review) ─► re-score / prune ─► select or abstain
+      ─► thesis:<SYM> finding (uncertain when close, critic-less, or contradicting the heuristic)
+      ─► [optional, you approve] save forecast ─► evaluate after horizon
+```
+### Modules
+
+| Module | Role |
+|---|---|
+| `providers.py` | `PublicDataProviders`: fixed allowlisted routes (Yahoo chart + news search, Alpha Vantage, FRED, SEC EDGAR), timeouts, size caps, retry only transient errors, queries containing personal identifiers are refused. Returns typed results with explicit `completed / partial / unavailable`. |
+| `models.py` | Immutable contracts (`ResearchRequest`, `EvidenceSnapshot`, `ResearchPrediction`, ...). |
+| `research.py` | `ResearchPredictionService`: parallel market/macro/filing fetch, scoring, `abstained`/`unsupported` states. |
+| `scenarios.py` | `ScenarioSwarmService`: 4 specialist reviews on the same frozen snapshot, bounded workers, deadline, model-call budget. |
+| `tot.py` | **Tree-of-Thought thesis search** (Part 2): competing bull/base/bear theses per evidence family, deterministic rubric, beam with a diversity slot, specialist critics only when depth 1 is not decisive, pruning with recorded reasons, conservative tie-break, abstention. Coordinator path only for now; the Forecast page still shows the raw swarm verdict. |
+| `technical.py` | Deterministic indicators from closes (SMA/EMA/RSI/MACD/Bollinger, trend, support/resistance, volatility). ATR(14) and 20-bar volume ratio use `PriceBar.high/low/volume` (Yahoo/Alpha parsed; misaligned arrays dropped) and are reported as unavailable when absent. News failures carry their own `yahoo-news` SourceId. |
+| `recommend.py` | **Research lean** (bullish/neutral/bearish + confidence + risk) from technicals and evidence; ranking and diversified selection. Never buy/sell wording; `insufficient_evidence` when inputs are missing. |
+| `screens.py` | Period high/low, price-position (valuation proxy) and momentum screens over a bundled 50-name universe. States its window; no fundamentals. |
+| `news.py` | News search and "today" report; stories are untrusted data (sanitised, length-capped), conflicting signals are surfaced as disagreement, never netted. |
+| `outcomes.py`, `report.py` | Forecast records, outcome evaluation vs SPY, scoreboard, trend, CSV export (formula-injection safe), naive baselines, "insufficient sample" below 10. |
+| `health.py` | Per-provider status/latency/failure counts shown in the UI. |
+| `themes.py`, `events.py`, `filings.py`, `macro.py`, `source_registry.py`, `cache.py` | AI-infrastructure theme exposure, event extraction, SEC filing and FRED signals, source provenance, short-lived cache. |
+
+### Correctness rules
+
+- **Point in time:** evidence is stamped and frozen; historical (`as_of`) research is unsupported rather than faked.
+- **No leakage:** an outcome counts only after its horizon elapsed and only if evaluated after the target close. Horizons 5 and 21 sessions are scored separately.
+- **Explicit uncertainty:** provider outage, abstention, stale data or specialist disagreement lowers confidence and is shown; it is never hidden.
+- **Metrics:** directional accuracy, return-estimate error, coverage/abstention rate, always-up and persistence baselines. Small samples report "insufficient sample".
+
+### Bounds and privacy
+
+Local inference is capped app-wide at `PERSONAL_AI_INFERENCE_CONCURRENCY` in-flight requests (default 2), and specialists can use the smaller `PERSONAL_AI_OMLX_WORKER_MODEL` (see [ai_engine.md](ai_engine.md) "Memory budget"). Max 5 orchestration rounds, shared tool/model-call budgets, 45 s research and 60 s scenario deadlines, 4 specialist workers (`config.FORECAST_*`).
+Only tickers, topics and fixed parameters leave the machine; specialists run on the local model. Saved forecasts and outcomes live in the encrypted vault,
+and saving needs an explicit click bound to the exact content shown.
+
+### In the UI (Forecast page)
+
+Section picker: **Research** (ticker research, local specialists, save and evaluate) · **Recommendations** (research leans) · **Validation** (scoreboard, CSV) ·
+**Events** (news and conflicts) · **Drilldown & System** (technicals, provider health) · **Screens**. Nothing is fetched on page load; each section runs on a button.
+
+### Known limits and stock_predictor port gaps (reviewed 2026-11-02)
+
+stock_predictor's FastAPI/SQLAlchemy/Redis layers were dropped on purpose. These are the gaps in the
+*reasoning* that was ported:
+
+| stock_predictor | Here | Gap | Disposition |
+|---|---|---|---|
+| `research_prediction.py` | `research.py` | 63-session horizon dropped; news score never fed in (`event_strength` is always 0, because headlines are untrusted text and stay UI-only); buy/sell labels, risk factors and signal breakdown dropped | Keep news out of scoring until it can enter as quarantined, templated sentiment counts ([roadmap.md](roadmap.md) §6); horizons stay 5/21 |
+| `scenario_swarm.py` | `scenarios.py` + `tot.py` | Original only critiqued one fixed direction, with nothing generated, compared or pruned | **Closed by ToT** (Week 4): specialists now act as critics over competing theses |
+| `recommendation_engine.py`, `market_intelligence.py` | `recommend.py`, `news.py` | Fundamental score, valuation bonus, idea ranking and swarm-adjusted ranking dropped; `technical_score` ignores the ATR/volume that `technical.py` computes | [roadmap.md](roadmap.md) §6; ranking stays UI-only |
+| `stock_lists.py` | `screens.py` | Valuation from a price z-score, not P/E or P/B; "period" high/low, not all-time; fixed 50-name universe | Documented proxies; fundamentals need a new provider ([roadmap.md](roadmap.md) §6) |
+| `local_model_analysis.py` | none | Single-call thesis review not ported | Superseded by ToT critics |
+| `prediction_tracker.py` | `outcomes.py` | Nothing records forecasts or evaluates outcomes automatically; UI-only, explicit approval | Intentional (approval-gated persistence) |
+
+Coordinator workers consume only `research.py`, `tot.py`/`scenarios.py` and the technical lean.
+`recommend.rank_leans`, `screens` and `report` are Forecast-page features.
+
+## Part 2. Reasoning design: where the platform branches, and where it does not
 
 Status 2026-11-02: implemented in `src/forecaster/tot.py`, wired into the coordinator's forecaster worker,
 tested in `tests/test_forecaster_tot.py` and `tests/test_orchestration_workers.py`, and measured in `make eval`
 (`evals/reasoning.py`). Nothing here has run against a live oMLX model yet. Scores are uncalibrated heuristics.
 
-## 1. Decision: Tree of Thought (ToT) only in forecasting
+### 1. Decision: Tree of Thought (ToT) only in forecasting
 
 | Workflow | Reasoning | Why |
 |---|---|---|
@@ -21,7 +94,7 @@ other way only lowers a number instead of being judged as a rival explanation. B
 original had the same shape: specialists critiqued one fixed idea direction, and nothing generated or
 compared alternatives.
 
-## 2. Tree structure
+### 2. Tree structure
 
 | Element | Definition in code |
 |---|---|
@@ -44,7 +117,7 @@ search abstains. The output is a `thesis:<SYM>` Finding. Its summary is template
 scenario and driver, the runner-up, the number of branches pruned, and any disagreement with the heuristic
 outlook.
 
-## 3. Search strategy: beam search
+### 3. Search strategy: beam search
 
 Beam search fits because local inference on a laptop is the bottleneck:
 
@@ -62,7 +135,7 @@ Two adaptations:
    branch. Cost is ≤ 4 LLM calls per symbol, the same budget as before, and 0 when the evidence is
    unanimous.
 
-## 4. Evaluation, pruning and selection
+### 4. Evaluation, pruning and selection
 
 | Stage | Evaluator | Rubric (0..1) |
 |---|---|---|
@@ -99,7 +172,7 @@ critics already contribute through their score, and conservative tie-breaking su
   caches. See [ai_engine.md](ai_engine.md) "Memory budget".
 - The coordinator deadline covers that step plus one dependent wave.
 
-## 5. Roles and implementation tools
+### 5. Roles and implementation tools
 
 | ToT role | Implementation here | Course tool it corresponds to, and why it is not imported |
 |---|---|---|
@@ -113,7 +186,7 @@ orchestration framework, every inference call must stay on the loopback oMLX cli
 invariants (typed edges, templated summaries, budgets in code) are enforced by this repo's code and tests.
 CrewAI and LangChain would add dependencies and hidden prompts without adding a capability.
 
-## 6. Risk and mitigation
+### 6. Risk and mitigation
 
 **Risk: weak evaluation signals prune the best branch.** Depth-1 scores are uncalibrated heuristics, and a
 local model's critics are noisy.
@@ -128,7 +201,7 @@ local model's critics are noisy.
 
 Branch explosion is bounded by the caps in §4.
 
-## 7. Evidence (offline, synthetic)
+### 7. Evidence (offline, synthetic)
 
 `make eval` row "ToT thesis selection" runs 8 labeled synthetic cases (`evals/reasoning.py`). The labels are
 the designer's stated correct reading of each evidence-plus-critic configuration. This is a regression and
@@ -147,14 +220,10 @@ nodes.
 
 - live oMLX critic quality;
 - whether ToT improves realized 5- or 21-session outcomes (needs elapsed horizons, see
-  [forecasting_system.md](forecasting_system.md));
+  Part 1);
 - the critic-veto threshold on real model outputs.
 
-## 8. Next steps
+### 8. Next steps
 
-1. Live run on the personal laptop: one ticker with unanimous evidence (expect converged, 0 calls) and one
-   with mixed evidence (expect depth 2). Record both trees.
-2. Optional LLM thought proposer behind `Thought` validation, counted in the same call budget.
-3. Persist the selected/runner-up node IDs with saved forecasts so the outcome tracker can compare ToT with
-   the heuristic after the horizon.
-4. Revisit the weights and thresholds only with outcome data, never to make one case pass.
+Planned in [roadmap.md](roadmap.md): P8 (held-out eval, Brier, persisting node ids) and P9 (live run).
+Optional LLM thought proposer: roadmap §6. Revisit weights and thresholds only with outcome data, never to make one case pass.

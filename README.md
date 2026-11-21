@@ -33,7 +33,7 @@ index has a documented plaintext-at-rest limitation.
 - Multi-agent platform: a Coordinator delegates to specialist agents in parallel, merges
   findings deterministically, escalates conflicts, quarantines untrusted email/portal
   content, passes only scoped fields between agents, and changes Core Memory only after
-  your explicit approval. See `docs/platform_plan.md` (plan + status), `make eval`.
+  your explicit approval. See `docs/platform_plan.md` (rules + results), `docs/roadmap.md` (what is left), `make eval`.
 - Grounded document Q&A: structure-aware chunking, contextual headers, hybrid dense + BM25
   retrieval with RRF, evidence-id citations, templated "not found" abstention (no model call),
   and a deterministic check that every figure in an answer appears in the cited context
@@ -79,19 +79,14 @@ docs/                  # Security design, system design notes, roadmap/history
 examples/              # CLI usage examples
 ```
 
-## Agentic capstone direction
+## Capstone status
 
-The planned unified application combines document-backed personal assistance
-with the requested-stock research already implemented under `src/forecaster/`.
-Its target architecture uses a bounded coordinator, separate private/public
-data boundaries, parallel forecast specialists, approved encrypted memory
-and leakage-aware outcome evaluation. Trading and payments are outside the
-capstone scope.
-
-See [docs/architecture.md](docs/architecture.md) for the overview and
-[docs/platform_plan.md](docs/platform_plan.md) for what is built, what is
-open and the rules for changing it. The docs do not claim that every capstone
-capability is implemented.
+personal_ai is a course capstone: a local multi-agent Personal Assistant + Forecaster. Built and gated by offline evals
+(`make eval` → `Overall: PASS`): Coordinator with parallel specialists, quarantine, scoped bus, approval-gated Core Memory,
+Advanced RAG, bill ingestion vs fixtures, Tree-of-Thought forecaster. Planned (stress set, verifier relevance, clarifying
+questions, Core Memory recall, composed-leakage and stability evals, held-out ToT calibration) and user-run live checks are
+specified card by card in [docs/roadmap.md](docs/roadmap.md). All evaluation data is synthetic or public; no market skill is
+claimed. Trading and payments are out of scope. Diagrams: [docs/architecture.md](docs/architecture.md).
 
 ### Forecast workflow
 
@@ -234,10 +229,11 @@ Full threat model, what's implemented vs. not, and why: **`docs/security_design.
 Index with reading order: [`docs/README.md`](docs/README.md).
 
 - [`docs/architecture.md`](docs/architecture.md) - system overview (start here)
-- [`docs/platform_plan.md`](docs/platform_plan.md) - rules, current status, backlog; also the brief for a coding agent
-- [`docs/rag_design.md`](docs/rag_design.md) - how retrieval works today, why answers go wrong, the fix plan, bill ingestion
-- [`docs/ai_engine.md`](docs/ai_engine.md) - oMLX, embeddings, re-indexing
-- [`docs/forecasting_system.md`](docs/forecasting_system.md) - stock research and outcome tracking
+- [`docs/roadmap.md`](docs/roadmap.md) - status of every capability and the executable cards for what is left
+- [`docs/platform_plan.md`](docs/platform_plan.md) - rules, invariants, contracts, config, measured results
+- [`docs/rag_design.md`](docs/rag_design.md) - retrieval and bill-ingestion design, diagnosis and card history
+- [`docs/ai_engine.md`](docs/ai_engine.md) - oMLX, embeddings, re-indexing, memory budget
+- [`docs/forecaster.md`](docs/forecaster.md) - stock research, Tree of Thought, outcome tracking
 - [`docs/multi_agent_design.md`](docs/multi_agent_design.md) - agent loop, MCP, skills (runtime reference)
 - [`docs/security_design.md`](docs/security_design.md) - security architecture, threat model, residual risks, audit log
 - [`docs/user_testing_guide.md`](docs/user_testing_guide.md) - hands-on test plan for RAG, agents and predictions

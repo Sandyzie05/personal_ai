@@ -22,8 +22,8 @@ quarantine, Core Memory gate, scheduler, policy) is documented in [platform_plan
    message to the chosen agent.
 3. **Real tool use via MCP.** The agent's model can call tools exposed by
    MCP servers (remote HTTP or local stdio), see their results, and reason
-   over them — including the Robinhood trading MCP
-   (`https://agent.robinhood.com/mcp/trading`).
+   over them. (v1 named a trading MCP here; agent templates are now read-only,
+   invariant S6, and trading is refused by policy.)
 4. **Safety for actions.** With the agent's confirmation setting enabled,
    tools classified as mutating pause for in-UI approval. Classification and
    optional confirmation are not a universal authorization policy.
@@ -55,7 +55,7 @@ scheduling and approval-gated memory. Still out of scope: image/audio/video inpu
 ## 3-4. Architecture and reference-diagram mapping
 
 Removed here (they described the v1 plan and are now out of date). Current architecture: [architecture.md](architecture.md).
-Open items from that mapping (vision inputs, knowledge graph, voice) are tracked in [platform_plan.md](platform_plan.md) §6.1.
+Open items from that mapping (vision inputs, knowledge graph, voice) are tracked in [roadmap.md](roadmap.md).
 
 ## 5. Core design decisions
 
@@ -414,8 +414,7 @@ New in v1, recorded per the repo's security checklist:
 ## 10. v2 status
 
 Built: coordinator + parallel specialists (instead of a `dispatch_agent` tool), scheduled runs, approval-gated Core Memory (instead of automatic
-fact extraction), request policy, quarantine and scoped bus. Still open: per-answer feedback loop, charting tool, image input, scheduler UI
-([platform_plan.md](platform_plan.md) §6.1).
+fact extraction), request policy, quarantine and scoped bus. Scheduler UI is built (Agents → Scheduled). Still open: per-answer feedback loop (roadmap P6), charting tool, image input.
 
 ## 11. Testing strategy
 
