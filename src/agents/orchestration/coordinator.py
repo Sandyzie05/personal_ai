@@ -57,8 +57,12 @@ class Conflict:
 
 @dataclass(frozen=True)
 class Escalation:
-    kind: str  # conflict | unavailable | stale | step_failed | untrusted_write | ungrounded
+    # conflict | unavailable | stale | step_failed | untrusted_write | ungrounded | unsupported (verifier: figure absent
+    # or cited record is the wrong provider/period/account) | clarify (one templated question, no steps run) |
+    # single_source (answer rests on one document / one evidence family) | missing_statement (ledger says a bill is due)
+    kind: str
     detail: str
+    claim_key: str = ""  # for the reviewer log (P6); "" when the escalation is not about one claim
 
 
 @dataclass
@@ -160,6 +164,7 @@ def escalations_for(
         Escalation(
             "conflict",
             f"{c.claim_key}: " + " vs ".join(f"{a}={v}" for a, v, _ in c.options),
+            c.claim_key,
         )
         for c in conflicts
     ]
@@ -171,11 +176,15 @@ def escalations_for(
     for k, f in claims.items():
         # Verifier rule: a confident claim must cite evidence (grounding), else the user is told.
         if f.status == "ok" and f.value is not None and not f.evidence_ids:
-            out.append(Escalation("ungrounded", f"{k}: no evidence cited"))
-        if f.status in ("unavailable", "uncertain"):
-            out.append(Escalation("unavailable", f"{k}: {f.status}"))
+            out.append(Escalation("ungrounded", f"{k}: no evidence cited", k))
+        if k.startswith("missing:"):
+            out.append(Escalation("missing_statement", f"{k}: {f.summary}", k))
+        elif k.startswith("single_source:"):
+            out.append(Escalation("single_source", f"{k}: {f.summary}", k))
+        elif f.status in ("unavailable", "uncertain"):
+            out.append(Escalation("unavailable", f"{k}: {f.status}", k))
         elif f.as_of is not None and now - f.as_of > max_age:
-            out.append(Escalation("stale", f"{k}: as of {f.as_of.date()}"))
+            out.append(Escalation("stale", f"{k}: as of {f.as_of.date()}", k))
     return out
 
 

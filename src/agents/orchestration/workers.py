@@ -103,7 +103,8 @@ def _months(ex: Dict[str, Any]) -> set:
     return out
 
 
-def expense_worker(get_records: Callable[[], Sequence[Dict[str, Any]]]) -> Worker:
+def expense_worker(get_records: Callable[[], Sequence[Dict[str, Any]]],
+                   get_overdue: Optional[Callable[[], Sequence[Dict[str, Any]]]] = None) -> Worker:
     """Deterministic aggregation over structured vault records (no LLM arithmetic).
 
     Filters by the step's category, skips superseded documents, counts each (provider, period) once,

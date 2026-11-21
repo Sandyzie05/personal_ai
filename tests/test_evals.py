@@ -31,3 +31,27 @@ def test_integrations_and_userguide_cases_pass():
     from evals.userguide import run_userguide
     assert all(p for _, p in run_integrations())
     assert all(p for _, p, _ in run_userguide())
+
+
+def test_stress_set_shape_and_action_definition():
+    from types import SimpleNamespace
+
+    from evals.stress import STRESS, action_of
+    from src.agents.orchestration.coordinator import Escalation
+
+    kinds = {c.kind for c in STRESS}
+    assert len(STRESS) >= 40 and {"ambiguous", "incomplete", "stale", "conflict", "clean"} <= kinds
+    assert all(sum(c.kind == k for c in STRESS) >= 8 for k in ("ambiguous", "incomplete", "stale", "conflict", "clean"))
+    rep = lambda *kinds: SimpleNamespace(escalations=[Escalation(k, "x") for k in kinds])
+    assert action_of(None, True) == "refuse"
+    assert action_of(rep("clarify", "conflict"), False) == "ask"
+    assert action_of(rep("unavailable", "stale"), False) == "escalate"
+    assert action_of(rep("unavailable", "single_source", "missing_statement"), False) == "caveat"
+    assert action_of(rep(), False) == "answer"
+
+
+def test_every_golden_task_and_stress_case_labels_expected_agents():
+    from evals.stress import STRESS
+
+    assert all(t.expected_agents for t in GOLDEN)
+    assert all(c.expected_agents or c.expected_action in ("ask", "refuse") for c in STRESS)

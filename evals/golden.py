@@ -59,6 +59,11 @@ class Task:
         default_factory=dict
     )  # claim_key -> value | ("status", s)
     canaries: Tuple[str, ...] = ()
+    expected_agents: frozenset = frozenset()  # labelled in advance (W1 tool-selection metric), not read from the planner
+
+
+EXPECTED_AGENTS = {"records": frozenset({"expense"}), "market": frozenset({"forecaster", "market"}),
+                   "cross": frozenset({"expense", "forecaster", "market"})}
 
 
 def _rec(i, n, provider, total, end, canaries):
@@ -138,6 +143,7 @@ def _build() -> List[Task]:
                 {sym: direction} if kind != "records" else {},
                 expected,
                 can,
+                EXPECTED_AGENTS[kind],
             )
         )
     return tasks
