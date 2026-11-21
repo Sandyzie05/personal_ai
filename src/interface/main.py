@@ -7,6 +7,7 @@ All processing happens locally using open-source AI models.
 """
 
 import streamlit as st
+import secrets
 import sys
 import os
 from pathlib import Path
@@ -583,10 +584,17 @@ class PersonalAIInterface:
     ) -> None:
         """Coordinator turn: plan -> parallel specialists -> deterministic merge -> escalation."""
         from src.agents.orchestration import service
-        from src.agents.orchestration.workers import render_report
+        from src.agents.orchestration.workers import _md, render_report
         from src.ai_engine.engine import worker_client
         from src.interface.forecast import _scenario_factory
 
+        # P3: a reply to the clarifying question is re-planned together with the question it answers.
+        pending = st.session_state.pop("coord_clarify", None)
+        query = (
+            f"{pending['query']} {user_query}"
+            if pending and pending.get("session") == active_id
+            else user_query
+        )
         try:
             coordinator = service.build_coordinator(
                 self.vault,
@@ -598,19 +606,36 @@ class PersonalAIInterface:
             with st.status("Coordinator delegating to specialists...", expanded=True):
                 report = service.run_query(
                     coordinator,
-                    user_query,
+                    query,
                     only=agent.get("role")
                     if agent.get("id") != "builtin-coordinator"
                     else None,
                     planner_client=worker_client(self.chat_engine.ollama_client),
                 )
-            service.propose_from_report(self.vault, report)
-            answer = render_report(report)
-            answer += (
-                "\n\n_Parallel specialists: "
-                + ("overlapped" if report.parallel_overlap else "single step")
-                + f", {report.wall_s:.1f}s._"
-            )
+            clarify = next((e for e in report.escalations if e.kind == "clarify"), None)
+            if clarify is not None:
+                st.session_state["coord_clarify"] = {
+                    "session": active_id,
+                    "query": query,
+                }
+                answer = _md(clarify.detail)
+            else:
+                service.propose_from_report(self.vault, report)
+                answer = render_report(report)
+                answer += (
+                    "\n\n_Parallel specialists: "
+                    + ("overlapped" if report.parallel_overlap else "single step")
+                    + f", {report.wall_s:.1f}s._"
+                )
+            st.session_state["coord_last"] = {
+                "session": active_id,
+                "run_id": secrets.token_hex(6),
+                "escalations": [
+                    {"kind": e.kind, "claim_key": e.claim_key[:80]}
+                    for e in report.escalations
+                    if e.kind != "clarify"
+                ],
+            }
         except ValueError as exc:  # refusals, nothing delegable
             answer = str(exc)
         except (
@@ -630,6 +655,75 @@ class PersonalAIInterface:
             agent_id=agent.get("id"),
         )
         st.rerun()
+
+    def _render_coordinator_followups(self, active_id: str) -> None:
+        """After a Coordinator reply: Sync now for missing statements (P12) and Accept / Correct / Dismiss per
+        escalation (P6). Nothing here fetches or commits on its own; every action is one explicit click."""
+        from src.agents.orchestration import memory
+        from src.data_ingestion.portal import store as portal_store
+        from src.interface import sync_panel
+
+        last = st.session_state.get("coord_last")
+        if not last or last.get("session") != active_id or not last.get("escalations"):
+            return
+        run_id = last["run_id"]
+        with st.container(border=True):
+            st.markdown("**Review the coordinator's flags**")
+            for i, e in enumerate(last["escalations"]):
+                kind, key = e["kind"], e["claim_key"]
+                st.text(
+                    f"{kind}: {key or 'whole run'}"
+                )  # inert text: claim keys can carry document-derived labels
+                if kind == "missing_statement" and key.count(":") >= 2:
+                    provider = key.split(":")[1]
+                    if provider in portal_store.list_recipes(self.vault):
+                        if st.button(
+                            f"Sync now: {provider}",
+                            key=f"sync_{run_id}_{i}",
+                            icon=":material/sync:",
+                        ):
+                            sync_panel._fetch(
+                                self.vault, provider, self._on_document_uploaded
+                            )
+                    else:
+                        st.button(
+                            "Sync now",
+                            key=f"sync_{run_id}_{i}",
+                            icon=":material/sync:",
+                            help="Opens the Sync panel (Upload page); nothing is fetched until you press Fetch there.",
+                            on_click=lambda: st.session_state.update(nav_page="upload"),
+                        )
+                if e.get("decision"):
+                    st.caption(f"Recorded: {e['decision']}")
+                    continue
+                a, c, d = st.columns(3)
+                if a.button("Accept", key=f"rev_a_{run_id}_{i}"):
+                    agent_store.log_review(self.vault, run_id, kind, key, "accept")
+                    e["decision"] = "accept"
+                    st.rerun()
+                if d.button("Dismiss", key=f"rev_d_{run_id}_{i}"):
+                    agent_store.log_review(self.vault, run_id, kind, key, "dismiss")
+                    e["decision"] = "dismiss"
+                    st.rerun()
+                if c.toggle("Correct", key=f"rev_c_{run_id}_{i}"):
+                    fix = st.text_input(
+                        "Correct value", key=f"rev_v_{run_id}_{i}", max_chars=200
+                    )
+                    if st.button(
+                        "Propose correction",
+                        key=f"rev_p_{run_id}_{i}",
+                        disabled=not fix.strip(),
+                    ):
+                        # A correction is a Core Memory PROPOSAL, never a commit; approve it in Agents → Core Memory.
+                        memory.propose(
+                            self.vault,
+                            f"correction:{key}"[:80],
+                            fix.strip(),
+                            proposer="reviewer",
+                        )
+                        agent_store.log_review(self.vault, run_id, kind, key, "correct")
+                        e["decision"] = "correct"
+                        st.rerun()
 
     def _respond_with_agent(
         self,
@@ -1010,6 +1104,7 @@ class PersonalAIInterface:
                 self._rebuild_rag_index()
 
         render_chat_history(self.chat_history)
+        self._render_coordinator_followups(active_id)
 
         # A paused agent run (waiting on the confirmation gate) blocks this
         # chat until resolved: the confirmation card is rendered in its place

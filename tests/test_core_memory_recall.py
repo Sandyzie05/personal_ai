@@ -45,7 +45,7 @@ def test_untrusted_approved_fact_keeps_its_label_and_is_not_a_baseline():
     _approve(v, "budget_baseline:2026-Q3", "310", trust="untrusted")
     facts = memory.recall(v, "budget baseline 2026 Q3")
     assert facts[0].trust == "untrusted"
-    out = expense_worker(lambda: [], lambda: facts)(
+    out = expense_worker(lambda: [], get_memory=lambda: facts)(
         type("S", (), {"category": None})(), {}
     )
     assert not any(f.claim_key.startswith("budget_baseline:") for f in out)
@@ -86,7 +86,7 @@ def test_baseline_is_trusted_memory_only_and_never_reaches_market_inputs():
             trust="trusted",
         )
     ]
-    out = expense_worker(lambda: [], lambda: facts)(
+    out = expense_worker(lambda: [], get_memory=lambda: facts)(
         type("S", (), {"category": None})(), {}
     )
     base = [f for f in out if f.claim_key == "budget_baseline:2026-Q2"]

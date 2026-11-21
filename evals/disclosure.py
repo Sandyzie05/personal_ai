@@ -305,7 +305,7 @@ def _service_run(task, vault, sinks, query, *, email=False, brokerage=False):
     _record_bus(sinks, bus)
     box = {"facts": []}
     workers = {
-        "expense": expense_worker(lambda: list(task.records), lambda: box["facts"]),
+        "expense": expense_worker(lambda: list(task.records), get_memory=lambda: box["facts"]),
         "market": market_worker(prov, bus),
         "forecaster": forecaster_stub(task.market, prov.requests),
     }

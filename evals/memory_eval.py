@@ -53,7 +53,7 @@ def _coordinator(vault):
     box = {"facts": []}
     c = Coordinator(
         {
-            "expense": expense_worker(lambda: [], lambda: box["facts"]),
+            "expense": expense_worker(lambda: [], get_memory=lambda: box["facts"]),
             "market": market_worker(prov, bus),
             "forecaster": forecaster_stub({}, prov.requests),
         }

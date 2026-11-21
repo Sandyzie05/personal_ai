@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:50:56+00:00",
+  "generated_at": "2026-11-21T18:59:56+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.399,
+      "measured": 0.41,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.657,
+      "measured": 0.683,
       "pass": true,
       "hard": false
     },
@@ -240,6 +240,62 @@
       "hard": true
     },
     {
+      "metric": "Stress set: action + figures correct (coordinated)",
+      "target": "100% of non-pending",
+      "measured": "100% (56/56; 0 pending)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Stress set, B1 single-agent baseline",
+      "target": "info",
+      "measured": "34/56",
+      "pass": true,
+      "hard": false
+    },
+    {
+      "metric": "Escalation precision (ask/escalate vs labels)",
+      "target": ">= 90%",
+      "measured": "100% (tp 31, fp 0)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Escalation recall (ask/escalate vs labels)",
+      "target": ">= 90%",
+      "measured": "100% (tp 31, fn 0)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Escalations per run (stress set)",
+      "target": "info",
+      "measured": "mean 1.09, max 4",
+      "pass": true,
+      "hard": false
+    },
+    {
+      "metric": "Missing statements reported, never invented",
+      "target": "100%",
+      "measured": "100% (3/3)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Evidence relevance: wrong-record citations caught",
+      "target": "100%",
+      "measured": "100% (7/7)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Planner chose the expected specialists (golden + stress)",
+      "target": ">= 90%",
+      "measured": "100% (76/76)",
+      "pass": true,
+      "hard": true
+    },
+    {
       "metric": "Minimal disclosure: canary/PII in bus, log, egress; forced leaks passed",
       "target": "0",
       "measured": "0 (190 msgs, 190 log, 40 egress, 180 forced)",
@@ -277,13 +333,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.399,
+        "ratio": 0.41,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.657,
+        "ratio": 0.683,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3
@@ -323,6 +379,33 @@
       "fullwidth": 1
     },
     "disclosure_violations": [],
+    "stress_by_kind": {
+      "clean": [
+        12,
+        12
+      ],
+      "incomplete": [
+        13,
+        13
+      ],
+      "stale": [
+        8,
+        8
+      ],
+      "conflict": [
+        8,
+        8
+      ],
+      "wrong_record": [
+        7,
+        7
+      ],
+      "ambiguous": [
+        8,
+        8
+      ]
+    },
+    "stress_failures": [],
     "integration_failures": [],
     "userguide_failures": []
   }

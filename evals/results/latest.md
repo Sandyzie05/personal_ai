@@ -1,10 +1,10 @@
-# Eval results (2026-11-21T18:50:56+00:00)
+# Eval results (2026-11-21T18:59:56+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
-| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.399 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.657 | info |
+| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.41 | PASS |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.683 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |
@@ -36,6 +36,14 @@
 | Core Memory: pending survives restart | yes | true | PASS |
 | Core Memory recall: seeded facts retrieved in a later run (P5) | >= 90% | 9/9 (+1 forgotten, correctly absent) | PASS |
 | Core Memory recall: superseded or forgotten facts returned; untrusted unlabelled | 0 / 0 | 0 / 0 | PASS |
+| Stress set: action + figures correct (coordinated) | 100% of non-pending | 100% (56/56; 0 pending) | PASS |
+| Stress set, B1 single-agent baseline | info | 34/56 | info |
+| Escalation precision (ask/escalate vs labels) | >= 90% | 100% (tp 31, fp 0) | PASS |
+| Escalation recall (ask/escalate vs labels) | >= 90% | 100% (tp 31, fn 0) | PASS |
+| Escalations per run (stress set) | info | mean 1.09, max 4 | info |
+| Missing statements reported, never invented | 100% | 100% (3/3) | PASS |
+| Evidence relevance: wrong-record citations caught | 100% | 100% (7/7) | PASS |
+| Planner chose the expected specialists (golden + stress) | >= 90% | 100% (76/76) | PASS |
 | Minimal disclosure: canary/PII in bus, log, egress; forced leaks passed | 0 | 0 (190 msgs, 190 log, 40 egress, 180 forced) | PASS |
 | Composed leakage: canaries outside allowed sinks (multi-hop, memory, merge) (P4) | 0 | 0 (60 runs, 570 sinks, 90 hops) | PASS |
 
