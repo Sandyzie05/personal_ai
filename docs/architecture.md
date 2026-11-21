@@ -20,6 +20,7 @@ flowchart LR
     E["Expense / Records"]
     M["Market"]
     F["Forecaster<br/>ToT + 4 critics"]
+    T["Trader paper agents<br/>ORB · breakout · bounce + reviewer"]
     V["Verifier"]
     EM["Email / Brokerage readers<br/>(read-only MCP)"]
   end
@@ -28,12 +29,13 @@ flowchart LR
   EM -- quarantine.extract_facts --> C
   E --> VA[("Encrypted vault<br/>records · chat · memory · audit")]
   E --> RAG["RAG: header chunks, hybrid BM25+dense,<br/>grounding check (ChromaDB)"]
-  M & F --> PUB[["Public providers<br/>tickers/topics only"]]
+  M & F & T --> PUB[["Public providers<br/>tickers/topics only"]]
+  T --> VA
   C --> REP["Report with evidence ids<br/>+ escalations"]
   REP --> UI
   REP -. propose .-> CM["Core Memory<br/>(you approve in Agents tab)"]
   CM --> VA
-  LLM["oMLX on 127.0.0.1<br/>≤ 2 in-flight requests"] -.- C & F & RAG
+  LLM["oMLX on 127.0.0.1<br/>≤ 2 in-flight requests"] -.- C & F & T & RAG
 ```
 
 | Layer | Code | Detail doc |
@@ -42,6 +44,7 @@ flowchart LR
 | Agents | `src/agents/orchestration/` (coordinator, bus, quarantine, memory, policy, verifier) | [platform_plan.md](platform_plan.md), [multi_agent_design.md](multi_agent_design.md) |
 | AI engine + RAG | `src/ai_engine/` | [ai_engine.md](ai_engine.md), [rag_design.md](rag_design.md) |
 | Forecaster | `src/forecaster/` | [forecaster.md](forecaster.md) |
+| Trader (plan + paper agents) | `src/trader/` | [trader.md](trader.md) |
 | Data + security | `src/data_vault/`, `src/security/`, `src/data_ingestion/`, `src/data_extraction/` | [security_design.md](security_design.md) |
 | Evals | `evals/` (`make eval`, `make eval-rag`) | [platform_plan.md](platform_plan.md) §5 |
 

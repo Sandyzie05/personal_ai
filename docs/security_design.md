@@ -13,6 +13,7 @@ For the agent-specific rules and their tests see [platform_plan.md](platform_pla
 | Agents | Typed per-edge message schemas, PII/canary scan, audit log (field names + hash only); read-only MCP by default; confirmation gate for write tools |
 | Memory | Agents can only *propose*; you approve in the UI; untrusted-derived items need extra acknowledgement |
 | Scope | Trading, payments, shell commands, diagnosis and secret disclosure are refused before planning |
+| Trader | Advice + local paper ledger only: no order is built or sent; paper agents see numbers only (S21-S24) |
 | Accepted risk | ChromaDB index is plaintext on disk (locked-down, colocated; see below); a malicious process under your own account while unlocked |
 
 ## Contents
@@ -21,7 +22,7 @@ For the agent-specific rules and their tests see [platform_plan.md](platform_pla
 [RAG / ChromaDB](#rag--chromadb-accepted-residual-risk) · [Multi-session chat](#multi-session-chat-and-dashboard-2026-08-25) ·
 [Multi-agent and MCP](#multi-agent-and-mcp-integration-2026-10-13) · [Forecast integration](#requested-ticker-forecast-integration-2026-10-18) ·
 [Agent platform + audit](#agent-platform-coordinator-quarantine-scoped-bus-core-memory-gate-2026-10-25) ·
-[Audit](#independent-audit-2026-10-25-and-resolution) · [Ingestion hardening](#bill-ingestion-and-rag-hardening-2026-10-25) · [Planned controls](#planned-controls-2026-11-20) · [Model configuration](#model-configuration) ·
+[Audit](#independent-audit-2026-10-25-and-resolution) · [Ingestion hardening](#bill-ingestion-and-rag-hardening-2026-10-25) · [Trader + paper agents](#trader-track-t-2026-11-21) · [Planned controls](#planned-controls-2026-11-20) · [Model configuration](#model-configuration) ·
 [Known limitation](#known-limitation-no-migration-path-across-a-vault-key-change)
 
 ## Threat model

@@ -208,6 +208,18 @@ Later (after 5 trading sessions): use *Evaluate outcome* (Research → "Saved fo
 5. Expect: no button anywhere places orders, alerts or watchlist changes. If a step returns nothing, report the step and the
    status line (not the data) — the tool argument names may need adjusting.
 
+### C-T. Trader (plan and AI paper agents)
+
+1. Forecast → Trader → *Plan*: `TSLA` → *Plan trade* during market hours. Expect waiting / triggered / expired, and when
+   triggered entry, stop, target, shares, a PASS/BLOCK risk line and simulated odds. No order or broker wording anywhere.
+2. *Paper agents*: tickers `SPY, AAPL`, all three agents → *Run backtest (past year)*. Expect a green line (signals, new AI
+   decisions, reused, invalid, not reviewed), a leaderboard with an `agent` and a `baseline` row per strategy, an equity
+   curve, P&L by month and a trade log. Note the invalid count and how long it took.
+3. Run the backtest again: new AI decisions should be near 0 and "reused" high (decisions are cached).
+4. *Review agents*: each row shows what the numbers say and what the reviewer says, flagged when they disagree.
+5. *Run forward session (latest bars)* on a trading day: only the newest session is decided; *Record → Forward* shows it.
+6. Fail if: any real order is suggested or sent, a ticker or date appears in an agent's activity-log entry, or the app errors.
+
 ## Part D: Security spot checks (10 minutes)
 
 | # | Check | How | Expect |

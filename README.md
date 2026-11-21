@@ -45,7 +45,9 @@ index has a documented plaintext-at-rest limitation.
   Core Memory proposals needing your approval.
 - Forecast page: requested-US-stock research, recommendations (research lean), validation
   report, events/news, drilldown and screens, optional parallel local
-  specialist reviews, and explicitly saved encrypted forecasts/outcomes.
+  specialist reviews, and explicitly saved encrypted forecasts/outcomes. Trader section:
+  day-trade plan (day-trader-skill methods) and AI paper agents on simulated money with a
+  1-year scoreboard (docs/trader.md); no real orders.
   Scores are heuristic, not calibrated probabilities or investment advice.
 
 UI uploads are parsed in memory before encrypted storage. DOCX extraction
