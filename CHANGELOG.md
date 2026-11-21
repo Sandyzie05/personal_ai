@@ -11,6 +11,7 @@
   and chat. Upload → Sync → *Bills from Gmail*. Eval row + tests.
 - Expected bills: no expander (it collapsed on every add), a form that clears, known-provider picker, list + Remove.
 - Fix: `trader_paper_v1` and `gmail_bill_senders` are internal vault keys (the paper ledger was indexable and listed in Files).
+- Handoff: roadmap §00 rewritten for a new session (state, where things live, ordered user checks, next-card table); Miro frame 0 note.
 
 ## (pending) - 2026-11-21 - feat/fix: Robinhood Portfolio chat agent, earnings-calendar fix, Expected bills, Trader Forward record
 
