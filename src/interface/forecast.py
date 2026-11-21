@@ -1,6 +1,7 @@
 """Explicit public-data research and opt-in encrypted forecast tracking."""
 
 import asyncio
+import re
 import hashlib
 import importlib.util
 import json
@@ -112,6 +113,7 @@ def _scenario_factory(vault):
     return factory
 
 
+_HEX_ID = re.compile(r"\(?\s*(?:evidence_id:\s*)?\b[0-9a-f]{16,64}\b\s*\)?")
 REASON_TEXT = {
     "empty": "empty reply",
     "not_json": "reply was not valid JSON",
@@ -327,8 +329,9 @@ def _ai_review(vault, prediction, tabs):
         run=st.session_state.get("forecast_explanation_run"),
     )
     st.caption(
-        "The thesis explainer runs after the verdict: it turns the selected thesis and its evidence into "
-        "≤ 3 plain sentences shown under 3 · Verdict. If its reply breaks the rules, a rule-based summary is shown."
+        "Thesis explainer = the writer. The critics and the thesis search decide the verdict; the explainer does not "
+        "vote. It only turns the winning thesis and its evidence into ≤ 3 plain sentences (\"Why this verdict\" under "
+        "3 · Verdict). If its reply breaks the rules (invented numbers, unknown evidence), a rule-based summary is shown."
     )
     if st.button("Run AI review", type="primary"):
         from src.forecaster.explain import explain_thesis
@@ -537,11 +540,12 @@ def _verdict(prediction):
             )
         explanation = st.session_state.get("forecast_explanation")
         if explanation:
-            st.text(explanation["summary"])
-            st.caption("What would change this: " + explanation["what_would_change"])
-            st.caption(
-                "Cites: " + ", ".join(e[:10] for e in explanation["evidence_ids"])
-            )
+            titles = {c.evidence_id: c.title for c in prediction.snapshot.evidence}
+            st.markdown("**Why this verdict** (AI explanation)")
+            # Evidence ids are listed below by title; strip any the model also pasted into the prose.
+            st.text(_HEX_ID.sub("", explanation["summary"]).replace("()", "").strip())
+            st.caption("What would change this: " + _HEX_ID.sub("", explanation["what_would_change"]))
+            st.caption("Based on: " + "; ".join(titles.get(e, e[:10]) for e in explanation["evidence_ids"]))
         else:
             run = st.session_state.get("forecast_explanation_run") or {}
             beat = (

@@ -9,10 +9,10 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 
 ## 00. Start here (handoff for the next session, updated 2026-11-21)
 
-**State.** `main` contains everything through PR #25 (Track F: Forecast overhaul on configurable workflow agents). No open PRs.
-`make test` 775 pass, `make eval` Overall PASS (offline, synthetic). Two laptops: this repo is developed on one without models;
-the app runs with real data and local models (oMLX, Qwen3.8-27B) on the other. **Nothing has been verified on live models yet.**
-AI-review critics now default to `Qwen3-4B-Instruct-2507-MLX-8bit` (`PERSONAL_AI_FORECAST_CRITIC_MODEL`).
+**State.** `main` contains Track F through PR #28. **F1 live ✓ 2026-11-21** (ADBE: 3/4 critics completed on
+`Qwen3-4B-Instruct-2507-MLX-8bit`, explainer completed). F7 (news analyst) done offline in the F7 PR; its live check is one
+*Analyze with AI* click on Events. `make test` 781 pass, `make eval` Overall PASS. Two laptops: this repo is developed on one
+without models; the app runs with real data and local models (oMLX) on the other. **Next card: P1.**
 
 **Waiting on the user (model laptop), in this order:**
 0. Download `lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit` into oMLX; confirm its id in `curl 127.0.0.1:8000/v1/models`
@@ -28,7 +28,7 @@ AI-review critics now default to `Qwen3-4B-Instruct-2507-MLX-8bit` (`PERSONAL_AI
 
 | Report says | Do |
 |---|---|
-| ≥ 3/4 critics `completed` | Mark F1 live ✓ (§0 diagram + Miro), then **F7 remainder** (LLM news analyst), then **P1** |
+| ≥ 3/4 critics `completed` | Done 2026-11-21 → **P1** |
 | `timeout` on 2+ critics | Check critics actually run on the 4B (agent chip); else `PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS`; never drop the deadline |
 | `invalid (truncated)` | Raise the critic agent's max tokens in the Agents tab, up to `FORECAST_MODEL_MAX_TOKENS` (700; ForecastSettings allows ≤ 1024) |
 | `invalid (not_json)` / `(schema)` | Read AI review → Details (reply chars, stopped because): `length` = raise max tokens; else Check `omlx_client` honours `format=` (json_schema response_format) on the live server; add a unit test with the observed shape (no model text in fixtures) |
@@ -59,9 +59,9 @@ flowchart LR
   classDef todo fill:#eeeeee,color:#333,stroke:#9e9e9e
   classDef user fill:#1565c0,color:#fff,stroke:#0d47a1
   class W1,W2,W3,W4,W5,W6 done
-  class D,FX,F done
-  class FL now
-  class P1,P2,P3,P12,P5,P4,P6,P7,P8,P11 todo
+  class D,FX,F,FL done
+  class P1 now
+  class P2,P3,P12,P5,P4,P6,P7,P8,P11 todo
   class P9,P10 user
 ```
 
@@ -97,10 +97,10 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Labelled stress set with expected action | PLANNED | P1 (W5, W6) |
 | Escalation precision/recall + reviewer decision log | PLANNED | P6 (W6) |
 | Repeat-run / perturbed-condition stability | PLANNED | P7 (W6) |
-| Forecaster: research, 4 parallel critic agents, ToT verdict, explainer, outcome tracking | DONE offline (Track F); live critic completion USER | F1 live check in the next state report |
+| Forecaster: research, 4 parallel critic agents, ToT verdict, explainer, outcome tracking | DONE (F1 live 3/4 critics, 2026-11-21) | F1 |
 | Built-in agents tweakable in the Agents tab; every AI step has an assigned agent + chip | DONE | F2, F3 (`test_agent_overrides.py`, `test_agents_page_smoke.py`) |
 | Chat selector lists every agent in the system | DONE | F10 |
-| LLM news analyst behind quarantine (Events) | PLANNED | F7 remainder |
+| LLM news analyst behind quarantine (Events) | DONE offline; live = one click (USER) | F7, eval "News analyst" 0/190 |
 | Tree-of-Thought thesis search (beam 3, depth 2, ≤ 9 nodes) | DONE offline | `forecaster.md` Part 2, eval 8/8 |
 | ToT held-out evaluation + calibration (Brier) | PLANNED | P8 (W4, W5, W6) |
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
@@ -149,8 +149,8 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-Track F (user decision 2026-11-21) is merged except the F1 live check and the F7 news analyst. **Remaining order:**
-F1 live check (user) → F7 remainder → `P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) →
+Track F is done (F1 live ✓, F7 offline). **Remaining order:**
+`P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) →
 `P9, P10` (user runs live) → `P11` (final packaging).
 P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 so the leakage eval also covers memory reads.
 
@@ -190,7 +190,7 @@ Slots in scope (Forecast first; other pages later):
 | `forecast.news_analyst` | `builtin-news-analyst` | none; input = quarantined headline facts only | closed-enum sentiment counts per topic |
 | `forecast.watchlist_explainer` | `builtin-watchlist-explainer` | none | per-symbol closed reason codes + ≤ 2 sentences |
 
-#### F1. Specialist reliability on one laptop — DONE offline 2026-11-21 (live: USER)
+#### F1. Specialist reliability on one laptop — DONE 2026-11-21 (live: ADBE 3/4 critics on the 4B)
 
 - **Now:** `scenarios.ScenarioSwarmService` runs 4 calls under one 60 s deadline (`FORECAST_SCENARIO_DEADLINE_SECONDS`) while
   `PERSONAL_AI_INFERENCE_CONCURRENCY=2`, so 2 calls queue and time out on a 27B model. `max_tokens` is capped at 400
@@ -251,7 +251,7 @@ Slots in scope (Forecast first; other pages later):
   per symbol citing evidence ids. "Research" button per row opens F5 for that ticker.
 - **Accept:** AppTest renders 3 symbols; explainer failure degrades to reason codes only.
 
-#### F7. Events: LLM news analyst behind quarantine — PARTIAL (crash fixed, layout + "no agent" chip done)
+#### F7. Events: LLM news analyst behind quarantine — DONE offline 2026-11-21 (step 5, counts into ToT, still optional)
 
 - **Why:** every AI step should have an agent (user, 2026-11-21); news is the one Forecast step without one. Headlines are
   untrusted (S1, S16), so the agent may only see quarantine output.

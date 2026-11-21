@@ -82,6 +82,15 @@ class EmailFacts(Strict):
                    "brokerage", "insurance", "subscription", "other"] = ""
 
 
+class NewsFacts(Strict):
+    """One headline, as closed enums only (F7). No free-text field: headline prose never leaves quarantine."""
+    ticker: str = Field(default="", pattern=r"^(?:[A-Z]{1,5}(?:[.-][A-Z])?)?$")
+    topic: Literal["", "earnings", "guidance", "product", "legal", "regulation", "macro", "management", "deal",
+                   "other"] = ""
+    sentiment: Literal["positive", "neutral", "negative"]
+    materiality: Literal["low", "medium", "high"]
+
+
 class StatementFacts(Strict):
     provider: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9 .&'-]{0,39}$")
     period_start: Optional[date] = None

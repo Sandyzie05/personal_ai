@@ -4,6 +4,20 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat: F7 news analyst; news, explainer and watchlist UX; F1 live ✓
+
+- F1 live: ADBE 3/4 critics completed on the 4B. Roadmap §0/§1 + Miro updated; next card P1.
+- F7: `schemas.NewsFacts` (closed enums), `builtin-news-analyst` + slot `forecast.news_analyst`, `forecaster/news_analyst.py`
+  (one `extract_facts` per headline, counts only, time-bounded). Events: *Analyze with AI* adds an AI-sentiment column, per-ticker
+  counts and an AI-vs-keyword disagreement count. Eval row "News analyst: injected text reaching output" 0/190.
+- News: Yahoo search returned 0 stories for multi-word topic phrases, so "Fetch today's stories" was empty; topic queries are
+  now single words. Search ranks headlines that mention the term (or ticker) first and hides the rest behind a toggle. Stories
+  are a table (date, headline, publisher, tickers, sentiment, impact, link) instead of text lines.
+- Thesis explainer: "Why this verdict" heading, purpose caption, evidence shown by title, hex ids stripped from prose, prompt
+  keeps ids out of the text, summary limit 360 → 500 (was cutting mid-sentence).
+- Watchlist "Explain with AI": result/status now persists below the table (was a warning that vanished on rerun).
+- Agents page: fixed `agents_group` Streamlit warning (default + session state).
+
 ## (pending) - 2026-11-21 - fix: critic JSON robustness, explainer reasons, AI review UI
 
 - Live ADBE run on the 4B: 3/4 critics `not_json`, explainer `schema`. Parser now uses `raw_decode` (ignores a repeated

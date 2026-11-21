@@ -59,6 +59,12 @@ SLOTS: Dict[str, Slot] = {
             "builtin-watchlist-explainer",
             "WatchlistExplanation",
         ),
+        Slot(
+            "forecast.news_analyst",
+            "News analyst",
+            "builtin-news-analyst",
+            "NewsFacts",
+        ),
     )
 }
 CRITIC_SLOTS = {

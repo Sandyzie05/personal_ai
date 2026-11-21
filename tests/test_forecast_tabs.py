@@ -177,9 +177,32 @@ def test_events_unavailable_and_untrusted_rendering(tmp_path, monkeypatch):
     at = _launch(tmp_path, monkeypatch, fake_providers(news=[item]))
     goto(at, "Events")
     click(at, "Fetch today's stories")
-    shown = [t.value for t in at.text]
-    assert any("alert(1)" in s for s in shown)
+    shown = " ".join(str(df.value.to_dict()) for df in at.dataframe)
+    assert "alert(1)" in shown  # headline is an inert dataframe cell
     assert not any("alert(1)" in m.value for m in at.markdown)
+
+
+def test_events_ai_analyst_adds_closed_labels_only(tmp_path, monkeypatch):
+    import json as _json
+
+    class Fake:
+        temperature, max_tokens, model = 0.0, None, "m"
+
+        def chat(self, **kw):
+            return {"message": {"content": _json.dumps(
+                {"ticker": "AAPL", "topic": "earnings", "sentiment": "negative", "materiality": "high"})}}
+
+    monkeypatch.setattr(forecast_page, "_scenario_factory", lambda vault: (lambda remaining_seconds=60: Fake()))
+    item = {"title": "AAPL beats estimates", "link": "https://example.com/a", "publisher": "Wire",
+            "providerPublishTime": int(NOW.timestamp()) - 60, "relatedTickers": ["AAPL"]}
+    at = _launch(tmp_path, monkeypatch, fake_providers(news=[item]))
+    goto(at, "Events")
+    click(at, "Fetch today's stories")
+    click(at, "Analyze with AI")
+    assert "disagree on 1" in texts(at)  # keyword says positive ("beat"), AI says negative
+    tables = [df.value for df in at.dataframe]
+    assert any("high_materiality" in t.columns for t in tables)
+    assert any("AI sentiment" in t.columns and "negative" in t["AI sentiment"].tolist() for t in tables)
 
 
 def test_drilldown_and_system_health(tmp_path, monkeypatch):

@@ -351,14 +351,16 @@ def render_recommendations(vault=None, client_factory=None):
                 st.session_state["forecast_lean_notes"] = (
                     {i.symbol: i.note for i in out.items} if out else {}
                 )
-                if out is None:
-                    st.warning(
-                        f"Explainer {status}"
-                        + (f" ({reason})" if reason else "")
-                        + "; showing rule-based reasons."
-                    )
-                else:
-                    st.rerun()
+                st.rerun()
+        run = st.session_state.get("forecast_lean_notes_run")
+        if run:  # persistent result, not a toast that vanishes on the next rerun
+            if notes:
+                st.markdown("**AI notes** (also in the *why* column)")
+                for symbol, note in notes.items():
+                    st.text(f"{symbol}: {note}")
+            else:
+                why = f": {run['invalid_reason']}" if run.get("invalid_reason") else ""
+                st.warning(f"AI explanation {run['status']}{why}; the why column shows rule-based reasons.")
     else:
         st.info(
             "No symbol passed the confidence/risk filters (or none had enough evidence)."
@@ -493,110 +495,130 @@ def render_system(vault, snapshot_prefix, outcome_prefix):
 # --- Events ----------------------------------------------------------------
 
 
-def _story_lines(stories):
-    for s in stories:
-        st.text(
-            f"[{s.sentiment}/{s.directional_bias} impact {s.impact_score:.2f}] "
-            f"{s.title} ({s.publisher}, {s.published_at:%Y-%m-%d})"
-        )
-        if s.url:
-            st.text(f"  {s.url}")
-
-
-def render_events():
-    st.subheader("Market events and news")
-    st.warning(
-        "Headlines are untrusted external text, shown as plain text. Impact scores are heuristic."
+def _stories_table(stories, ai=None):
+    """Headlines are untrusted: dataframe cells render as inert text (never markdown/HTML)."""
+    ai = ai or {}
+    st.dataframe(
+        [{"date": f"{s.published_at:%Y-%m-%d}", "headline": s.title, "publisher": s.publisher,
+          "tickers": ", ".join(s.related_tickers[:4]), "keyword sentiment": s.sentiment,
+          **({"AI sentiment": ai.get(s.story_id, "—")} if ai else {}),
+          "impact": round(s.impact_score, 2), "link": s.url} for s in stories],
+        column_config={"link": st.column_config.LinkColumn("link", display_text="open"),
+                       "headline": st.column_config.TextColumn("headline", width="large")},
+        hide_index=True, width="stretch",
     )
-    with st.container(border=True):
-        st.markdown(":material/rule: **No AI agent on this step**")
-        st.caption(
-            "Leanings come from deterministic keyword scoring. Headlines never reach a model here: an LLM news "
-            "analyst must first go through quarantine (closed-enum facts only), which is still planned."
-        )
+
+
+def _news_analyst(vault, client_factory, stories, key):
+    """F7: tag the shown headlines through quarantine (closed enums only) and compare with the keyword lean."""
+    from src.agents.slots import agent_for, log_run
+    from src.forecaster.news_analyst import NewsAnalysis, analyze
+
+    state_key = f"forecast_news_ai_{key}"
+    agent = agent_chip(vault, "forecast.news_analyst", run=st.session_state.get(state_key + "_run"))
+    if client_factory and st.button("Analyze with AI", key=f"forecast_news_ai_btn_{key}"):
+        start = time.monotonic()
+        try:
+            out = analyze(stories, client_factory(), agent_for(vault, "forecast.news_analyst"))
+            status = "completed" if out.analyzed else "invalid"
+            st.session_state[state_key] = out.to_api()
+        except Exception:
+            out, status = None, "failed"
+            st.session_state[state_key] = None
+        ms = int((time.monotonic() - start) * 1000)
+        st.session_state[state_key + "_run"] = {"status": status, "latency_ms": ms}
+        log_run(vault, "forecast.news_analyst", agent["id"], status, ms, None)
+        st.rerun()
+    raw = st.session_state.get(state_key)
+    if not raw:
+        return {}
+    out = NewsAnalysis.model_validate(raw)
+    by_id = {s.story_id: s for s in stories}
+    differ = sum(1 for sid, sent in out.story_sentiment.items() if sid in by_id and by_id[sid].sentiment != sent)
+    st.caption(f"AI tagged {out.analyzed} headlines · rejected {out.rejected} · looked like injection {out.flagged}"
+               + (f" · not reached (time budget) {out.skipped}" if out.skipped else "")
+               + f" · AI and keyword sentiment disagree on {differ}.")
+    if out.counts:
+        st.dataframe([{"ticker": t, **c.model_dump()} for t, c in sorted(out.counts.items())],
+                     hide_index=True, width="stretch")
+    return out.story_sentiment
+
+
+def render_events(vault=None, client_factory=None):
+    st.subheader("Market events and news")
+    st.warning("Headlines are untrusted external text, shown as plain text. Impact scores are heuristic.")
+    st.caption("Keyword sentiment is a crude word match. *Analyze with AI* tags each headline through quarantine: "
+               "the News Analyst returns only closed labels (topic, sentiment, materiality), never prose.")
     if st.button("Fetch today's stories"):
         try:
             with st.spinner("Fetching public news…"):
                 st.session_state["forecast_news_report"] = _call(
-                    "news-service",
-                    lambda: NewsService(_providers()).build_today_report(),
-                )
+                    "news-service", lambda: NewsService(_providers()).build_today_report())
+            st.session_state.pop("forecast_news_ai_today", None)
         except Exception:
             st.session_state["forecast_news_report"] = None
             st.error("News unavailable. Nothing was saved.")
     result = st.session_state.get("forecast_news_report")
     if result is None:
-        st.caption(
-            "Nothing fetched yet. News is requested only when you press the button."
-        )
+        st.caption("Nothing fetched yet. News is requested only when you press the button.")
     else:
         _status(result, "Today's stories")
         report = result.value
         if report:
             if report.topics_failed:
                 st.warning("Topics that failed: " + ", ".join(report.topics_failed))
-            st.caption(report.note)
             cols = st.columns(3)
             cols[0].metric("Stories", len(report.stories))
             cols[1].metric("Upward-leaning symbols", len(report.bullish))
             cols[2].metric("Downward-leaning symbols", len(report.bearish))
-            st.write("Top stories")
-            with st.container(border=True, height=300):
-                _story_lines(report.stories[:10]) if report.stories else st.caption(
-                    "No stories returned."
-                )
-            for title, leans in (
-                ("Upward-leaning symbols", report.bullish),
-                ("Downward-leaning symbols", report.bearish),
-            ):
-                st.write(title)
-                if leans:
-                    st.table(
-                        [
-                            {
-                                "symbol": x.symbol,
-                                "score": f"{x.score:.2f}",
-                                "stories": len(x.story_ids),
-                            }
-                            for x in leans
-                        ]
-                    )
-                else:
-                    st.caption("None identified.")
-            st.write("Conflicting signals")
-            if report.disagreements:
-                st.table(
-                    [
-                        {
-                            "symbol": d.symbol,
-                            "up": f"{d.up_score:.2f}",
-                            "down": f"{d.down_score:.2f}",
-                            "stronger": d.stronger_side,
-                        }
-                        for d in report.disagreements
-                    ]
-                )
+            if report.stories:
+                ai = _news_analyst(vault, client_factory, report.stories[:10], "today")
+                _stories_table(report.stories[:20], ai)
             else:
-                st.caption("No symbols with conflicting stories.")
+                st.caption("No stories returned.")
+            lean_rows = [{"symbol": x.symbol, "lean": side, "score": round(x.score, 2), "stories": len(x.story_ids)}
+                         for side, leans in (("up", report.bullish), ("down", report.bearish)) for x in leans]
+            st.write("Keyword leanings by symbol")
+            st.dataframe(lean_rows, hide_index=True, width="stretch") if lean_rows else st.caption("None identified.")
+            if report.disagreements:
+                st.write("Conflicting signals (stories on both sides; not averaged)")
+                st.dataframe([{"symbol": d.symbol, "up": round(d.up_score, 2), "down": round(d.down_score, 2),
+                               "stronger": d.stronger_side} for d in report.disagreements],
+                             hide_index=True, width="stretch")
+            st.caption(report.note)
     with st.form("forecast_news_search"):
-        query = st.text_input("Search topic or ticker", key="forecast_news_query")
+        query = st.text_input("Search topic or ticker (one word works best, e.g. ADBE, inflation)",
+                              key="forecast_news_query")
         go = st.form_submit_button("Search news")
     if go:
         try:
             with st.spinner("Searching public news…"):
                 st.session_state["forecast_news_found"] = _call(
-                    "news-service", lambda: NewsService(_providers()).search_news(query)
-                )
+                    "news-service", lambda: NewsService(_providers()).search_news(query))
+            st.session_state["forecast_news_found_query"] = query
+            st.session_state.pop("forecast_news_ai_search", None)
         except Exception:
             st.session_state["forecast_news_found"] = None
             st.error("News search unavailable or invalid query.")
     found = st.session_state.get("forecast_news_found")
     if found is not None:
+        from src.forecaster.news import is_relevant
+
         _status(found, "News search")
-        if found.value is not None:
-            _story_lines(found.value) if found.value else st.caption(
-                "No stories matched."
-            )
+        if found.value:
+            q = st.session_state.get("forecast_news_found_query", "")
+            relevant = [s for s in found.value if is_relevant(s, q)]
+            loose = [s for s in found.value if not is_relevant(s, q)]
+            if relevant:
+                ai = _news_analyst(vault, client_factory, relevant, "search")
+                _stories_table(relevant, ai)
+            else:
+                st.caption("No headline mentions the search term.")
+            if loose and st.toggle(f"Show {len(loose)} loosely related stories (term not in headline)",
+                                   key="forecast_news_loose"):
+                _stories_table(loose)
+        elif found.value is not None:
+            st.caption("No stories matched.")
 
 
 # --- Drilldown ---------------------------------------------------------------
@@ -779,7 +801,7 @@ def render_section(
         render_validation(vault, snapshot_prefix, outcome_prefix)
         render_system(vault, snapshot_prefix, outcome_prefix)
     elif section == "Events":
-        render_events()
+        render_events(vault, client_factory)
     elif section == "Drilldown":
         render_drilldown()
     elif section == "Screens":

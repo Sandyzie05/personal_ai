@@ -48,12 +48,13 @@ class Extraction:
 
 
 def extract_facts(raw: str, source: str, schema: Type[BaseModel], client: Any,
-                  max_chars: int = 6000) -> Extraction:
+                  max_chars: int = 6000, extra_instructions: str = "") -> Extraction:
+    """`extra_instructions` (the user's agent tweak, trusted) is appended AFTER the fixed SYSTEM, never replacing it."""
     clean = sanitize_text(raw, max_chars)
     flagged = looks_like_injection(clean)
     source = re.sub(r"[^A-Za-z0-9 ._-]", "", source)[:60]
     messages = [
-        {"role": "system", "content": SYSTEM},
+        {"role": "system", "content": SYSTEM + ("\n\n" + extra_instructions.strip() if extra_instructions.strip() else "")},
         {"role": "user", "content": f'<untrusted source="{source}">\n{clean}\n</untrusted>'},
     ]
     try:
