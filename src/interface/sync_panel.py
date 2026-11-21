@@ -76,21 +76,21 @@ def _gmail_sync(vault, server, on_indexed, client, only: Optional[str] = None) -
 
 def _reconnect(vault, server) -> None:
     from src.agents.mcp import McpManager
-    from src.agents import store as agent_store
 
     if not st.session_state.get("gmail_needs_auth"):
         return
     st.warning("Gmail authorization expired or is missing.")
     if st.button("Reconnect Gmail", icon=":material/key:", key="gm_reauth",
-                 help="Opens Google sign-in in your browser; read-only use only."):
+                 help="Opens Google sign-in in your browser if needed, then makes one read-only search."):
         with st.spinner("Waiting for browser authorization..."):
-            McpManager(vault).connect(server, interactive=True)
-        srv = agent_store.get_mcp_server(vault, server) or {}
-        if srv.get("last_status") == "connected":
-            st.session_state.pop("gmail_needs_auth", None)
-            st.success("Gmail reconnected. Press Sync again.")
+            r = McpManager(vault).probe(server, interactive=True)
+        if r["error"]:
+            st.error(f"Still not connected: {r['error']}")
+        elif r["probe_ok"] is False:
+            st.error(f"Signed in, but the read call {r['probe_tool']} failed; check the Gmail server in Agents → MCP Servers.")
         else:
-            st.error(f"Still not connected: {str(srv.get('last_error') or srv.get('last_status'))[:200]}")
+            st.session_state.pop("gmail_needs_auth", None)
+            st.success("Gmail reconnected and a read-only search worked. Press Sync again.")
 
 
 def _sync_one(vault, provider: str, on_indexed, client) -> None:

@@ -31,15 +31,38 @@ class ReadOnlyMcp:
         return result.text
 
 
-def gmail_fetcher(ro: ReadOnlyMcp, search_tool: str = "search_threads", query: str = "newer_than:1d") -> Callable[[], List[dict]]:
+DIGEST_THREADS = 10
+
+
+def gmail_fetcher(ro: ReadOnlyMcp, query: str = "newer_than:2d") -> Callable[[], List[dict]]:
+    """Recent threads -> one {id, from, subject, body} per message. Tool/arg names are fitted to the server's schema
+    (read-only names only); search results carry no bodies, so each thread is read with the get tool. Bodies go
+    only to `digest_emails` (quarantine)."""
     def fetch() -> List[dict]:
-        text = ro.call(search_tool, {"query": query})
-        try:
-            data = json.loads(text)
-            items = data if isinstance(data, list) else data.get("threads", data.get("messages", []))
-            return [i for i in items if isinstance(i, dict)]
-        except (ValueError, AttributeError):
+        from src.data_ingestion.gmail_bills import _Args, _items, _pick
+
+        args = _Args(ro)
+        search, get = args.tool("search_threads", _Args.SEARCH), args.tool("get_thread", _Args.GET)
+        text = ro.call(search, args.build(search, {query: ("query", "q")}))
+        threads = _items(text, "threads", "messages", "results")
+        if not threads and text.strip() and not text.lstrip().startswith(("{", "[")):
             return [{"id": "0", "body": text}]
+        out: List[dict] = []
+        for t in threads[:DIGEST_THREADS]:
+            tid = re.sub(r"[^A-Za-z0-9_-]", "", str(t.get("id", "")))[:40]
+            if not tid:
+                continue
+            try:
+                body = ro.call(get, args.build(get, {tid: ("threadId", "thread_id", "messageId", "message_id", "id"),
+                                                     "PLAIN_TEXT": ("messageFormat", "format")}))
+            except Exception:
+                continue  # one unreadable thread must not lose the digest
+            msgs = _items(body, "messages") or (_items(f"[{body}]") if body.lstrip().startswith("{") else [])
+            for m in msgs[-1:]:  # newest message of the thread
+                out.append({"id": m.get("id") or tid, "from": _pick(m, "sender", "from", "From") or "",
+                            "subject": _pick(m, "subject") or "",
+                            "body": _pick(m, "plaintextBody", "plainTextBody", "textBody", "body", "text", "snippet") or ""})
+        return out
     return fetch
 
 

@@ -652,6 +652,11 @@ def _render_mcp_server_card(
                 )
 
         if server.get("enabled", False):
+            if st.button("Test read access", icon=":material/fact_check:", key=f"mcp_probe_{server_id}",
+                         help="Signs in if needed (browser), lists tools and makes one read-only call."):
+                with st.spinner("Testing (a browser window may open)..."):
+                    st.session_state[f"mcp_probe_result_{server_id}"] = manager.probe(server_id, interactive=True)
+            _render_probe(st.session_state.get(f"mcp_probe_result_{server_id}"))
             with st.expander(
                 f":material/construction: Tools ({server.get('tool_count') or '?'})"
             ):
@@ -674,6 +679,22 @@ def _render_mcp_server_card(
                     st.markdown(f"**{tool.name}** — {badge}")
                     if tool.description:
                         st.caption(tool.description)
+
+
+def _render_probe(r: Optional[Dict[str, Any]]) -> None:
+    """Code-built probe summary (counts, tool name, status) as inert text."""
+    if not r:
+        return
+    if r["error"]:
+        st.error("Not working: " + r["error"] + (" Press Test read access again to sign in." if r["needs_auth"] else ""))
+        return
+    st.text(f"Signed in · {r['tools']} tools ({r['read']} read, {r['write']} write)")
+    if r["probe_tool"] is None:
+        st.text("No argument-free read tool to test; listing worked.")
+    elif r["probe_ok"]:
+        st.success(f"Read call {r['probe_tool']} worked. Agents and Sync can use this server.")
+    else:
+        st.error(f"Read call {r['probe_tool']} returned an error (server text not shown).")
 
 
 def _render_mcp_tab(vault: Any) -> None:

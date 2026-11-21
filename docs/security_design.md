@@ -452,6 +452,17 @@ agent, deny by default.)
   refresh failed ("issuer mismatch"). `agents/mcp.py` swaps in the SDK's own `issuers_match` for that check: only a root
   issuer with vs without its trailing slash is equal (RFC 3986 §6.2.3); a different scheme, host or path still fails
   (`test_mcp_tools.py`). Remove when the SDK fixes it.
+- **Silent token refresh (fix).** The SDK keeps the access-token expiry in memory only, and we open a fresh provider per
+  call, so after ~1 h a stale token was sent and the 401 demanded a browser sign-in: every background Gmail call was
+  "needs auth". `VaultTokenStorage` now stores `expires_at` (encrypted, same vault record) and `_VaultOAuthProvider`
+  restores it, so an expired token is refreshed with the refresh-token grant (no browser). Tokens stored before the fix are
+  refreshed first.
+- **Test read access / Reconnect = one interactive session that lists tools AND makes one read call** (`McpManager.probe`:
+  a search/list tool with a 1-day query and page size 1, else an argument-free read tool; never a write or sensitive
+  name). Listing alone could succeed with fewer scopes than reading mail, so a read scope step-up (403
+  insufficient_scope) is now granted in the browser. Output = counts, tool name, ok flag, code-built error; no server text.
+- Email Digest agent: tools fitted to the server schema, each recent thread read (≤ 10, newest message) and passed only to
+  `digest_emails` (quarantine); a needs-auth prefetch now tells the user how to sign in instead of "unavailable".
 - Gmail tool/arg names are fitted to the server's schema (only read-only names; `ReadOnlyMcp` re-checks each call).
 
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)

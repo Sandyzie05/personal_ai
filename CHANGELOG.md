@@ -4,6 +4,13 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: Gmail silent token refresh, Test read access, Email Digest agent
+
+- Root cause of "authorization expired" right after Reconnect: token expiry was never persisted, so stale tokens were sent
+  and 401s required a browser; Reconnect only listed tools, so read scopes were never granted. Now `expires_at` is stored
+  and restored (silent refresh), and Reconnect / Agents → MCP Servers → *Test read access* do a real read-only call.
+- Email Digest agent: schema-fitted tools, reads thread bodies (≤ 10), always plans an email step, clear sign-in message.
+
 ## (pending) - 2026-11-21 - fix: Gmail OAuth "issuer mismatch" (trailing slash)
 
 - MCP SDK compared `https://accounts.google.com` with `https://accounts.google.com/` as different issuers, so Gmail

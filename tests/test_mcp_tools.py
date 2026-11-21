@@ -355,3 +355,84 @@ def test_google_root_issuer_trailing_slash_accepted_other_mismatches_rejected():
                              ("http://accounts.google.com", "https://accounts.google.com/")):
         with pytest.raises(OAuthFlowError):
             check(SimpleNamespace(issuer=issuer), expected)
+
+
+def _provider(storage):
+    from mcp.shared.auth import OAuthClientMetadata
+
+    from src.agents.mcp import _VaultOAuthProvider
+
+    async def nope(*a):
+        raise AssertionError("no browser in tests")
+
+    meta = OAuthClientMetadata(client_name="t", redirect_uris=["http://localhost/callback"],
+                               token_endpoint_auth_method="none")
+    return _VaultOAuthProvider("https://gmail.example/mcp", meta, storage, redirect_handler=nope, callback_handler=nope)
+
+
+def test_stored_expiry_makes_an_expired_token_refresh_silently(tmp_path):
+    """Before: expiry lived only in memory, so a stale token was sent and the 401 demanded a browser sign-in."""
+    import time as _t
+
+    storage = VaultTokenStorage(make_vault(tmp_path), "gm")
+    asyncio.run(storage.set_tokens(OAuthToken(access_token="a", refresh_token="r", expires_in=3600)))
+    asyncio.run(storage.set_client_info(OAuthClientInformationFull(client_id="c", redirect_uris=["http://localhost/cb"])))
+    assert storage.expires_at() == pytest.approx(_t.time() + 3600, abs=5)
+    p = _provider(storage)
+    asyncio.run(p._initialize())
+    assert p.context.is_token_valid()  # fresh: used as is
+    storage.vault.store_data(storage.key, {**storage._load(), "expires_at": _t.time() - 10})
+    p = _provider(storage)
+    asyncio.run(p._initialize())
+    assert not p.context.is_token_valid() and p.context.can_refresh_token()  # expired: refresh grant, no browser
+
+
+def test_token_stored_before_the_fix_is_refreshed_first(tmp_path):
+    storage = VaultTokenStorage(make_vault(tmp_path), "gm")
+    rec = {"tokens": {"access_token": "a", "refresh_token": "r", "token_type": "Bearer"},
+           "client_info": {"client_id": "c", "redirect_uris": ["http://localhost/cb"]}}
+    storage.vault.store_data(storage.key, rec)
+    p = _provider(storage)
+    asyncio.run(p._initialize())
+    assert not p.context.is_token_valid() and p.context.can_refresh_token()
+
+
+def test_probe_call_is_one_harmless_read():
+    from src.agents.mcp import McpTool, _probe_call
+
+    tools = [McpTool("s", "trash_thread", "", {}, True), McpTool("s", "create_draft", "", {}, False),
+             McpTool("s", "get_thread", "", {"properties": {"threadId": {}}, "required": ["threadId"]}, False),
+             McpTool("s", "search_threads", "", {"properties": {"query": {}, "pageSize": {}}, "required": ["query"]}, False)]
+    assert _probe_call(tools) == ("search_threads", {"query": "newer_than:1d", "pageSize": 1})
+    assert _probe_call(tools[:3]) is None  # write / sensitive / needs an id: never probed
+
+
+def test_probe_reports_listing_and_read_call(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from src.agents import store
+    from src.agents.mcp import McpManager, McpTool, ToolResult
+
+    vault = make_vault(tmp_path)
+    sid = store.save_mcp_server(vault, {"name": "Gmail", "kind": "remote", "url": "https://x.example/mcp", "enabled": True})
+    m = McpManager(vault)
+    calls = []
+
+    async def fake_with_session(server, fn, *, interactive):
+        assert interactive
+        return await fn(None)
+
+    async def fake_list(session, server_id):
+        return [McpTool(server_id, "search_threads", "", {"properties": {"query": {}}}, False),
+                McpTool(server_id, "trash_thread", "", {}, True)]
+
+    async def fake_call(session, name, args, max_chars=None):
+        calls.append(name)
+        return ToolResult(ok=True, text="{}")
+
+    monkeypatch.setattr(m, "_with_session", fake_with_session)
+    monkeypatch.setattr(m, "_list_tools_async", fake_list)
+    monkeypatch.setattr(m, "_call_tool_async", fake_call)
+    r = m.probe(sid)
+    assert r["listed"] and (r["read"], r["write"]) == (1, 1) and r["probe_ok"] and calls == ["search_threads"]
+    assert store.get_mcp_server(vault, sid)["last_status"] == "connected"
