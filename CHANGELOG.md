@@ -9,6 +9,10 @@
 - `roadmap.md`: Track F (F1-F10) goes before the P-cards (user decision). Workflow slots with fixed default agents that are
   tweakable in the Agents tab (overrides + reset), locked tools/schema/budget per slot, an agent chip on every AI feature,
   dedicated critic/explainer/news agents, per-section Forecast redesign, Chat selector listing every agent. Progress diagram updated.
+## (pending) - 2026-11-21 - fix: Forecast tables crash with NumPy 1.26 (pyarrow needs NumPy 2)
+
+- Recommendations, Technical drilldown and Screens crashed in `st.table` with `ImportError: pyarrow requires NumPy 2.0 or newer`.
+  `requirements.txt` allowed `numpy>=1.26`, so an existing venv kept 1.26 while pyarrow upgraded. Now `numpy>=2.0`.
 
 ## (pending) - 2026-11-21 - feat: `make state-report` (deterministic, redacted)
 
