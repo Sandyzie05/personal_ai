@@ -4,6 +4,11 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: Forecast tables crash with NumPy 1.26 (pyarrow needs NumPy 2)
+
+- Recommendations, Technical drilldown and Screens crashed in `st.table` with `ImportError: pyarrow requires NumPy 2.0 or newer`.
+  `requirements.txt` allowed `numpy>=1.26`, so an existing venv kept 1.26 while pyarrow upgraded. Now `numpy>=2.0`.
+
 ## (pending) - 2026-11-21 - feat: `make state-report` (deterministic, redacted)
 
 - The first hand-collected report was wrong: system python instead of the venv (packages "n/a", pytest "missing"), a bare curl
