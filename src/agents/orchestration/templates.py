@@ -201,13 +201,43 @@ _ROLES = {
         False,
     ),
 }
-CHAT_ROLES = (
-    "coordinator",
-    "expense",
-    "forecaster",
-    "market",
-    "portfolio",
-)  # roles the Chat selector can route to
+# How each role answers free chat. "coordinated" = coordinator plan restricted to that specialist; "runtime" = the
+# grounded agent loop (RAG, the user's ticked tools); "portfolio" = S25 path. Roles not listed run only inside their
+# workflow (RUNS_IN says where); the Chat selector still lists them so the user can see every agent.
+CHAT_MODES = {
+    "coordinator": "coordinated",
+    "expense": "coordinated",
+    "forecaster": "coordinated",
+    "market": "coordinated",
+    "email": "coordinated",
+    "portfolio": "portfolio",
+    "health": "runtime",
+    "verifier": "runtime",
+}
+CHAT_ROLES = tuple(CHAT_MODES)
+RUNS_IN = {
+    "portal": "Upload → Sync (Fetch bills, explicit trigger only)",
+    "critic-macro": "Forecast → Research → Run AI review",
+    "critic-valuation": "Forecast → Research → Run AI review",
+    "critic-event": "Forecast → Research → Run AI review",
+    "critic-downside": "Forecast → Research → Run AI review",
+    "thesis-explainer": "Forecast → Research (thesis explanation)",
+    "watchlist-explainer": "Forecast page (watchlist explanations)",
+    "news-analyst": "Forecast page (news tagging)",
+    "portfolio-fit": "Forecast → Research (Portfolio fit)",
+    "trader-orb": "Forecast → Trader → Paper agents",
+    "trader-breakout": "Forecast → Trader → Paper agents",
+    "trader-bounce": "Forecast → Trader → Paper agents",
+    "trader-reviewer": "Forecast → Trader → Paper agents → Review agents",
+}
+# Coordinator-routed roles read MCP through code-built, read-only fetchers (service.build_coordinator), not the
+# runtime tool loop, so they carry no tool rounds or server picker (a picker there would do nothing).
+TOOLS_NOTE = {
+    "email": "tools: Gmail read-only, code-bound (S15)",
+    "market": "tools: public market data + brokerage read-only, code-bound",
+    "portal": "tools: saved portal recipe, explicit trigger",
+    "portfolio": "tools: Robinhood read-only allowlist (S20)",
+}
 FORECAST_ROLES = (
     "critic-macro",
     "critic-valuation",
@@ -229,6 +259,7 @@ EDITABLE_FIELDS = (
     "extra_instructions",
     "skills",
     "mcp_server_ids",
+    "mcp_tools",
 )
 
 
@@ -288,18 +319,24 @@ def _build(role: str) -> Dict[str, Any]:
         "role": role,
         "built_in": True,
         "skills": _SKILLS[role],
-        "max_tool_rounds": 6 if role in ("market", "email", "portal") else 0,
+        "max_tool_rounds": 0,
+        "tools_note": TOOLS_NOTE.get(role, ""),
+        # Health records are uploaded as "other" (no health category yet): never retrieve bills/brokerage for it.
+        "rag_scope_categories": ["other"] if role == "health" else [],
         "temperature": 0.0 if forecast else 0.2,
         "max_tokens": 900 if forecast else 2048,
         # "" = the app's configured chat model (or PERSONAL_AI_OMLX_WORKER_MODEL for forecast workers)
         "model": (
             PERSONAL_AI_FORECAST_CRITIC_MODEL
-            if role.startswith(("critic-", "trader-")) or role in ("news-analyst", "portfolio-fit")
+            if role.startswith(("critic-", "trader-"))
+            or role in ("news-analyst", "portfolio-fit")
             else ""
         )
         if forecast
         else store.new_agent_defaults()["model"],
-        "chat_capable": role in CHAT_ROLES,
+        "chat_capable": role in CHAT_MODES,
+        "chat_mode": CHAT_MODES.get(role, ""),
+        "runs_in": RUNS_IN.get(role, ""),
         "group": "Forecast" if forecast else "Platform",
     }
 

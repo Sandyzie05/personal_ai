@@ -12,8 +12,8 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 **State.** Everything agent-doable is built and tested offline. Merged to `main`: Track F, P1-P8, P12, Track R + offline P11
 (PR #30); Track T Trader plan view (PR #31) and AI paper agents (PR #32); Robinhood Portfolio chat agent, Robinhood live-schema
 fit, Trader forward-record fix, Expected bills list (PR #33); R11 Gmail bill sync from email text, Expected bills form fix,
-internal-key fix for `trader_paper_v1` (PR #34); this handoff (PR #35). On `main`: `make test`
-911 pass, `make eval` Overall PASS (53 rows); `make eval-rag` and `make eval-stability RUNS=10` last passed before Track T
+internal-key fix for `trader_paper_v1` (PR #34); this handoff (PR #35); per-agent tool scopes (S26), every agent listed in
+Chat, per-provider Sync buttons, Gmail needs-auth/schema fixes (branch `fix/upload-sync-chat-agents-tool-scopes`). On `main`: `make test` 922 pass, `make eval` Overall PASS (53 rows); `make eval-rag` and `make eval-stability RUNS=10` last passed before Track T
 (re-run them in the next session). Two laptops: this one has no models; the app runs with real data and local models (oMLX)
 on the other, where the user tests and pastes results back.
 
@@ -27,14 +27,17 @@ on the other, where the user tests and pastes results back.
 | Robinhood research data, Portfolio fit, earnings calendar | Forecast → Research / Events | Track R below, S20 |
 | Robinhood Portfolio chat agent | Chat → *System · Robinhood Portfolio* | Track R card R9, S25 |
 | Gmail bills from email text (sender allowlist) | Upload → Sync → *Bills from Gmail* | `rag_design.md` R11 |
-| Expected bills (overdue ledger) | Upload → Sync → *Expected bills* | `rag_design.md` R7 |
+| Expected bills (overdue ledger) + per-provider *Sync* | Upload → Sync → *Expected bills* | `rag_design.md` R7 |
+| Per-agent tool picker (deny by default) | Agents → Edit → *Tools from <server>* | `security_design.md` S26 |
 
 **Waiting on the user (model laptop), in this order.** Each line says what to paste back.
 1. `git pull`, `venv/bin/pip install -U -r requirements.txt`, `venv/bin/pip check`, restart `make run`.
    Upload → *Rebuild RAG index* once (drops a Trader-ledger entry that could have been indexed before the PR #34 fix).
 2. **Gmail bills (R11).** Gmail is connected (Google's Gmail MCP, 23 tools, OAuth worked without the user's own client id).
    Upload → Sync → *Bills from Gmail*: add Rocky Mountain Power / electricity / real sender domain, the gas provider, and
-   T-Mobile / mobile → *Sync bills from Gmail*. Paste: the status line (N new / duplicates / failed). Unverified: the Google
+   T-Mobile / mobile → the row's *Sync* (or *Sync all Gmail senders*). Paste: the status line (N new / duplicates / failed)
+   and, on failure, the grey error line under it (code-built: type + JSON-RPC code, or "requires authorization" → press
+   *Reconnect Gmail*). Custom agents bound to a server must have their tools re-ticked (Agents → Edit; deny by default now). Unverified: the Google
    server's response field names (`threads`, `messages`, `sender`, `plaintextBody`) — if 0 new, fix the tolerant parsers in
    `gmail_bills.py` from one real response shape (field names only, never content) and add a fixture.
 3. **Expected bills.** Add 3 providers; confirm each row shows on time / overdue / no bill yet.
@@ -113,6 +116,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Coordinator: typed plan, parallel waves, bounded retry, deterministic merge, escalation | DONE | `coordinator.py`, `make eval` (63/63 faults, 26/26 conflicts) |
 | Policy refusals (trade, pay, shell, diagnose, secrets) | DONE | `policy.py`, eval 24/24, 0/12 false refusals |
 | Quarantine for untrusted email/portal/news text | DONE | `quarantine.py`, eval 0/38 reaching summaries |
+| Per-agent tool scope (tick each MCP tool, deny by default; built-ins read-only); every agent visible in Chat | DONE | S26, `TestToolAllowlist`, `test_agents_page_smoke.py` |
 | Per-edge bus schemas + PII/canary scan | DONE per edge | `bus.py`, eval 0 leaks / 190 msgs |
 | Leakage across multiple hops and through shared memory | DONE | P4: eval 0 canaries outside sinks (114 runs, 969 sinks, 102 hops); dependency inputs default-deny |
 | Core Memory: propose → UI-token approval → supersede | DONE | `memory.py`, eval 0/114 unauthorized |

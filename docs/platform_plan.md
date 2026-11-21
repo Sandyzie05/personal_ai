@@ -57,6 +57,7 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S23 | Trader Monte Carlo is seeded (deterministic), bounded by `TRADER_*` caps, labelled a simulation | `trader/timemachine.py` | `evals/trader.py` simulation row, `test_trader_engines.py` |
 | S24 | Trader paper agents: prompts are code-built relative numbers from bars up to the signal (no ticker/date/price, no lookahead); replies are closed-choice `TraderDecision` (extra fields rejected); code alone sets entry, size and risk; ledger is vault-only, never sent to a broker | `trader/agents.py`, `trader/strategies.py`, `trader/paper.py` | `test_trader_paper.py`, `evals/trader.py` agent-safety + lookahead rows |
 | S25 | Robinhood Portfolio chat: code reads holdings (account tools only) and computes figures; a tool-less model on the loopback endpoint answers; no account numbers in the prompt; `policy.screen` before any Robinhood call; activity log holds status + timing only | `agents/portfolio_chat.py`, `interface/main.py::_respond_portfolio` | `test_portfolio_chat.py`, eval S25 row |
+| S26 | Per-agent tool scope: an attached MCP server grants nothing; only tools ticked in `agent.mcp_tools` are exposed/called; built-ins never get write tools; a selected write tool forces confirmation; paused calls re-checked at Allow | `agents/runtime.py::_collect_tools`, `interface/agents.py::_tool_picker` | `test_agent_runtime.py::TestToolAllowlist`, `test_agents_page_smoke.py` |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
 obedience is not relied on (schema validation is); Chroma index is plaintext if persisted (currently in-memory; see `security_design.md`); no live
@@ -192,6 +193,7 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Robinhood: broker free text / account canaries / valuation golden (Track R) | 0 / 0 / 100% | 0/5 / 0 in 19 sinks × 3 / 3/3 | synthetic fixtures; no live account |
 | Robinhood Portfolio chat: account number in prompt/log, trade asks reaching Robinhood (S25) | 0 | 0 in 5 | synthetic account fixtures |
 | Gmail bill sync: off-allowlist read / body stored / hostile facts / non-read tool (R11) | 0 | 0 in 4 | synthetic Gmail fake |
+| Agent tool scope: unticked tool exposed or executed / write tool on a built-in / paused call after untick (S26) | 0 | 0 in 4 | `test_agent_runtime.py::TestToolAllowlist` |
 | Trader: plan shape / seeded Monte Carlo / risk golden (Track T) | 0 / 100% / 100% | 0 in 13 checks / 4/4 / 5/5 | synthetic bars; advice only |
 | Trader paper agents: hostile replies accepted / lookahead / ledger golden (Track T) | 0 / 0 / 100% | 0 in 90 / 0 in 68 / 7/7 | synthetic bars + fake clients; live model results = USER |
 | Stability: every hard row across `RUNS=10` perturbed runs (P7) | 100% | 10/10 each | shuffle, duplicates, paraphrase, jitter, workers 1/2, concurrency 1 |
@@ -212,7 +214,7 @@ Completed phases (all accepted by `make test` + `make eval`; nothing verified on
 2 stock_predictor port, 3 UI merge, 4 agent infra, 5 agent configs/skills/policy, 6 untrusted ingestion (fixtures), 7 evaluation,
 8 docs, 9 independent audit (now in `security_design.md` "Independent audit"), 10 PR #17 hardening merge, 11 Week 4 ToT.
 Former backlog cards B1-B19 and RAG cards R0-R11 are DONE except those carried into the roadmap (B1/B6/B19 → P9, B17/B18/R10 →
-roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T Trader T0-T5 done (PRs #31-#32); Robinhood Portfolio chat + live schema fit (PR #33); Gmail bill text sync R11 (PR #34). Test count at last full run: 911 pass, 0 fail (2026-11-21).
+roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T Trader T0-T5 done (PRs #31-#32); Robinhood Portfolio chat + live schema fit (PR #33); Gmail bill text sync R11 (PR #34); per-agent tool scopes S26, all agents in Chat, per-provider Sync (branch `fix/upload-sync-chat-agents-tool-scopes`). Test count at last full run: 922 pass, 0 fail (2026-11-21).
 
 ## 7. Runbook
 

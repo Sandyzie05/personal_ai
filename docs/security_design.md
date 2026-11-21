@@ -429,7 +429,25 @@ stored, indexed or rendered. Messages are read once (manifest by message-id hash
 a hostile allowlisted email can still yield a wrong total (closed fields only; user sees it on the Dashboard). Also fixed:
 `trader_paper_v1` was not an internal key, so a RAG rebuild would have indexed the paper ledger and the Files page listed it;
 rebuild the index once after updating. Custom chat agents bound to the Gmail server would see its write tools behind the
-runtime's confirmation card; do not bind Gmail to custom agents.
+runtime's confirmation card; do not bind Gmail to custom agents. (Superseded 2026-11-21 below: tools are now ticked per
+agent, deny by default.)
+
+## Per-agent tool scopes, all agents in Chat, Sync per provider (2026-11-21)
+
+- **Tool scope (S26).** Attaching an MCP server to an agent grants nothing: the agent's `mcp_tools` (`{server_id: [names]}`)
+  lists the exact tools it may call, ticked one by one in Agents → Edit. `AgentRuntime._collect_tools` exposes only ticked
+  tools; an unticked name the model calls is "unknown" and never executed; a paused call is re-checked against the scope at
+  Allow time. Built-in agents never receive write tools even if ticked. Selecting a write tool forces
+  `require_tool_confirmation` on. Existing custom agents with servers but no ticks now run without tools (by design; tick them
+  again). Coordinator-routed built-ins (email, market, portal, portfolio) have no tool rounds: their MCP access is the
+  code-built read-only fetchers (S15, S20), shown as a "tools:" note on the card.
+- **Chat lists every agent.** Workflow-only agents (forecast critics/explainers, paper traders, portal) are listed as
+  "Workflow · …" with chat input disabled and a pointer to where they run, so their code-built, schema-checked inputs stay
+  the only way in. Health and Verifier chat through the grounded runtime (no tools); Health's RAG is scoped to `other`.
+- **MCP errors.** `_NeedsAuth`/OAuth failures inside an anyio task group are now reported as needs-auth (they surfaced as a
+  bare `McpError` before). JSON-RPC errors show type + code only (server text is untrusted). The Sync panel shows that
+  message as inert text and offers *Reconnect Gmail* on needs-auth; per-thread read errors show type only.
+- Gmail tool/arg names are fitted to the server's schema (only read-only names; `ReadOnlyMcp` re-checks each call).
 
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)
 

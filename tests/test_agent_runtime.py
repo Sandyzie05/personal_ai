@@ -138,8 +138,15 @@ def save_agent(vault, **overrides):
     agent["max_tool_rounds"] = 3
     agent["require_tool_confirmation"] = True
     agent.update(overrides)
+    # Tools are deny-by-default per agent; these tests exercise the loop, so tick every tool the fakes offer.
+    agent.setdefault("mcp_tools", {})
+    for sid in agent.get("mcp_server_ids") or []:
+        agent["mcp_tools"].setdefault(sid, list(TEST_TOOLS))
     agent_id = store.create_agent(vault, agent)
     return store.get_agent(vault, agent_id)
+
+
+TEST_TOOLS = ("get_equity_quotes", "place_equity_order", "search")
 
 
 def save_server(vault, **overrides):
@@ -711,3 +718,46 @@ class TestRunResult:
         assert result.sources == []
         assert result.trail == []
         assert result.pending is None
+
+
+class TestToolAllowlist:
+    """Per-agent, per-tool scope: attaching a server grants nothing until the user ticks tools."""
+
+    def test_only_ticked_tools_are_exposed_and_callable(self, vault):
+        server_id = save_server(vault)
+        agent = save_agent(vault, mcp_server_ids=[server_id], mcp_tools={server_id: ["get_equity_quotes"]})
+        mcp = FakeMcp(tools={server_id: [read_tool(server_id), make_tool("place_equity_order", server_id, True)]})
+        ollama = FakeOllama(responses=[
+            tool_call_response("place_equity_order", {"symbol": "AAPL"}),
+            final_response("done"),
+        ])
+        result = make_runtime(vault, ollama, mcp).start_run("s1", agent, "buy", None)
+        assert [t["function"]["name"] for t in ollama.chat_calls[0]["tools"]] == ["get_equity_quotes"]
+        assert mcp.calls == [] and result.status == "complete"  # unticked tool is "unknown", never executed
+
+    def test_attached_server_without_ticks_gives_no_tools_and_says_so(self, vault):
+        server_id = save_server(vault)
+        agent = save_agent(vault, mcp_server_ids=[server_id], mcp_tools={server_id: []})
+        mcp = FakeMcp(tools={server_id: [read_tool(server_id)]})
+        ollama = FakeOllama(responses=[final_response("ok")])
+        result = make_runtime(vault, ollama, mcp).start_run("s1", agent, "hi", None)
+        assert not ollama.chat_calls[0].get("tools") and "No tools are selected" in result.answer
+
+    def test_builtin_agent_never_gets_write_tools(self, vault):
+        server_id = save_server(vault)
+        agent = {**save_agent(vault, mcp_server_ids=[server_id]), "built_in": True}
+        mcp = FakeMcp(tools={server_id: [read_tool(server_id), make_tool("place_equity_order", server_id, True)]})
+        ollama = FakeOllama(responses=[final_response("ok")])
+        make_runtime(vault, ollama, mcp).start_run("s1", agent, "hi", None)
+        assert [t["function"]["name"] for t in ollama.chat_calls[0]["tools"]] == ["get_equity_quotes"]
+
+    def test_paused_call_denied_if_tool_unticked_before_allow(self, vault):
+        server_id = save_server(vault)
+        agent = save_agent(vault, mcp_server_ids=[server_id])
+        mcp = FakeMcp(tools={server_id: [make_tool("place_equity_order", server_id, True)]})
+        ollama = FakeOllama(responses=[tool_call_response("place_equity_order", {"symbol": "AAPL"}), final_response("x")])
+        runtime = make_runtime(vault, ollama, mcp)
+        assert runtime.start_run("s1", agent, "buy", None).status == "awaiting_confirmation"
+        agent["mcp_tools"] = {server_id: []}
+        runtime.resume_run("s1", agent, "allow")
+        assert mcp.calls == []

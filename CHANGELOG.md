@@ -4,6 +4,19 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: per-agent tool scopes, all agents in Chat, per-provider Sync, Gmail error/auth
+
+- Agents (S26): tools are ticked per agent per MCP server (`mcp_tools`, deny by default) in Agents → Edit; runtime exposes and
+  calls only ticked tools, re-checks a paused call at Allow, never gives built-ins write tools; a write tool forces confirmation.
+  Existing custom agents with servers but no ticks run tool-less until re-ticked.
+- Built-in fixes: email/market/portal had 6 tool rounds and a server picker that did nothing (their MCP access is code-bound);
+  now 0 rounds + a "tools:" note. Health RAG scoped to `other`. Health, Verifier and Email Digest now chat.
+- Chat lists every agent; workflow-only ones ("Workflow · …") explain where they run and disable the input.
+- Sync: each Expected-bills and Gmail-sender row has a *Sync* (Gmail sender, else portal recipe; disabled = upload only).
+- Gmail "McpError": needs-auth hidden inside the anyio task group is now reported as needs-auth (+ *Reconnect Gmail*);
+  the code-built error line is shown; tool/arg names and enum values fitted to the server's schema; one bad thread no
+  longer aborts the sync; JSON-RPC errors never echo server text.
+
 ## (pending) - 2026-11-21 - feat: Gmail bill sync from email text; Expected bills form; internal-key fix
 
 - `data_ingestion/gmail_bills.py` (R11): sender allowlist (provider, category, domain) → read-only `search_threads`/`get_thread`

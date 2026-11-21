@@ -6,7 +6,7 @@ needs a verified Gmail MCP server, see docs/rag_design.md R8).
 """
 
 import os
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import streamlit as st
 
@@ -39,21 +39,104 @@ def _fetch(vault, provider: str, on_indexed: Callable[[str, Any], None]) -> None
         st.caption("Run log: " + " > ".join(run.log))  # actions and hosts only
 
 
-def _expected(vault, s) -> None:
+def _gmail_server(vault):
+    from src.agents.orchestration.service import GMAIL_PATTERN, find_server
+
+    return find_server(vault, GMAIL_PATTERN)
+
+
+def _error_text(e: Exception) -> str:
+    """McpError messages are code-built (type + JSON-RPC code); anything else shows its type only, because tool error
+    text comes from the server and is untrusted."""
+    from src.agents.mcp import McpError
+
+    return str(e)[:200] if isinstance(e, McpError) else type(e).__name__
+
+
+def _gmail_sync(vault, server, on_indexed, client, only: Optional[str] = None) -> None:
+    from src.agents.mcp import McpError, McpManager
+    from src.agents.orchestration.ingest import ReadOnlyMcp
+    from src.data_ingestion import gmail_bills
+
+    if client is None:
+        st.error("No local model available for the quarantine extractor.")
+        return
+    with st.status(f"Reading {only or 'bill'} emails (read-only)...") as status:
+        try:
+            rep = gmail_bills.sync(vault, ReadOnlyMcp(McpManager(vault), server), client, on_indexed, only=only)
+            status.update(label=rep.summary(), state="complete" if not (rep.failed or rep.needs_you) else "error")
+            return
+        except Exception as e:
+            status.update(label="Gmail sync failed. Nothing was stored.", state="error")
+            st.text(_error_text(e))  # inert text, never markdown
+            needs_auth = isinstance(e, McpError) and e.needs_auth
+    if needs_auth:
+        st.session_state["gmail_needs_auth"] = True
+
+
+def _reconnect(vault, server) -> None:
+    from src.agents.mcp import McpManager
+    from src.agents import store as agent_store
+
+    if not st.session_state.get("gmail_needs_auth"):
+        return
+    st.warning("Gmail authorization expired or is missing.")
+    if st.button("Reconnect Gmail", icon=":material/key:", key="gm_reauth",
+                 help="Opens Google sign-in in your browser; read-only use only."):
+        with st.spinner("Waiting for browser authorization..."):
+            McpManager(vault).connect(server, interactive=True)
+        srv = agent_store.get_mcp_server(vault, server) or {}
+        if srv.get("last_status") == "connected":
+            st.session_state.pop("gmail_needs_auth", None)
+            st.success("Gmail reconnected. Press Sync again.")
+        else:
+            st.error(f"Still not connected: {str(srv.get('last_error') or srv.get('last_status'))[:200]}")
+
+
+def _sync_one(vault, provider: str, on_indexed, client) -> None:
+    """One provider's Sync: Gmail sender row first, then a saved portal recipe."""
+    from src.data_ingestion import gmail_bills
+
+    server = _gmail_server(vault)
+    if server and any(r["provider"] == provider for r in gmail_bills.senders(vault)):
+        _gmail_sync(vault, server, on_indexed, client, only=provider)
+    elif provider in store.list_recipes(vault):
+        try:
+            _fetch(vault, provider, on_indexed)
+        except Exception as e:
+            st.error(f"{type(e).__name__}: run did not complete")
+
+
+def _sync_source(vault, provider: str) -> str:
+    from src.data_ingestion import gmail_bills
+
+    if _gmail_server(vault) and any(r["provider"] == provider for r in gmail_bills.senders(vault)):
+        return "Gmail"
+    return "portal" if provider in store.list_recipes(vault) else ""
+
+
+def _expected(vault, s, on_indexed, client) -> None:
     st.markdown("**Expected bills**")
     st.caption(
         "Which bills should keep arriving. Each provider is checked against its newest indexed bill; when one is late "
         "(31 days monthly, 92 quarterly) a warning appears above and chat answers offer a Sync. One row per provider; "
-        "the name must match the provider on the bill (adding a Gmail sender below adds it here too)."
+        "the name must match the provider on the bill (adding a Gmail sender below adds it here too). **Sync** pulls "
+        "that provider's bills from its Gmail sender (below) or saved portal recipe; with neither, upload the PDF above."
     )
     current = pipeline.expectations(vault)
     late = {o["provider"]: o for o in s["overdue"]}
     for p, cad in sorted(current.items()):
-        a, b, c = st.columns([3, 3, 1])
+        a, b, c, d = st.columns([3, 3, 1, 1])
         a.text(p)
         o = late.get(p)
-        b.caption(f"{cad} · " + ("no bill yet" if o and not o["last_period_end"] else "overdue" if o else "on time"))
-        if c.button("Remove", key=f"sync_rm_{p}"):
+        src = _sync_source(vault, p)
+        b.caption(f"{cad} · " + ("no bill yet" if o and not o["last_period_end"] else "overdue" if o else "on time")
+                  + (f" · via {src}" if src else " · upload only"))
+        if c.button("Sync", key=f"sync_one_{p}", icon=":material/sync:", disabled=not src,
+                    help=f"Fetch {p} bills from {src}" if src else
+                    "No sync source: add a Gmail sender for this provider below, or upload the bill PDF."):
+            _sync_one(vault, p, on_indexed, client)
+        if d.button("Remove", key=f"sync_rm_{p}"):
             pipeline.remove_expectation(vault, p)
             st.rerun()
     known = [p for p in pipeline.known_providers(vault) if p not in current]
@@ -72,7 +155,6 @@ def _expected(vault, s) -> None:
 
 
 def _gmail(vault, on_indexed, quarantine_client) -> None:
-    from src.agents.orchestration.service import GMAIL_PATTERN, find_server
     from src.data_extraction.categories import category_keys
     from src.data_ingestion import gmail_bills
 
@@ -82,15 +164,18 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
         "goes through the quarantine extractor, which returns just the total, due date and period. The email itself is "
         "never stored or indexed."
     )
-    server = find_server(vault, GMAIL_PATTERN)
+    server = _gmail_server(vault)
     if not server:
         st.caption('Gmail is not connected: add an MCP server named "Gmail" in Agents → MCP Servers and authorize it.')
         return
+    _reconnect(vault, server)
     for row in gmail_bills.senders(vault):
-        a, b, c = st.columns([3, 3, 1])
+        a, b, c, d = st.columns([3, 3, 1, 1])
         a.text(row["provider"])
         b.caption(f"{row['category']} · from {row['domain']}")
-        if c.button("Remove", key=f"gm_rm_{row['provider']}"):
+        if c.button("Sync", key=f"gm_sync_{row['provider']}", icon=":material/sync:"):
+            _gmail_sync(vault, server, on_indexed, quarantine_client, only=row["provider"])
+        if d.button("Remove", key=f"gm_rm_{row['provider']}"):
             gmail_bills.remove_sender(vault, row["provider"])
             st.rerun()
     with st.form("gmail_sender_form", clear_on_submit=True, border=False):
@@ -104,19 +189,8 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
                 st.rerun()
             except ValueError as e:
                 st.error(str(e))
-    if st.button("Sync bills from Gmail", icon=":material/sync:", disabled=not gmail_bills.senders(vault)):
-        if quarantine_client is None:
-            st.error("No local model available for the quarantine extractor.")
-            return
-        from src.agents.mcp import McpManager
-        from src.agents.orchestration.ingest import ReadOnlyMcp
-
-        with st.status("Reading bill emails (read-only)...") as status:
-            try:
-                rep = gmail_bills.sync(vault, ReadOnlyMcp(McpManager(vault), server), quarantine_client, on_indexed)
-                status.update(label=rep.summary(), state="complete" if not (rep.failed or rep.needs_you) else "error")
-            except Exception as e:
-                status.update(label=f"Gmail sync failed ({type(e).__name__}). Nothing was stored.", state="error")
+    if st.button("Sync all Gmail senders", icon=":material/sync:", disabled=not gmail_bills.senders(vault)):
+        _gmail_sync(vault, server, on_indexed, quarantine_client)
 
 
 def render(vault, on_indexed: Callable[[str, Any], None], quarantine_client: Any = None) -> None:
@@ -126,7 +200,7 @@ def render(vault, on_indexed: Callable[[str, Any], None], quarantine_client: Any
     for o in s["overdue"]:
         st.warning(f"{o['provider']}: last bill period ended {o['last_period_end'] or 'never'}"
                    + (f", {o['days_overdue']} days overdue" if o["days_overdue"] is not None else ""))
-    _expected(vault, s)
+    _expected(vault, s, on_indexed, quarantine_client)
     _gmail(vault, on_indexed, quarantine_client)
     recipes = store.list_recipes(vault)
     if not recipes:

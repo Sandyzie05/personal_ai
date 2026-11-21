@@ -94,6 +94,7 @@ def new_agent_defaults() -> Dict[str, Any]:
         "rag_enabled": True,
         "rag_scope_categories": [],
         "mcp_server_ids": [],
+        "mcp_tools": {},  # {server_id: [tool names]}: deny by default, the user ticks each tool
         "skills": [],
         "max_tool_rounds": 6,
         "require_tool_confirmation": True,
@@ -152,6 +153,7 @@ def builtin_agent(vault: Any, agent_id: str) -> Optional[Dict[str, Any]]:
     }
     if agent.get("max_tool_rounds", 0) == 0:
         tweak.pop("mcp_server_ids", None)  # a tool-less role stays tool-less
+        tweak.pop("mcp_tools", None)
     agent.update(tweak)
     agent["instructions"] = compose_instructions(
         agent["role_rules"], agent.get("extra_instructions", "")

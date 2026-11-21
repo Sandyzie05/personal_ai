@@ -374,16 +374,20 @@ class PersonalAIInterface:
         # would otherwise raise a StreamlitAPIException on this render.
         agent_list = (
             [agent_store.general_agent()]
-            + [
-                a
-                for a in agent_store.list_builtin_agents(self.vault)
-                if a.get("chat_capable")
-            ]
             + agent_store.list_agents(self.vault)
+            # Every system agent is listed; workflow-only ones say where they run instead of taking chat.
+            + sorted(
+                agent_store.list_builtin_agents(self.vault),
+                key=lambda a: not a.get("chat_capable"),
+            )
         )
         agent_ids = [a["id"] for a in agent_list]
         agent_names = {
-            a["id"]: ("System · " if str(a["id"]).startswith("builtin-") else "")
+            a["id"]: (
+                ("System · " if a.get("chat_capable") else "Workflow · ")
+                if str(a["id"]).startswith("builtin-")
+                else ""
+            )
             + a["name"]
             for a in agent_list
         }
@@ -738,13 +742,9 @@ class PersonalAIInterface:
         (so it survives the confirmation pause); the assistant answer lands
         in the history when the run reaches a terminal status.
         """
-        if agent.get("id") == "builtin-coordinator" or agent.get("role") in (
-            "expense",
-            "forecaster",
-            "market",
-        ):
+        if agent.get("chat_mode") == "coordinated":
             return self._respond_coordinated(user_query, active_id, agent)
-        if agent.get("role") == "portfolio":
+        if agent.get("chat_mode") == "portfolio":
             return self._respond_portfolio(user_query, history, active_id, agent)
         runtime = self._agent_runtime()
         with st.status(f"{agent.get('name', 'Agent')} is working...", expanded=True):
@@ -1148,8 +1148,21 @@ class PersonalAIInterface:
                 "to allow, deny, or abort it."
             )
 
+        workflow_only = bool(
+            active_agent
+            and str(active_agent.get("id", "")).startswith("builtin-")
+            and not active_agent.get("chat_capable")
+        )
+        if workflow_only:
+            st.info(
+                f"{active_agent.get('icon', '')} **{active_agent['name']}** runs inside a workflow, not free chat: "
+                f"{active_agent.get('runs_in') or 'see the Agents page'}. It only reads code-built inputs there "
+                "(that is what keeps it scoped). Tweak it in Agents → "
+                + ("Forecast workflow." if active_agent.get("group") == "Forecast" else "Platform.")
+            )
         user_input = st.chat_input(
-            "Ask a question about your data...", disabled=paused is not None
+            "Ask a question about your data...",
+            disabled=paused is not None or workflow_only,
         )
         if user_input:
             with st.chat_message("user", avatar=USER_AVATAR):
