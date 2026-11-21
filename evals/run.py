@@ -12,8 +12,9 @@ from typing import Any, Dict, List
 
 from src.agents.orchestration import memory
 
-from .disclosure import run_disclosure
+from .disclosure import run_composed, run_disclosure
 from .faults import run_cases
+from .memory_eval import run_memory
 from .golden import (
     GOLDEN,
     FakeVault,
@@ -183,6 +184,8 @@ def compute() -> Dict[str, Any]:
     tot = run_reasoning()
     tot_ho = run_held_out()
     ho = tot_ho["held_out"]
+    recall = run_memory()
+    comp = run_composed()
     rows = [
         (
             "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -392,10 +395,32 @@ def compute() -> Dict[str, Any]:
             True,
         ),
         (
+            "Core Memory recall: seeded facts retrieved in a later run (P5)",
+            ">= 90%",
+            f"{recall.recalled}/{recall.seeded} (+1 forgotten, correctly absent)",
+            recall.recalled >= 0.9 * recall.seeded and recall.seeded >= 9,
+            True,
+        ),
+        (
+            "Core Memory recall: superseded or forgotten facts returned; untrusted unlabelled",
+            "0 / 0",
+            f"{recall.stale_returned} / {recall.untrusted_unlabelled}",
+            recall.stale_returned == 0 and recall.untrusted_unlabelled == 0,
+            True,
+        ),
+        (
             "Minimal disclosure: canary/PII in bus, log, egress; forced leaks passed",
             "0",
             f"{dis_viol} ({dis.messages} msgs, {dis.log_entries} log, {dis.egress_payloads} egress, {dis.forced_leak_attempts} forced)",
             dis_viol == 0 and dis.scanner_detects_seeded,
+            True,
+        ),
+        (
+            "Composed leakage: canaries outside allowed sinks (multi-hop, memory, merge) (P4)",
+            "0",
+            f"{len(comp.violations) + comp.merge_mislabelled} ({comp.runs} runs, {comp.sinks_scanned} sinks, "
+            f"{comp.hops_checked} hops)",
+            not comp.violations and comp.merge_mislabelled == 0 and comp.runs > 0,
             True,
         ),
     ]

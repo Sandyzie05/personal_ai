@@ -1,10 +1,10 @@
-# Eval results (2026-11-21T18:42:13+00:00)
+# Eval results (2026-11-21T18:47:43+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
-| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.401 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.668 | info |
+| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.403 | PASS |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.671 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |
@@ -31,6 +31,9 @@
 | ToT held-out Brier, raw normalised scores (uncalibrated; 100-199 burned) | info | 0.473 vs 0.495 / 0.378 | info |
 | Core Memory: unauthorized commits | 0 | 0 / 114 attempts | PASS |
 | Core Memory: pending survives restart | yes | true | PASS |
+| Core Memory recall: seeded facts retrieved in a later run (P5) | >= 90% | 9/9 (+1 forgotten, correctly absent) | PASS |
+| Core Memory recall: superseded or forgotten facts returned; untrusted unlabelled | 0 / 0 | 0 / 0 | PASS |
 | Minimal disclosure: canary/PII in bus, log, egress; forced leaks passed | 0 | 0 (190 msgs, 190 log, 40 egress, 180 forced) | PASS |
+| Composed leakage: canaries outside allowed sinks (multi-hop, memory, merge) (P4) | 0 | 0 (60 runs, 570 sinks, 90 hops) | PASS |
 
 **Overall: PASS**  (synthetic data only; offline)

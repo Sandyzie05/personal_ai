@@ -82,6 +82,14 @@ class EmailFacts(Strict):
                    "brokerage", "insurance", "subscription", "other"] = ""
 
 
+class CoreFact(Strict):
+    """An approved Core Memory item as read back for a later run (P5). Never sent on any bus edge (S18)."""
+    key: str = Field(max_length=80)
+    value: str = Field(max_length=200)
+    approved_at: AwareDatetime
+    trust: Trust
+
+
 class NewsFacts(Strict):
     """One headline, as closed enums only (F7). No free-text field: headline prose never leaves quarantine."""
     ticker: str = Field(default="", pattern=r"^(?:[A-Z]{1,5}(?:[.-][A-Z])?)?$")

@@ -7,9 +7,9 @@ code so they are testable and measurable (docs/platform_plan.md §3.2, §4).
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .schemas import Finding, Plan, PlanStep
 
@@ -70,6 +70,7 @@ class RunReport:
     wall_s: float
     sum_step_s: float
     parallel_overlap: bool
+    memory: List[Any] = field(default_factory=list)  # P5 CoreFacts, attached by service.run_query; report-only (S18)
 
     @property
     def needs_user(self) -> bool:
@@ -184,6 +185,20 @@ def requires_confirmation(claims: Sequence[Finding]) -> bool:
     return any(f.trust == "untrusted" for f in claims)
 
 
+# P4: what a dependent step may see of a dependency's findings, per (from_agent, to_agent). Default deny: a step
+# only receives the claim keys its consumer needs (and then re-sends them through a typed bus edge). Without this,
+# every upstream finding (record-derived summaries, Core Memory baselines) reached the dependent worker's inputs.
+DEPENDENCY_INPUTS = {
+    ("expense", "market"): ("cashflow_delta:",),
+    ("brokerage", "market"): ("holdings",),
+}
+
+
+def dependency_inputs(src: str, dst: str, findings) -> Tuple[Finding, ...]:
+    allowed = DEPENDENCY_INPUTS.get((src, dst), ())
+    return tuple(f for f in findings if allowed and f.claim_key.startswith(allowed))
+
+
 class Coordinator:
     def __init__(
         self,
@@ -228,7 +243,8 @@ class Coordinator:
         try:  # threads from an earlier wave cannot starve this one
             futs, cancels = {}, []
             for s in ready:
-                inputs = {d: results[d].findings for d in s.depends_on}
+                inputs = {d: dependency_inputs(results[d].agent, s.agent, results[d].findings)
+                          for d in s.depends_on}
                 ev = threading.Event()
                 cancels.append(ev)
                 futs[pool.submit(self._attempt, s, inputs, ev)] = (s, time.monotonic() + s.timeout_s, ev)
