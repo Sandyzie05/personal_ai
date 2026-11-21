@@ -212,7 +212,7 @@ Completed phases (all accepted by `make test` + `make eval`; nothing verified on
 2 stock_predictor port, 3 UI merge, 4 agent infra, 5 agent configs/skills/policy, 6 untrusted ingestion (fixtures), 7 evaluation,
 8 docs, 9 independent audit (now in `security_design.md` "Independent audit"), 10 PR #17 hardening merge, 11 Week 4 ToT.
 Former backlog cards B1-B19 and RAG cards R0-R11 are DONE except those carried into the roadmap (B1/B6/B19 → P9, B17/B18/R10 →
-roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T Trader T0-T5 done (PRs #31-#32). Test count at last full run: 911 pass, 0 fail (2026-11-21).
+roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T Trader T0-T5 done (PRs #31-#32); Robinhood Portfolio chat + live schema fit (PR #33); Gmail bill text sync R11 (PR #34). Test count at last full run: 911 pass, 0 fail (2026-11-21).
 
 ## 7. Runbook
 

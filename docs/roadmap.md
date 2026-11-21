@@ -7,40 +7,58 @@ do them in order, one card per branch/PR, and a card is done only when its **Acc
 Course commitments come from the weekly checkpoints and instructor feedback (Weeks 1-6, kept outside the repo in `.idea/`).
 Each card names the feedback it answers (`W5` = Week 5 feedback).
 
-## 00. Start here (handoff for the next session, updated 2026-11-21)
+## 00. Start here (handoff for the next session, updated 2026-11-21 evening)
 
-**State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R10, incl. the Robinhood Portfolio chat agent) and the offline part of P11
-(PR #30), then Track T Trader: plan view T0-T4 (PR #31) and AI paper agents T5 (PR #32). `make test` 911 pass, `make eval`
-Overall PASS (53 rows), `make eval-rag` PASS, `make eval-stability RUNS=10` PASS (last run before Track T). Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
-other. **What is left is USER work:** P9 (live run), P10 (RAG calibration on the real embedder), and first live Robinhood
-connection (confirm tool argument names, see Track R "Live check"), and a first Trader paper-agent backtest with the local
-model (Track T "Live check"). Then P11's final numbers.
+**State.** Everything agent-doable is built and tested offline. Merged to `main`: Track F, P1-P8, P12, Track R + offline P11
+(PR #30); Track T Trader plan view (PR #31) and AI paper agents (PR #32); Robinhood Portfolio chat agent, Robinhood live-schema
+fit, Trader forward-record fix, Expected bills list (PR #33). **Open: PR #34** (R11 Gmail bill sync from email text, Expected
+bills form fix, internal-key fix for `trader_paper_v1`); merge it before starting new work. At PR #34 head: `make test`
+911 pass, `make eval` Overall PASS (53 rows); `make eval-rag` and `make eval-stability RUNS=10` last passed before Track T
+(re-run them in the next session). Two laptops: this one has no models; the app runs with real data and local models (oMLX)
+on the other, where the user tests and pastes results back.
 
-**Waiting on the user (model laptop), in this order:**
-0. Download `lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit` into oMLX; confirm its id in `curl 127.0.0.1:8000/v1/models`
-   (if it differs, `export PERSONAL_AI_FORECAST_CRITIC_MODEL=<id>`). A saved critic tweak with a model keeps that model.
-1. `git pull` → `venv/bin/pip install -U -r requirements.txt` → `venv/bin/pip uninstall -y fastapi` (stray, see
-   `user_testing_guide.md` §0 step 6) → `venv/bin/pip check`.
-2. Restart `make run`; Forecast → AAPL → *Research ticker* → *Run AI review*. Optionally tweak a critic (Agents → Forecast
-   workflow) and run again.
-5. Upload → Sync → *Bills from Gmail*: add each provider with its sender domain (e.g. Rocky Mountain Power /
-   `rockymountainpower.net`) → *Sync bills from Gmail*. Then Upload → *Rebuild RAG index* once (drops a stray Trader-ledger
-   entry indexed before 2026-11-21).
-4. Forecast → Trader → *Paper agents*: tickers `SPY, AAPL` → *Run backtest (past year)* (up to 30 model calls, minutes on
-   the 4B). Note new decisions / invalid replies from the green line, then *Review agents*. Run it again: decisions are reused.
-3. Paste a state report (opencode prompt below). The `<LIVE>` section must list critics completed N/4 with each status,
-   `invalid_reason` and seconds.
+**What exists now (where to look).**
 
-**Next card for the agent, decided by that report:**
+| Area | Entry point | Doc |
+|---|---|---|
+| Forecast research + 4 critics + ToT | Forecast → Research | `forecaster.md` |
+| Trader plan (ORB entry, stop/target, sizing, risk, seeded odds) | Forecast → Trader → Plan | `trader.md` |
+| Trader AI paper agents (ORB, breakout, bounce + reviewer), paper ledger 1 year, scoreboard | Forecast → Trader → Paper agents | `trader.md` "Paper agents", S24 |
+| Robinhood research data, Portfolio fit, earnings calendar | Forecast → Research / Events | Track R below, S20 |
+| Robinhood Portfolio chat agent | Chat → *System · Robinhood Portfolio* | Track R card R9, S25 |
+| Gmail bills from email text (sender allowlist) | Upload → Sync → *Bills from Gmail* | `rag_design.md` R11 |
+| Expected bills (overdue ledger) | Upload → Sync → *Expected bills* | `rag_design.md` R7 |
+
+**Waiting on the user (model laptop), in this order.** Each line says what to paste back.
+1. Merge PR #34, `git pull`, `venv/bin/pip install -U -r requirements.txt`, `venv/bin/pip check`, restart `make run`.
+   Upload → *Rebuild RAG index* once (drops a Trader-ledger entry that could have been indexed before the PR #34 fix).
+2. **Gmail bills (R11).** Gmail is connected (Google's Gmail MCP, 23 tools, OAuth worked without the user's own client id).
+   Upload → Sync → *Bills from Gmail*: add Rocky Mountain Power / electricity / real sender domain, the gas provider, and
+   T-Mobile / mobile → *Sync bills from Gmail*. Paste: the status line (N new / duplicates / failed). Unverified: the Google
+   server's response field names (`threads`, `messages`, `sender`, `plaintextBody`) — if 0 new, fix the tolerant parsers in
+   `gmail_bills.py` from one real response shape (field names only, never content) and add a fixture.
+3. **Expected bills.** Add 3 providers; confirm each row shows on time / overdue / no bill yet.
+4. **Robinhood earnings calendar.** Forecast → Events → *Load earnings calendar*. Paste the message if it still fails (now
+   shows the real error type / JSON-RPC code or the missing argument name).
+5. **Portfolio chat.** Chat → Robinhood Portfolio → "How concentrated is my portfolio?". Paste: worked / error type.
+6. **Trader paper agents.** Forecast → Trader → Paper agents → `SPY, AAPL` → *Run backtest (past year)*. Paste the green
+   line (signals, new AI decisions, invalid replies) and the leaderboard agent-vs-baseline rows; then *Review agents*.
+7. **AI review critics.** Forecast → AAPL → *Research ticker* → *Run AI review*; paste a state report (prompt below).
+
+**Next card for the agent, decided by those reports:**
 
 | Report says | Do |
 |---|---|
-| ≥ 3/4 critics `completed` | Done 2026-11-21 → **P1** |
-| `timeout` on 2+ critics | Check critics actually run on the 4B (agent chip); else `PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS`; never drop the deadline |
-| `invalid (truncated)` | Raise the critic agent's max tokens in the Agents tab, up to `FORECAST_MODEL_MAX_TOKENS` (700; ForecastSettings allows ≤ 1024) |
-| `invalid (not_json)` / `(schema)` | Read AI review → Details (reply chars, stopped because): `length` = raise max tokens; else Check `omlx_client` honours `format=` (json_schema response_format) on the live server; add a unit test with the observed shape (no model text in fixtures) |
-| `invalid (unknown_evidence)` | Model invents ids: add the evidence-id list explicitly to `SLOT_RULES` user message; keep the validation |
-| oMLX `no (...)` | Fix connectivity first (`state_report.md` §2 explains each error) |
+| Gmail sync 0 new / parse error | Adapt `gmail_bills._items/_pick` to the real field names; fixture + test; never store bodies |
+| Gmail OK, a provider still overdue | Check the provider name matches the sender row exactly; else portal recipe (R10, supervised `playwright codegen`) |
+| Earnings calendar names a missing argument | Add it in `robinhood.earnings_calendar` (+ `_ARG` validator) and a fixture |
+| Paper agents: invalid replies > 20% | Raise the agent's max tokens (≤ `TRADER_AGENT_MAX_TOKENS` 300) or check `format=` on oMLX; never loosen `TraderDecision` |
+| Paper agents run fine | Optional next: scheduler job for a daily forward session (`schedule.py`, no orders), then P9/P10/P11 |
+| Critics: ≥ 3/4 `completed` | Fine; `timeout` 2+: check the 4B is used (agent chip) / `PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS`; `truncated`: raise max tokens ≤ 700; `not_json`/`schema`: check `format=` on oMLX; `unknown_evidence`: list evidence ids in the user message |
+| oMLX `no (...)` | Fix connectivity first (`state_report.md` §2) |
+
+**Then:** P9 live run, P10 RAG calibration (USER), P11 final submission numbers. Planned but needing user sign-off first:
+T9 broker orders (Alpaca paper or real).
 
 **Opencode prompt for the model laptop** (the user pastes it after each testing session; output is pasted back here, never
 committed): run `make state-report` per `docs/state_report.md`; ask the user once for the user-testing rows, live timings
@@ -61,6 +79,7 @@ flowchart LR
   W1[W1 proposal + assessment] --> W2[W2 reasoning, memory, tools] --> W3[W3 RAG R0-R6] --> W4[W4 ToT forecaster] --> W5[W5 multi-agent] --> W6[W6 safety plan] --> D[Docs + roadmap<br/>2026-11-20]
   D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
   P8 --> R[Track R: Robinhood research R0-R10 + Portfolio chat] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
+  R --> RP[R9 Portfolio chat + R10 schema fit] --> GB[R11 Gmail bill text, PR 34] --> LC[Live checks: Gmail, calendar, Portfolio chat, paper agents] --> P11
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
@@ -70,7 +89,8 @@ flowchart LR
   class D,FX,F,FL done
   class P1,P2,P3,P12,P5,P4,P6,P7,P8,R done
   class P11 now
-  class T0,T1,T2,T3,T4,T5 done
+  class T0,T1,T2,T3,T4,T5,RP,GB done
+  class LC user
   class T9 todo
   class P9,P10,RL user
 ```
@@ -162,7 +182,7 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-All agent-doable cards are done (2026-11-21, PRs #30-#32). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
+All agent-doable cards are done (2026-11-21, PRs #30-#34; #34 open). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
 Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live),
 Trader live check (USER: paper-agent backtest with the local model, invalid-reply rate; Track T), then P11 final numbers. Track T
 (PRs #31-#32) is done offline; T9 broker orders stays planned and needs user sign-off.
