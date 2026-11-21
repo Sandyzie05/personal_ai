@@ -22,7 +22,7 @@ For the agent-specific rules and their tests see [platform_plan.md](platform_pla
 [RAG / ChromaDB](#rag--chromadb-accepted-residual-risk) · [Multi-session chat](#multi-session-chat-and-dashboard-2026-08-25) ·
 [Multi-agent and MCP](#multi-agent-and-mcp-integration-2026-10-13) · [Forecast integration](#requested-ticker-forecast-integration-2026-10-18) ·
 [Agent platform + audit](#agent-platform-coordinator-quarantine-scoped-bus-core-memory-gate-2026-10-25) ·
-[Audit](#independent-audit-2026-10-25-and-resolution) · [Ingestion hardening](#bill-ingestion-and-rag-hardening-2026-10-25) · [Trader + paper agents](#trader-track-t-2026-11-21) · [Planned controls](#planned-controls-2026-11-20) · [Model configuration](#model-configuration) ·
+[Audit](#independent-audit-2026-10-25-and-resolution) · [Ingestion hardening](#bill-ingestion-and-rag-hardening-2026-10-25) · [Portfolio chat](#robinhood-portfolio-chat-agent-and-live-schema-fit-2026-11-21) · [Trader + paper agents](#trader-track-t-2026-11-21) · [Planned controls](#planned-controls-2026-11-20) · [Model configuration](#model-configuration) ·
 [Known limitation](#known-limitation-no-migration-path-across-a-vault-key-change)
 
 ## Threat model
@@ -416,6 +416,17 @@ never the user or host. SEC requests keep the user-configured contact UA that SE
 - MCP write detection (2026-11-21): `SENSITIVE_TOOL_PREFIXES` adds `decline_` and `set_`. Robinhood labels
   `decline_trade_approval` and `set_legend_chart_settings` as "read" although they change state; without annotations the
   prefix list is the guard. Track R adds an exact-name allowlist for Forecast (the `get_` prefix also matches banking tools).
+
+## Robinhood Portfolio chat agent and live schema fit (2026-11-21)
+
+New chat agent `builtin-portfolio` (S25). Code reads positions through `RobinhoodClient` (exact-name account tools, S20),
+computes weights and unrealized %, and passes those figures (no account numbers) to a tool-less model built by the
+loopback-only `_scenario_factory`; R-D1 allows account data on the local model, R-S6 forbids it leaving the machine.
+`policy.screen` runs before Robinhood is touched, so trade asks never reach the broker. Answers are saved in the encrypted
+chat history like any chat turn (residual: portfolio figures now live in chat history; still vault-encrypted, never indexed
+into RAG). The activity log records `portfolio_chat` status and latency only. `RobinhoodClient._fit` adapts code-built
+arguments to the live tool schema (rename/drop only; values stay validated by `_ARG`). MCP `ExceptionGroup`s are unwrapped to
+the leaf exception type and JSON-RPC code; server message text is still never shown.
 
 ## Trader (Track T, 2026-11-21)
 

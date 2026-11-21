@@ -136,6 +136,13 @@ def _to_mcp_error(exc: Exception, server_name: str) -> McpError:
             f"Authorization problem with server '{server_name}': {exc}",
             needs_auth=True,
         )
+    leaf = exc
+    while isinstance(leaf, BaseExceptionGroup) and leaf.exceptions:  # anyio TaskGroup hides the real cause
+        leaf = leaf.exceptions[0]
+    if leaf is not exc:
+        # Type and JSON-RPC code only: server message text is untrusted and may echo arguments.
+        code = getattr(getattr(leaf, "error", None), "code", None)
+        return McpError(f"MCP error from '{server_name}': {type(leaf).__name__}" + (f" (code {code})" if code is not None else ""))
     return McpError(f"MCP error: {type(exc).__name__}: {exc}")
 
 

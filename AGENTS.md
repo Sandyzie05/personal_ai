@@ -55,7 +55,8 @@ Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforce
 - Out-of-scope asks (trade, pay, shell, diagnose, reveal secrets) are refused by `policy.screen` before planning.
 - Gmail/brokerage MCP access is read-only (`ingest.ReadOnlyMcp`); do not add write tools to agent templates.
 - Robinhood calls are code-built from validated tickers/ids only, through the exact-name allowlists in
-  `forecaster/robinhood.py` (S20); account data never enters the AI-review snapshot, logs or any non-account request.
+  `forecaster/robinhood.py` (S20); account data never enters the AI-review snapshot, logs or any non-account request. The Robinhood Portfolio chat agent
+  (S25, `agents/portfolio_chat.py`) gets code-computed figures only, on the loopback model, with no tools and no account numbers.
 - Trader (`src/trader/`, `docs/trader.md`, S21-S23): advice only; never add order/ticket fields or broker/MCP imports; limits are user-entered `TRADER_*`, never account data. Paper agents (S24): numbers-only prompts with no ticker/date/price and no lookahead, closed-choice replies, code sets size/risk, ledger stays in the vault.
 - Dependency findings pass between workers only via `coordinator.DEPENDENCY_INPUTS` (S19); Core Memory is read only via
   `memory.recall` and never travels on a bus edge (S18).

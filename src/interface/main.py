@@ -744,6 +744,8 @@ class PersonalAIInterface:
             "market",
         ):
             return self._respond_coordinated(user_query, active_id, agent)
+        if agent.get("role") == "portfolio":
+            return self._respond_portfolio(user_query, history, active_id, agent)
         runtime = self._agent_runtime()
         with st.status(f"{agent.get('name', 'Agent')} is working...", expanded=True):
             result = runtime.start_run(active_id, agent, user_query, history)
@@ -771,6 +773,27 @@ class PersonalAIInterface:
             title=user_query.strip()[:40],
             agent_id=agent.get("id"),
         )
+        st.rerun()
+
+    def _respond_portfolio(self, user_query, history, active_id, agent) -> None:
+        """Robinhood Portfolio turn (S25): code reads holdings, a local tool-less model answers from the figures."""
+        from src.agents import portfolio_chat
+        from src.agents.slots import _skills_text
+        from src.interface.forecast import _scenario_factory
+
+        try:
+            factory = _scenario_factory(self.vault)  # loopback-only endpoint, or ValueError
+        except Exception:
+            factory = None
+        skills = _skills_text(agent.get("skills"))
+        agent = {**agent, "instructions": (skills + "\n\n" if skills else "") + str(agent.get("instructions") or "")}
+        with st.status("Reading your Robinhood positions (read-only)...", expanded=False):
+            answer = portfolio_chat.respond(self.vault, self._agent_runtime().mcp, factory, agent, user_query, history)
+        with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+            st.markdown(answer)
+        self.chat_history.add_message("user", user_query)
+        self.chat_history.add_message("assistant", answer, [])
+        chat_sessions.touch_session(self.vault, active_id, title=user_query.strip()[:40], agent_id=agent.get("id"))
         st.rerun()
 
     def _render_confirmation_card(self, active_id: str, agent: Dict[str, Any]) -> None:

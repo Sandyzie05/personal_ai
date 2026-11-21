@@ -101,6 +101,9 @@ def render_paper(providers, vault, client_factory):
     mode = st.segmented_control("Record", ("All", "Backtest", "Forward"), default="All", key="paper_mode") or "All"
     if mode != "All":
         trades = [t for t in trades if t["mode"] == mode.lower()]
+    if not trades:
+        st.caption(f"No {mode.lower()} trades yet. A forward session records only the newest session's signals.")
+        return
     rows = performance.summarize(trades)
     st.subheader("Leaderboard")
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -119,4 +122,7 @@ def render_paper(providers, vault, client_factory):
     st.subheader("Trade log")
     pick = st.segmented_control("Agent", ("all",) + STRATEGIES, default="all", key="paper_log_strategy") or "all"
     log = sorted((t for t in trades if pick == "all" or t["strategy"] == pick), key=lambda t: t["signal_at"], reverse=True)[:500]
-    st.dataframe(pd.DataFrame(log)[LOG_COLS], hide_index=True, use_container_width=True)
+    if not log:
+        st.caption("No trades in this record yet.")
+        return
+    st.dataframe(pd.DataFrame(log, columns=LOG_COLS), hide_index=True, use_container_width=True)

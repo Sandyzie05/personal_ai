@@ -9,9 +9,9 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 
 ## 00. Start here (handoff for the next session, updated 2026-11-21)
 
-**State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R8) and the offline part of P11
-(PR #30), then Track T Trader: plan view T0-T4 (PR #31) and AI paper agents T5 (PR #32). `make test` 898 pass, `make eval`
-Overall PASS (51 rows), `make eval-rag` PASS, `make eval-stability RUNS=10` PASS (last run before Track T). Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
+**State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R10, incl. the Robinhood Portfolio chat agent) and the offline part of P11
+(PR #30), then Track T Trader: plan view T0-T4 (PR #31) and AI paper agents T5 (PR #32). `make test` 905 pass, `make eval`
+Overall PASS (52 rows), `make eval-rag` PASS, `make eval-stability RUNS=10` PASS (last run before Track T). Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
 other. **What is left is USER work:** P9 (live run), P10 (RAG calibration on the real embedder), and first live Robinhood
 connection (confirm tool argument names, see Track R "Live check"), and a first Trader paper-agent backtest with the local
 model (Track T "Live check"). Then P11's final numbers.
@@ -57,7 +57,7 @@ Updated after every card (also mirrored on the Miro board, frame "Progress journ
 flowchart LR
   W1[W1 proposal + assessment] --> W2[W2 reasoning, memory, tools] --> W3[W3 RAG R0-R6] --> W4[W4 ToT forecaster] --> W5[W5 multi-agent] --> W6[W6 safety plan] --> D[Docs + roadmap<br/>2026-11-20]
   D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
-  P8 --> R[Track R: Robinhood research R0-R8] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
+  P8 --> R[Track R: Robinhood research R0-R10 + Portfolio chat] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
@@ -114,7 +114,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
-| Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3 |
+| Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
 | Trader: intraday day-trade research and plan (scan, entry, stop/target, Monte Carlo odds, sizing, risk label); advice only, no orders | DONE vs fixtures; live = USER | Track T: shape 0/13, MC 4/4, risk golden 5/5; T5 paper agents: hostile 0/90, lookahead 0/68, ledger 7/7; T9 broker orders PLANNED |
 | Daily Gmail digest *sent* to a messaging app (W2 idea) | DROPPED | sending is a write; read-only invariant S6. Digest is shown in-app |
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
@@ -364,6 +364,14 @@ feature comes back empty, fix `_ARG` / the builders in `robinhood.py` from the l
   Copy: "context, not advice".
 - **R8 Evals.** Injection eval over broker free-text fields (0 reaching output, hard); disclosure eval: no position, quantity,
   account number or balance in any snapshot/prompt/Finding (0, hard); valuation-critic golden cases with fundamentals cards.
+- **R9 Robinhood Portfolio chat agent (DONE vs fixtures 2026-11-21).** Built-in chat agent `builtin-portfolio` (Chat → agent
+  selector → "Robinhood Portfolio"). Code reads holdings via account tools (`portfolio_chat.snapshot`: symbol, quantity, average
+  cost, market value, weight, unrealized %; no account numbers), a tool-less **local** model answers (loopback-only factory, R-D1,
+  R-S6); `policy.screen` refuses trade asks before Robinhood is called; activity log = status + timing (S25). Skill
+  `portfolio-review`. *Accept:* `test_portfolio_chat.py`, eval S25 row. *Live (USER):* ask "How concentrated is my portfolio?".
+- **R10 Live schema fit (2026-11-21).** `RobinhoodClient._fit` reads the live tool schema once per client: renames via `ALIASES`,
+  drops undeclared args, names missing required ones; MCP `ExceptionGroup`s are unwrapped to the leaf type + JSON-RPC code
+  (no server text). Fixes the earnings-calendar "unhandled errors in a TaskGroup" class of failures; re-check live.
 
 **Decisions (user, 2026-11-21).**
 - R-D1 Account data may reach the **local** model (it runs on the laptop). Guardrail instead: it must never leave the machine.

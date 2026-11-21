@@ -4,6 +4,17 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat/fix: Robinhood Portfolio chat agent, earnings-calendar fix, Expected bills, Trader Forward record
+
+- New chat agent "Robinhood Portfolio" (`builtin-portfolio`, S25): code reads holdings, local tool-less model answers; skill
+  `portfolio-review`; trade asks refused before Robinhood is called; eval row.
+- Robinhood: `RobinhoodClient._fit` matches args to the live tool schema (aliases, drops undeclared, names missing required);
+  MCP `ExceptionGroup` unwrapped to leaf type + JSON-RPC code (was "unhandled errors in a TaskGroup" on the earnings calendar).
+- Expected bills: explained in the panel, list with on time / overdue / no bill yet, Remove per row, provider picker from
+  indexed bills (`pipeline.expectations/remove_expectation/known_providers`).
+- Trader Paper agents: empty Forward/Backtest record no longer crashes the trade log (KeyError on columns).
+- Docs sync from PR #32 (missed the merge) carried here.
+
 ## (pending) - 2026-11-21 - feat: Trader AI paper agents (Track T5)
 
 - Three LLM strategy agents (ORB, 20-day breakout, oversold bounce) + reviewer as tool-less Forecast slots, instructions from new skill

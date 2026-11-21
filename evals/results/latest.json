@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T20:17:56+00:00",
+  "generated_at": "2026-11-21T20:38:36+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.407,
+      "measured": 0.401,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.685,
+      "measured": 0.683,
       "pass": true,
       "hard": false
     },
@@ -131,6 +131,13 @@
       "metric": "Robinhood: account canaries outside account tools (requests, logs, activity log, snapshot; R-S6)",
       "target": "0",
       "measured": "0 in 19 sinks x 3 canaries",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Robinhood Portfolio chat: account number in prompt/log, trade asks reaching Robinhood (S25)",
+      "target": "0",
+      "measured": "0 in 5 checks",
       "pass": true,
       "hard": true
     },
@@ -375,13 +382,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.407,
+        "ratio": 0.401,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.685,
+        "ratio": 0.683,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3

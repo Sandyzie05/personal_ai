@@ -56,6 +56,7 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S22 | Trader sizing/risk use only user-entered limits (`TRADER_*`); broker account figures never enter trader inputs/outputs | `trader/sizing.py`, `trader/risk.py` | `evals/trader.py` shape row (no broker/MCP import in `src/trader`) |
 | S23 | Trader Monte Carlo is seeded (deterministic), bounded by `TRADER_*` caps, labelled a simulation | `trader/timemachine.py` | `evals/trader.py` simulation row, `test_trader_engines.py` |
 | S24 | Trader paper agents: prompts are code-built relative numbers from bars up to the signal (no ticker/date/price, no lookahead); replies are closed-choice `TraderDecision` (extra fields rejected); code alone sets entry, size and risk; ledger is vault-only, never sent to a broker | `trader/agents.py`, `trader/strategies.py`, `trader/paper.py` | `test_trader_paper.py`, `evals/trader.py` agent-safety + lookahead rows |
+| S25 | Robinhood Portfolio chat: code reads holdings (account tools only) and computes figures; a tool-less model on the loopback endpoint answers; no account numbers in the prompt; `policy.screen` before any Robinhood call; activity log holds status + timing only | `agents/portfolio_chat.py`, `interface/main.py::_respond_portfolio` | `test_portfolio_chat.py`, eval S25 row |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
 obedience is not relied on (schema validation is); Chroma index is plaintext if persisted (currently in-memory; see `security_design.md`); no live
@@ -131,8 +132,8 @@ Claim keys added by Track T: `trader:<SYM>:{entry,plan,odds}`.
 ### 3.4 Agent roster
 
 All are code-constant templates (not editable); the user binds MCP servers in Agents → MCP Servers. Roles/tools/skills are in
-`templates.py` (`_ROLES`, `_SKILLS`); every prompt carries the shared safety rules (`_COMMON`). Only `builtin-coordinator`
-is selectable in chat today; specialists run as coordinator workers. Skills attached: personal-finance-analysis,
+`templates.py` (`_ROLES`, `_SKILLS`); every prompt carries the shared safety rules (`_COMMON`). Chat-selectable built-ins: Coordinator, Expense & Records, Market, Forecaster (via the coordinator) and **Robinhood Portfolio**
+(`builtin-portfolio`, S25: code-read holdings, local tool-less model). Skills attached: personal-finance-analysis,
 market-research-brief, untrusted-content-handling, conflict-escalation, forecast-evaluation, data-minimization, forecast-critic.
 Forecast workflow agents (tool-less slots, tweakable in Agents → Forecast workflow): 4 critics, thesis/watchlist explainers, news
 analyst, portfolio fit, and the Trader paper agents `builtin-trader-{orb,breakout,bounce,reviewer}` (skills `trader-orb-method`,
@@ -189,6 +190,7 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Core Memory recall / superseded-or-forgotten returned (P5) | ≥ 9/10 / 0 | 9/9 / 0 | |
 | Composed leakage: canaries outside allowed sinks (P4) | 0 | 0 (114 runs, 969 sinks, 102 hops) | golden + stress + service chains with memory |
 | Robinhood: broker free text / account canaries / valuation golden (Track R) | 0 / 0 / 100% | 0/5 / 0 in 19 sinks × 3 / 3/3 | synthetic fixtures; no live account |
+| Robinhood Portfolio chat: account number in prompt/log, trade asks reaching Robinhood (S25) | 0 | 0 in 5 | synthetic account fixtures |
 | Trader: plan shape / seeded Monte Carlo / risk golden (Track T) | 0 / 100% / 100% | 0 in 13 checks / 4/4 / 5/5 | synthetic bars; advice only |
 | Trader paper agents: hostile replies accepted / lookahead / ledger golden (Track T) | 0 / 0 / 100% | 0 in 90 / 0 in 68 / 7/7 | synthetic bars + fake clients; live model results = USER |
 | Stability: every hard row across `RUNS=10` perturbed runs (P7) | 100% | 10/10 each | shuffle, duplicates, paraphrase, jitter, workers 1/2, concurrency 1 |
@@ -209,7 +211,7 @@ Completed phases (all accepted by `make test` + `make eval`; nothing verified on
 2 stock_predictor port, 3 UI merge, 4 agent infra, 5 agent configs/skills/policy, 6 untrusted ingestion (fixtures), 7 evaluation,
 8 docs, 9 independent audit (now in `security_design.md` "Independent audit"), 10 PR #17 hardening merge, 11 Week 4 ToT.
 Former backlog cards B1-B19 and RAG cards R0-R11 are DONE except those carried into the roadmap (B1/B6/B19 → P9, B17/B18/R10 →
-roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T Trader T0-T5 done (PRs #31-#32). Test count at last full run: 898 pass, 0 fail (2026-11-21).
+roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T Trader T0-T5 done (PRs #31-#32). Test count at last full run: 905 pass, 0 fail (2026-11-21).
 
 ## 7. Runbook
 
