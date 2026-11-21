@@ -17,14 +17,18 @@ from .. import config
 from .models import Contract, EvidenceSnapshot, Score
 
 Scenario = Literal["bullish", "base", "bearish"]
-Driver = Literal["trend", "volatility", "macro", "filing", "theme", "news", "balance"]
+Driver = Literal["trend", "volatility", "macro", "filing", "theme", "news", "valuation", "earnings", "options", "balance"]
 SCENARIO = {1: "bullish", 0: "base", -1: "bearish"}
 CONSERVATIVE = {
     "base": 0,
     "bearish": 1,
     "bullish": 2,
 }  # tie-break: least aggressive call wins
-FAMILY = {"macro": "macro", "filing": "filing", "curated": "theme", "news": "news"}
+FAMILY = {
+    "macro": "macro", "filing": "filing", "curated": "theme", "news": "news",
+    # Track R (Robinhood) public market families; absent unless a Robinhood MCP server is connected.
+    "fundamental": "valuation", "earnings": "earnings", "options": "options",
+}
 SENTIMENT = {"positive": 1, "neutral": 0, "negative": -1}
 FRESH = timedelta(days=30)
 
@@ -108,7 +112,9 @@ def _heuristic(thought: Thought, drivers, snapshot) -> dict:
         breadth = sum(1 for _, d, _, _ in drivers if not d) / len(drivers)
     else:
         sign = 1 if thought.scenario == "bullish" else -1
-        support = (sign * net / total + 1) / 2 if total else 0.5
+        # Neutral families are evidence too ("no signal"): scale by the share of families that are directional, so one
+        # weak card among neutral ones cannot reach full support and skip the critics (P8 dev finding).
+        support = ((sign * net / total + 1) / 2) * (len(directional) / len(drivers)) if total else 0.5
         breadth = sum(1 for _, d, _, _ in drivers if d == sign) / len(drivers)
     return {
         "support": support,

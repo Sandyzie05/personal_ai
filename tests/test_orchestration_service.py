@@ -32,6 +32,12 @@ def test_skill_pack_installs_without_clobbering(tmp_path, monkeypatch):
     assert len(first) == len(list(PACK_DIR.glob("*.md"))) >= 6
     (tmp_path / "conflict-escalation.md").write_text("mine")
     assert install_builtin_skills() == [] and (tmp_path / "conflict-escalation.md").read_text() == "mine"
+    import subprocess
+    old = subprocess.run(["git", "show", "4707e9a:skills/forecast-critic.md"], capture_output=True, text=True).stdout
+    if old:  # an unedited copy of the previous shipped version is upgraded; an edited one is not
+        (tmp_path / "forecast-critic.md").write_text(old)
+        assert install_builtin_skills() == ["forecast-critic"]
+        assert (tmp_path / "forecast-critic.md").read_text() == (PACK_DIR / "forecast-critic.md").read_text()
 
 
 def test_every_template_skill_exists_and_safety_skills_attached():

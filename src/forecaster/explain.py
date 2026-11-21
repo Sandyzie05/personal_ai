@@ -54,7 +54,9 @@ def _call(client: Any, agent: Dict[str, Any], payload: dict, schema, max_tokens:
     except ValidationError:
         raise _Invalid("schema")
     allowed = set(_NUM.findall(text))
-    if any(n not in allowed for n in _NUM.findall(out.model_dump_json())):
+    # Small whole numbers ("3 sentences", "10-year", "2 risks") are wording, not invented data; decimals and larger
+    # values (prices, yields, percentages) must come from the input.
+    if any(n not in allowed and not (n.isdigit() and int(n) <= 31) for n in _NUM.findall(out.model_dump_json())):
         raise _Invalid("invented_number")
     return out
 
@@ -72,14 +74,15 @@ def explain_thesis(client, agent, snapshot, tree) -> Tuple[Optional[ThesisExplan
                      "components": {k: round(v, 2) for k, v in pick.components.items()}},
         "runner_up": ({"scenario": runner.thought.scenario, "score": round(runner.score, 2)} if runner else None),
         "margin": None if tree.margin is None else round(tree.margin, 2),
-        "evidence": [{"evidence_id": c.evidence_id, "source_id": c.source_id, "title": c.title, "summary": c.summary}
-                     for c in snapshot.evidence if c.evidence_id in ids],
+        "evidence": [{"evidence_id": f"E{i}", "source_id": c.source_id, "title": c.title, "summary": c.summary}
+                     for i, c in enumerate((c for c in snapshot.evidence if c.evidence_id in ids), 1)],
     }
+    alias = {f"E{i}": c.evidence_id for i, c in enumerate((c for c in snapshot.evidence if c.evidence_id in ids), 1)}
     try:
         out = _call(client, agent, payload, ThesisExplanation)
-        if not set(out.evidence_ids) <= ids:
+        if not set(out.evidence_ids) <= alias.keys():
             raise _Invalid("unknown_evidence")
-        return out, "completed", None
+        return out.model_copy(update={"evidence_ids": tuple(alias[e] for e in out.evidence_ids)}), "completed", None
     except _Invalid as exc:
         return None, "invalid", exc.reason
     except Exception:

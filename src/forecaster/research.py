@@ -27,7 +27,10 @@ def clamp(value, low, high):
 
 
 class ResearchPredictionService:
-    def __init__(self, providers=None, settings=None):
+    def __init__(self, providers=None, settings=None, robinhood=None):
+        """`robinhood`: optional `robinhood.RobinhoodClient` (Track R). Adds public market cards only; account tools
+        are never called from research (R-S4)."""
+        self.robinhood = robinhood
         self.settings = settings or (
             providers.settings if providers is not None else ForecastSettings()
         )
@@ -86,6 +89,21 @@ class ResearchPredictionService:
         tasks = [
             asyncio.create_task(fetch(source, method)) for source, method in methods
         ]
+        if self.robinhood is not None:
+            from .robinhood import research_evidence
+
+            async def robinhood_method(req):
+                # McpManager.call_tool runs its own event loop, so it gets a worker thread.
+                return await asyncio.to_thread(
+                    research_evidence,
+                    self.robinhood,
+                    req.symbol,
+                    datetime.now(timezone.utc),
+                    max(req.horizons),
+                )
+
+            methods = methods + (("robinhood", robinhood_method),)
+            tasks.append(asyncio.create_task(fetch("robinhood", robinhood_method)))
         done, pending = await asyncio.wait(
             tasks, timeout=self.settings.research_deadline_seconds
         )
@@ -109,22 +127,28 @@ class ResearchPredictionService:
                     ),
                 )
             )
-        market_result, macro, filings = results
+        market_result, macro, filings = results[:3]
         market = market_result.value
         issues = tuple(issue for result in results for issue in result.issues)
+        extra_cards = (
+            tuple(results[3].value) if len(results) > 3 and results[3].value else ()
+        )
         theme_model = AIInfrastructureThemeModel()
         exposures = theme_model.get_exposures(request.symbol)
         now = datetime.now(timezone.utc)
         evidence = tuple(
             card
-            for result in results
+            for result in results[:3]
             if result.value is not None
             for card in result.value.evidence
         )
         evidence += tuple(
             theme_model.evidence_for(exposure, now) for exposure in exposures
         )
-        evidence = tuple({card.evidence_id: card for card in evidence}.values())
+        evidence += extra_cards
+        evidence = tuple({card.evidence_id: card for card in evidence}.values())[
+            :24
+        ]  # snapshot cap; Robinhood cards come last
         snapshot = EvidenceSnapshot(
             symbol=request.symbol,
             as_of=now,
@@ -137,7 +161,12 @@ class ResearchPredictionService:
         events = EventExtractionService().extract(evidence)
         limitations = (
             "Scores and return estimates are uncalibrated heuristics, not probabilities.",
-            "No live news adapter, analyst fundamentals or automatic exchange calendar is included.",
+            "No live news adapter or automatic exchange calendar is included"
+            + (
+                "; Robinhood fundamentals are latest values, not point-in-time."
+                if extra_cards
+                else "; no analyst fundamentals (connect a Robinhood MCP server to add them)."
+            ),
             "Latest revised FRED/SEC data do not support point-in-time historical research.",
             "Current-session closes require a caller-attested official exchange sequence; otherwise excluded.",
         )
@@ -173,7 +202,8 @@ class ResearchPredictionService:
         news_ids = {card.evidence_id for card in evidence if card.source_type == "news"}
         news_events = [event for event in events if event.evidence_id in news_ids]
         event_strength = sum(event.signed_strength for event in news_events[:5])
-        coverage = sum(result.value is not None for result in results) / len(results)
+        # Coverage stays over the three core families so connecting Robinhood does not move the heuristic score.
+        coverage = sum(result.value is not None for result in results[:3]) / 3
         horizons = []
         for horizon in request.horizons:
             multiplier, theme_weight = (0.75, 0.7) if horizon == 5 else (1.25, 1.0)

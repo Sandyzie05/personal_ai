@@ -9,10 +9,11 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 
 ## 00. Start here (handoff for the next session, updated 2026-11-21)
 
-**State.** `main` contains Track F through PR #28. **F1 live ✓ 2026-11-21** (ADBE: 3/4 critics completed on
-`Qwen3-4B-Instruct-2507-MLX-8bit`, explainer completed). F7 (news analyst) done offline in the F7 PR; its live check is one
-*Analyze with AI* click on Events. `make test` 781 pass, `make eval` Overall PASS. Two laptops: this repo is developed on one
-without models; the app runs with real data and local models (oMLX) on the other. **Next card: P1.**
+**State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R8) and the offline part of P11, in
+one MR (PR #30). `make test` 861 pass, `make eval` Overall PASS (45 rows), `make eval-rag` PASS, `make eval-stability RUNS=10`
+PASS. Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
+other. **What is left is USER work:** P9 (live run), P10 (RAG calibration on the real embedder), and first live Robinhood
+connection (confirm tool argument names, see Track R "Live check"). Then P11's final numbers.
 
 **Waiting on the user (model laptop), in this order:**
 0. Download `lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit` into oMLX; confirm its id in `curl 127.0.0.1:8000/v1/models`
@@ -53,16 +54,16 @@ Updated after every card (also mirrored on the Miro board, frame "Progress journ
 flowchart LR
   W1[W1 proposal + assessment] --> W2[W2 reasoning, memory, tools] --> W3[W3 RAG R0-R6] --> W4[W4 ToT forecaster] --> W5[W5 multi-agent] --> W6[W6 safety plan] --> D[Docs + roadmap<br/>2026-11-20]
   D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
-  P8 --> P9[P9 live run] & P10[P10 RAG calibration] --> P11[P11 final submission]
+  P8 --> R[Track R: Robinhood research R0-R8] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
   classDef todo fill:#eeeeee,color:#333,stroke:#9e9e9e
   classDef user fill:#1565c0,color:#fff,stroke:#0d47a1
   class W1,W2,W3,W4,W5,W6 done
   class D,FX,F,FL done
-  class P1 now
-  class P2,P3,P12,P5,P4,P6,P7,P8,P11 todo
-  class P9,P10 user
+  class P1,P2,P3,P12,P5,P4,P6,P7,P8,R done
+  class P11 now
+  class P9,P10,RL user
 ```
 
 **Rule for whoever finishes a card:** in the same change, move it to `done` (and the next card to `now`) here, update §1,
@@ -84,29 +85,30 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Policy refusals (trade, pay, shell, diagnose, secrets) | DONE | `policy.py`, eval 24/24, 0/12 false refusals |
 | Quarantine for untrusted email/portal/news text | DONE | `quarantine.py`, eval 0/38 reaching summaries |
 | Per-edge bus schemas + PII/canary scan | DONE per edge | `bus.py`, eval 0 leaks / 190 msgs |
-| Leakage across multiple hops and through shared memory | PLANNED | P4 (W6) |
+| Leakage across multiple hops and through shared memory | DONE | P4: eval 0 canaries outside sinks (114 runs, 969 sinks, 102 hops); dependency inputs default-deny |
 | Core Memory: propose → UI-token approval → supersede | DONE | `memory.py`, eval 0/114 unauthorized |
-| Core Memory **read path** (approved facts used in later answers) | PLANNED | P5 (W1 assessment, W2) |
+| Core Memory **read path** (approved facts used in later answers) | DONE | P5: recall 9/9, superseded/forgotten returned 0; Forget button |
 | Verifier: figure appears in cited evidence | DONE | `verifier.py` |
-| Verifier: cited record matches claim category/period/account | PLANNED | P2 (W5, W6) |
-| Ambiguity → one clarifying question | PLANNED | P3 (W2, W6) |
-| Missing statement observed → told + offered a sync (observation drives the next step) | PLANNED | P12 (W1, W2) |
-| Single-source / partial answers carry a caveat | PARTIAL: partial quarter yes, single source no | P2 step 5 (W6) |
-| Planner picks the expected specialists (tool-selection metric) | PARTIAL: implied by golden claims, not measured | P1 step 6 (W1 assessment) |
+| Verifier: cited record matches claim category/period/account | DONE | P2: wrong-record citations caught 7/7 |
+| Ambiguity → one clarifying question | DONE | P3: templated period/account/ticker question; 0 false asks on golden |
+| Missing statement observed → told + offered a sync (observation drives the next step) | DONE | P12: 3/3 reported, never invented; Sync now on click |
+| Single-source / partial answers carry a caveat | DONE (bills: corrected periods only) | P2 `single_source` |
+| Planner picks the expected specialists (tool-selection metric) | DONE | P1: 76/76 (golden + stress) |
 | Scheduled runs (e.g. a daily brief query) | DONE | Agents → Scheduled; `schedule.py` |
-| Labelled stress set with expected action | PLANNED | P1 (W5, W6) |
-| Escalation precision/recall + reviewer decision log | PLANNED | P6 (W6) |
-| Repeat-run / perturbed-condition stability | PLANNED | P7 (W6) |
+| Labelled stress set with expected action | DONE | P1: 56/56 coordinated, B1 34/56 |
+| Escalation precision/recall + reviewer decision log | DONE | P6: precision 100%, recall 100%; Accept/Correct/Dismiss logged (ids only) |
+| Repeat-run / perturbed-condition stability | DONE | P7: `make eval-stability RUNS=10`, every hard row 10/10 |
 | Forecaster: research, 4 parallel critic agents, ToT verdict, explainer, outcome tracking | DONE (F1 live 3/4 critics, 2026-11-21) | F1 |
 | Built-in agents tweakable in the Agents tab; every AI step has an assigned agent + chip | DONE | F2, F3 (`test_agent_overrides.py`, `test_agents_page_smoke.py`) |
 | Chat selector lists every agent in the system | DONE | F10 |
 | LLM news analyst behind quarantine (Events) | DONE offline; live = one click (USER) | F7, eval "News analyst" 0/190 |
 | Tree-of-Thought thesis search (beam 3, depth 2, ≤ 9 nodes) | DONE offline | `forecaster.md` Part 2, eval 8/8 |
-| ToT held-out evaluation + calibration (Brier) | PLANNED | P8 (W4, W5, W6) |
+| ToT held-out evaluation + calibration (Brier) | DONE (Brier win needs dev calibration) | P8: held-out acc 0.76 vs 0.59/0.70; Brier 0.414 vs 0.488/0.430 (raw: vote better) |
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
+| Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3 |
 | Daily Gmail digest *sent* to a messaging app (W2 idea) | DROPPED | sending is a write; read-only invariant S6. Digest is shown in-app |
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
 
@@ -118,15 +120,15 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 | Week | Commitment | Status | Card |
 |---|---|---|---|
-| W1 assessment | Allowlisted, schema-validated tools; ≥ 18/20 labelled tasks pick the right tool sequence | Tools DONE; metric not measured | P1 |
+| W1 assessment | Allowlisted, schema-validated tools; ≥ 18/20 labelled tasks pick the right tool sequence | DONE: 76/76 planner picks (golden + stress) | P1 |
 | W1 assessment | ≤ 5 orchestration steps, 1 retry, ≥ 9/10 recoverable faults complete, unrecoverable abstain | DONE (63/63) | – |
-| W1 assessment | Approved task memory retrieved later (≥ 9/10), corrections supersede, forgotten never retrieved | Supersede DONE; recall + forget missing | P5 |
+| W1 assessment | Approved task memory retrieved later (≥ 9/10), corrections supersede, forgotten never retrieved | DONE: recall 9/9, superseded/forgotten 0 | P5 |
 | W1 assessment | ≤ 3 alternative scenarios with a rubric; contradictory evidence changes the selection | DONE (ToT) | – |
 | W1 assessment | Parallel specialists with overlapping timestamps; failed specialists visible | DONE | – |
 | W1 assessment | Adversarial tests: injection, invalid args, locked vault, unapproved writes, exfiltration | DONE | – |
-| W1 assessment | Forecast eval: chronological split, directional accuracy, calibration, coverage, abstention, benchmark | Directional/coverage/benchmark DONE (`report.py`); calibration missing; realized outcomes need elapsed horizons | P8 |
-| W1 | Check which statements exist before summarizing; never invent missing amounts | Partial quarters flagged; missing statements not reported | P12 |
-| W2 | Observation drives replanning: a missing statement triggers a fetch or a confirmation | Ledger exists (`pipeline.overdue`), not used by the expense worker | P12 |
+| W1 assessment | Forecast eval: chronological split, directional accuracy, calibration, coverage, abstention, benchmark | DONE: held-out Brier + accuracy (P8); realized outcomes still need elapsed horizons | P8 |
+| W1 | Check which statements exist before summarizing; never invent missing amounts | DONE: missing statements reported, never invented (3/3) | P12 |
+| W2 | Observation drives replanning: a missing statement triggers a fetch or a confirmation | DONE: ledger drives a missing_statement escalation + Sync now (click) | P12 |
 | W2 | Expense → Market shares only the cash-flow delta | DONE (bus edge) | – |
 | W2 | Daily Gmail digest sent to a messaging platform | DROPPED (write action); in-app digest + scheduled query | – |
 | W2 | Approval-gated Core Memory | DONE | – |
@@ -134,25 +136,23 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 | W3 | Set the similarity cutoff from data, not a guess | Not tuned on real embedder | P10 |
 | W3 | Show both documents when two disagree | DONE (conflict escalation) | – |
 | W4 | ToT live run (converged + depth-2 case) | Not run | P9 |
-| W4 feedback | Thresholds tested only on 8 self-labelled cases | Open | P8 |
+| W4 feedback | Thresholds tested only on 8 self-labelled cases | DONE: 200-case planted generator, dev/held-out split | P8 |
 | W4 feedback | CrewAI/LangChain/MCP mapping unclear | DONE (`architecture.md` §5) | – |
 | W4 | ThoughtTree as a read-only MCP resource | Not built (optional) | §6 |
 | W5 feedback | Explain how the 100% is measured | DONE (`platform_plan.md` §5) | – |
-| W5 feedback | Ambiguous / incomplete / stale / conflicting stress tests | Open | P1, P3 |
-| W5 feedback | Verifier must check accuracy and relevance | Open | P2 |
-| W5 feedback | Forecast quality vs single-agent baseline | Open | P8, P1 (B1 on stress set) |
-| W6 | Evidence relevance ≥ 95%, escalation precision/recall ≥ 90%, Brier on held-out | Open | P2, P6, P8 |
-| W6 | Single-source answers proceed with a caveat | Open | P2 |
-| W6 | Reviewer accept / correct / dismiss, logged; overrides become test cases | Open | P6 |
-| W6 feedback | Safety results consistent across repeated tests and changing conditions | Open | P7 |
-| W6 feedback | No unintended flow between agents or into shared memory | Open | P4 (+ P5 rule S18) |
+| W5 feedback | Ambiguous / incomplete / stale / conflicting stress tests | DONE: 56 labelled cases, 100% | P1, P3 |
+| W5 feedback | Verifier must check accuracy and relevance | DONE: 7/7 wrong-record caught | P2 |
+| W5 feedback | Forecast quality vs single-agent baseline | DONE: ToT vs linear/vote held-out; stress B1 34/56 | P8, P1 |
+| W6 | Evidence relevance ≥ 95%, escalation precision/recall ≥ 90%, Brier on held-out | DONE: 100% / 100% / 100%; Brier beats both after dev calibration | P2, P6, P8 |
+| W6 | Single-source answers proceed with a caveat | DONE | P2 |
+| W6 | Reviewer accept / correct / dismiss, logged; overrides become test cases | DONE (stubs for human labelling) | P6 |
+| W6 feedback | Safety results consistent across repeated tests and changing conditions | DONE: 10 runs × 8 perturbations | P7 |
+| W6 feedback | No unintended flow between agents or into shared memory | DONE: 0 (incl. a real leak fixed: dependency inputs) | P4, S18 |
 
 ## 2. Order
 
-Track F is done (F1 live ✓, F7 offline). **Remaining order:**
-`P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) →
-`P9, P10` (user runs live) → `P11` (final packaging).
-P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 so the leakage eval also covers memory reads.
+All agent-doable cards are done (2026-11-21, PR #30). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
+Robinhood live check (USER: add the server, confirm argument names), then P11 final numbers.
 
 ## 3. Conventions for every card
 
@@ -297,9 +297,80 @@ Slots in scope (Forecast first; other pages later):
   stays as today (coordinator roles via `run_query(only=role)`, others through the v1 runtime).
 - **Accept:** AppTest: a newly created custom agent and a tweaked built-in both appear and answer.
 
+### Track R. Robinhood research integration — DONE offline 2026-11-21 (fixtures; live check: USER)
+
+**Goal.** Give the Forecast agents real fundamentals, earnings, analyst, options and filing data, and give the user a
+private "fits my trading profile" view, through the Robinhood MCP. Read-only (S6), no orders, no advice.
+
+**Architecture (one rule per row; each gets code + test like S1-S18).**
+
+| Rule | Why |
+|---|---|
+| R-S1 Code calls Robinhood, never the model. Fixed tool + fixed args (the ticker) per evidence family; the critics stay tool-less | No model-built arguments = no private text egress, no tool-call injection |
+| R-S2 Per-feature allowlist of exact tool names (`ROBINHOOD_RESEARCH_TOOLS`), on top of `ReadOnlyMcp` | The `get_*` prefix also matches `get_bank_accounts`/`get_banking_transactions`/`get_credit_transactions`; those never enter Forecast |
+| R-S3 Market data (fundamentals, ratings, earnings, financials, options IV, filings) is **public** → new `EvidenceCard` families in the frozen snapshot; numbers only, parsed by code; broker free text (company profile, filing prose) only via quarantine | Critics see facts with provenance (`source_id="robinhood"`), not broker prose |
+| R-S4 Account data (positions, cost basis, P&L, orders, buying power) is **private** → never in the snapshot, never to a critic; a separate code-only "Portfolio fit" panel | Keeps the public-evidence-only invariant of the AI review |
+| R-S5 Writes stay out (orders, alerts, watchlists, scans, `decline_trade_approval`, `set_legend_*`); `SENSITIVE_TOOL_PREFIXES` now also covers `decline_`/`set_` | Robinhood labels both "read" though they change state (fixed 2026-11-21) |
+
+**As built (2026-11-21).** `forecaster/robinhood.py`: `RobinhoodClient` over `ReadOnlyMcp` with exact-name allowlists
+`ROBINHOOD_RESEARCH_TOOLS` / `ROBINHOOD_IMPORT_TOOLS` / `ROBINHOOD_ACCOUNT_TOOLS` and a `ROBINHOOD_NEVER` denylist (banking,
+credit, orders, tax lots, `decline_*`, `set_legend_*`); every argument validated (ticker, id, ISO date, small enums);
+`account_number` only for account tools; MCP error text never echoed. New source `robinhood`, card types
+`fundamental` / `earnings` / `options`, ToT drivers `valuation` / `earnings` / `options`; snapshot still capped at 24 cards and
+the heuristic score unchanged. Research step 5 "Portfolio fit (private)" + tool-less `forecast.portfolio_fit` agent (local
+small model; buy/sell wording rejected); figures in session state only. *Fill closes from Robinhood* (R5), Watchlist/Screens
+imports (R6), Events earnings calendar (R2). Evals: broker free text 0/5, account canaries 0 in 19 sinks × 3, valuation
+golden 3/3.
+
+**Live check (USER).** Agents → MCP Servers → add a server whose name contains "Robinhood"
+(`https://agent.robinhood.com/mcp/trading`), enable, authorize. Then: Research shows Robinhood under Data sources;
+Portfolio fit table appears; Watchlist import works; Events → *Load earnings calendar* has rows; Saved forecasts →
+*Fill closes from Robinhood* fills prices. Tool argument names were inferred from the catalog (no schemas in it): if a
+feature comes back empty, fix `_ARG` / the builders in `robinhood.py` from the live tool schema (add a fixture + test).
+
+**Cards.**
+- **R0 Connection + allowlist.** Agents → MCP servers already supports the remote OAuth endpoint. Add `forecaster/robinhood.py`
+  with `RobinhoodResearch(ReadOnlyMcp)` limited to R-S2 names; recorded-fixture tests (synthetic responses, no account data);
+  System health row "robinhood". *Accept:* a non-allowlisted name (incl. `get_bank_accounts`) raises; fixtures parse.
+- **R1 Fundamentals + valuation evidence.** `get_equity_fundamentals` (P/E, P/B, market cap, 52-week range, volume),
+  `get_financials` (revenue, net margin by quarter), `get_equity_analyst_ratings` (target low/avg/high, buy/hold/sell counts)
+  → `source_type="fundamental"` cards. The valuation critic's rule then names P/E vs history and price vs target range.
+  *Accept:* snapshot with these cards; valuation critic cites them in the fake-client eval; ToT gains a `valuation` driver.
+- **R2 Earnings and events.** `get_earnings_results` (last 8 EPS surprises, next date) → event card "earnings in N sessions"
+  (inside the 5/21 window = event risk flag); `get_earnings_calendar` feeds Events ("large caps reporting this week").
+  `get_sec_filing_index` + `get_sec_filing_facts` replace the SEC-EDGAR recency-only card with reported figures.
+- **R3 Options-implied move.** `get_option_chains` → nearest expiry after the horizon → ATM call+put via
+  `get_option_instruments` + `get_option_quotes` → implied move ±% (straddle / price). Downside critic and Verdict compare the
+  heuristic's expected excess return with the market-implied move ("model asks for more than options price in").
+- **R4 Better technicals.** `get_equity_technical_indicators` (RSI, MACD, ATR, Bollinger, ADX) and `get_equity_historicals`
+  (adjusted OHLCV) replace hand-rolled indicators where the local ones are missing (ATR/volume = old B18 gap).
+- **R5 Outcome tracking without pasting.** Evaluate saved forecasts from `get_equity_historicals` daily closes (provenance
+  "robinhood"), so step "Evaluate outcome" needs no JSON; completed sessions come from the returned bars.
+- **R6 Watchlist and Screens sources.** "Import" buttons: `get_watchlists`/`get_watchlist_items` and `get_scans` + `run_scan`
+  (read; exact-name allowlist) → ticker list for Watchlist leans and Screens. Tickers only (same rule as `holdings_fetcher`).
+- **R7 Portfolio fit (private; local model allowed per R-D1, egress-locked per R-S6).** `get_accounts` (read-only account), `get_equity_positions`, `get_portfolio`,
+  `get_realized_pnl`: show for the researched ticker: held? weight in portfolio, sector/theme overlap with other holdings,
+  unrealized vs cost basis, realized P&L history on the symbol, earnings-in-window flag. Figures are computed by code; a
+  tool-less local "Portfolio fit" agent may explain them. Never logged in plaintext, never in any outbound request (R-S6).
+  Copy: "context, not advice".
+- **R8 Evals.** Injection eval over broker free-text fields (0 reaching output, hard); disclosure eval: no position, quantity,
+  account number or balance in any snapshot/prompt/Finding (0, hard); valuation-critic golden cases with fundamentals cards.
+
+**Decisions (user, 2026-11-21).**
+- R-D1 Account data may reach the **local** model (it runs on the laptop). Guardrail instead: it must never leave the machine.
+  Enforced by R-S6 below, not by keeping it from the model.
+- R-D2 **No writes** to Robinhood (S6 unchanged).
+- R-D3 Build **after P1-P8**.
+
+**R-S6 No egress of account data (replaces the code-only rule in R-S4 for prompts).** An agent that has account data in its
+context gets no remote MCP server, no web/news tool and no tool calls at all (`allowed_tools=()`); every outbound request
+(Robinhood, Yahoo, FRED, SEC, news) is built by code from a ticker/series id only, never from model output or prompt text.
+R8 adds a hard egress eval: synthetic account fixtures with canary values; 0 canaries in any outbound request URL/args/body,
+in logs, or in the activity log.
+
 ### Track P. Capstone feedback cards
 
-### P1. Labelled stress set with an expected action (W5, W6)
+### P1. Labelled stress set with an expected action (W5, W6) — DONE 2026-11-21
 
 - **Why:** W5 asked for ambiguous requests, incomplete records, stale market data and conflicting sources. W6 committed to
   "each case labelled in advance with answer / caveat / ask / escalate; passes only if the action matches and every figure is correct".
@@ -324,7 +395,7 @@ Slots in scope (Forecast first; other pages later):
   of non-pending cases (hard) and "Stress set, B1" (info).
 - **Don't:** derive the label from the system's own output; write it in the case.
 
-### P2. Verifier checks relevance, not just presence (W5, W6)
+### P2. Verifier checks relevance, not just presence (W5, W6) — DONE 2026-11-21
 
 - **Why:** W5: "verifier only confirms the figure appears in the cited source". A number can appear in the wrong record.
 - **Now:** `verifier.verify_claims` (`src/agents/orchestration/verifier.py`) accepts any cited text containing the number.
@@ -346,7 +417,7 @@ Slots in scope (Forecast first; other pages later):
   gate at 100% on synthetic data).
 - **Don't:** let a model mark anything verified (it may only add `unsupported`).
 
-### P3. Ambiguous requests ask one clarifying question (W2, W6)
+### P3. Ambiguous requests ask one clarifying question (W2, W6) — DONE 2026-11-21
 
 - **Why:** W6 routing: "the system asks when the request is ambiguous (missing period, account or ticker)". Today `plan_for`
   guesses (latest quarter, all categories).
@@ -364,7 +435,7 @@ Slots in scope (Forecast first; other pages later):
   stress ambiguous cases pass; AppTest: clarify reply renders, no exception.
 - **Don't:** ask more than one question per turn, or ask when the golden set already answers correctly.
 
-### P12. Missing statements are observed and offered a sync (W1, W2)
+### P12. Missing statements are observed and offered a sync (W1, W2) — DONE 2026-11-21
 
 - **Why:** W1: "check which statements exist before summarizing obligations, rather than inventing missing amounts". W2: a missing
   statement "triggers a portal fetch (or asks for confirmation)" so observations drive the next step.
@@ -384,7 +455,7 @@ Slots in scope (Forecast first; other pages later):
   invented" = 100% (hard); AppTest renders the button.
 - **Don't:** start a portal or Gmail fetch without a click.
 
-### P5. Core Memory read path (W1 assessment, W2)
+### P5. Core Memory read path (W1 assessment, W2) — DONE 2026-11-21
 
 - **Why:** committed: "retrieve relevant approved memories when planning; ≥ 9/10 seeded memories retrieved later; corrections
   supersede; forgotten items never retrieved". Today approved items are only listed in the UI (`interface/agents.py:662`).
@@ -402,7 +473,7 @@ Slots in scope (Forecast first; other pages later):
   returned" = 0 (hard); disclosure eval still 0.
 - **Don't:** add an agent-facing write path, or index memory into RAG (invariant S13).
 
-### P4. Cross-agent and shared-memory leakage (W6)
+### P4. Cross-agent and shared-memory leakage (W6) — DONE 2026-11-21
 
 - **Why:** W6: "examine whether information can unintentionally pass between agents or enter shared memory, even when individual
   components follow their assigned restrictions". Current checks are per edge (`bus.py`) and per write (`memory.py`), not composed.
@@ -422,7 +493,7 @@ Slots in scope (Forecast first; other pages later):
   of runs, sinks and hops.
 - **Don't:** widen a schema or add a sink to the allowed table to make a case pass.
 
-### P6. Escalation metrics and reviewer decision log (W6)
+### P6. Escalation metrics and reviewer decision log (W6) — DONE 2026-11-21
 
 - **Why:** W6 committed to escalation precision/recall ≥ 90% and a logged accept / correct / dismiss decision per finding,
   with repeated overrides feeding new eval cases.
@@ -438,7 +509,7 @@ Slots in scope (Forecast first; other pages later):
 - **Accept:** eval rows "Escalation precision" and "Escalation recall" ≥ 90% (hard); AppTest clicks each button, log entry written
   with no claim values; `make test`.
 
-### P7. Repeat-run and changing-condition stability (W6)
+### P7. Repeat-run and changing-condition stability (W6) — DONE 2026-11-21
 
 - **Why:** W6: "establish that the reported safety results remain consistent across repeated tests and changing conditions".
 - **Build:** `evals/stability.py` and `make eval-stability RUNS=10`:
@@ -452,7 +523,7 @@ Slots in scope (Forecast first; other pages later):
 - **Accept:** `make eval-stability RUNS=10` exits 0 and the report lists every hard row with pass rate 100%.
 - **Don't:** treat a flaky row as noise. Any row below 100% is a bug or a finding to record in §5 below.
 
-### P8. Held-out Tree-of-Thought evaluation and calibration (W4, W5, W6)
+### P8. Held-out Tree-of-Thought evaluation and calibration (W4, W5, W6) — DONE 2026-11-21
 
 - **Why:** W4: thresholds tested only on 8 self-labelled cases. W5: compare forecast quality with the single-agent baseline.
   W6: Brier score on a held-out split must beat both baselines.

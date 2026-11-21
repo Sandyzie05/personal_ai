@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T08:38:47+00:00",
+  "generated_at": "2026-11-21T19:09:24+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.412,
+      "measured": 0.406,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.677,
+      "measured": 0.661,
       "pass": true,
       "hard": false
     },
@@ -121,6 +121,27 @@
       "hard": true
     },
     {
+      "metric": "Robinhood: broker free text reaching evidence/prompts (R8)",
+      "target": "0",
+      "measured": "0/5",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Robinhood: account canaries outside account tools (requests, logs, activity log, snapshot; R-S6)",
+      "target": "0",
+      "measured": "0 in 19 sinks x 3 canaries",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Robinhood: fundamentals reach valuation critic + ToT driver (golden)",
+      "target": "100%",
+      "measured": "3/3",
+      "pass": true,
+      "hard": true
+    },
+    {
       "metric": "Core Memory/schedule/audit keys exposed to RAG or Files page",
       "target": "0",
       "measured": "0/6",
@@ -170,6 +191,27 @@
       "hard": true
     },
     {
+      "metric": "ToT held-out accuracy (seeds 200-299; tuned on 0-99) vs linear / critic-vote",
+      "target": ">= both baselines",
+      "measured": "0.76 vs 0.59 / 0.70 (abstain 0.02)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "ToT held-out Brier, dev-calibrated (k 7/2/5)",
+      "target": "< both baselines",
+      "measured": "0.414 vs 0.488 / 0.430",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "ToT held-out Brier, raw normalised scores (uncalibrated; 100-199 burned)",
+      "target": "info",
+      "measured": "0.473 vs 0.495 / 0.378",
+      "pass": true,
+      "hard": false
+    },
+    {
       "metric": "Core Memory: unauthorized commits",
       "target": "0",
       "measured": "0 / 114 attempts",
@@ -184,9 +226,86 @@
       "hard": true
     },
     {
+      "metric": "Core Memory recall: seeded facts retrieved in a later run (P5)",
+      "target": ">= 90%",
+      "measured": "9/9 (+1 forgotten, correctly absent)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Core Memory recall: superseded or forgotten facts returned; untrusted unlabelled",
+      "target": "0 / 0",
+      "measured": "0 / 0",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Stress set: action + figures correct (coordinated)",
+      "target": "100% of non-pending",
+      "measured": "100% (56/56; 0 pending)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Stress set, B1 single-agent baseline",
+      "target": "info",
+      "measured": "34/56",
+      "pass": true,
+      "hard": false
+    },
+    {
+      "metric": "Escalation precision (ask/escalate vs labels)",
+      "target": ">= 90%",
+      "measured": "100% (tp 31, fp 0)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Escalation recall (ask/escalate vs labels)",
+      "target": ">= 90%",
+      "measured": "100% (tp 31, fn 0)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Escalations per run (stress set)",
+      "target": "info",
+      "measured": "mean 1.09, max 4",
+      "pass": true,
+      "hard": false
+    },
+    {
+      "metric": "Missing statements reported, never invented",
+      "target": "100%",
+      "measured": "100% (3/3)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Evidence relevance: wrong-record citations caught",
+      "target": "100%",
+      "measured": "100% (7/7)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Planner chose the expected specialists (golden + stress)",
+      "target": ">= 90%",
+      "measured": "100% (76/76)",
+      "pass": true,
+      "hard": true
+    },
+    {
       "metric": "Minimal disclosure: canary/PII in bus, log, egress; forced leaks passed",
       "target": "0",
       "measured": "0 (190 msgs, 190 log, 40 egress, 180 forced)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Composed leakage: canaries outside allowed sinks (multi-hop, memory, merge) (P4)",
+      "target": "0",
+      "measured": "0 (114 runs, 969 sinks, 102 hops)",
       "pass": true,
       "hard": true
     }
@@ -214,13 +333,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.412,
+        "ratio": 0.406,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.677,
+        "ratio": 0.661,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3
@@ -260,6 +379,33 @@
       "fullwidth": 1
     },
     "disclosure_violations": [],
+    "stress_by_kind": {
+      "clean": [
+        12,
+        12
+      ],
+      "incomplete": [
+        13,
+        13
+      ],
+      "stale": [
+        8,
+        8
+      ],
+      "conflict": [
+        8,
+        8
+      ],
+      "wrong_record": [
+        7,
+        7
+      ],
+      "ambiguous": [
+        8,
+        8
+      ]
+    },
+    "stress_failures": [],
     "integration_failures": [],
     "userguide_failures": []
   }

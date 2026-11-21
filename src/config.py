@@ -211,7 +211,8 @@ FORECAST_SCENARIO_DEADLINE_SECONDS = min(
     300.0, -(-4 // PERSONAL_AI_INFERENCE_CONCURRENCY) * FORECAST_SPECIALIST_CALL_SECONDS
 )
 FORECAST_MODEL_CALL_BUDGET = 8
-FORECAST_MODEL_MAX_TOKENS = 700  # 400 truncated reasoning-model JSON
+# 400 truncated reasoning-model JSON; 700 still cut 1 of 4 small-model critics now and then (2026-11-21 live runs).
+FORECAST_MODEL_MAX_TOKENS = 1024
 FORECAST_SNAPSHOT_MAX_CHARS = 18000
 FORECAST_MODEL_OUTPUT_MAX_CHARS = 5000
 # Prefixed names win; the providers' conventional names (as people usually write them in .env) also work.
@@ -241,7 +242,9 @@ TOT_BEAM_WIDTH = (
 TOT_MAX_DEPTH = 2  # 1 = heuristic theses, 2 = critic-reviewed theses
 TOT_PRUNE_MIN = 0.35  # soft prune below this (diversity slot exempt)
 TOT_SELECT_MIN = 0.5  # abstain if the best final node scores below this
-TOT_CONVERGE_SCORE = 0.75  # stop after depth 1 (no LLM calls) when top >= this ...
+# P8 (2026-11-21): frozen after a grid search on dev seeds 0-99 of evals/tot_synth.py only (held-out 100-199 unseen);
+# 0.75 -> 0.8 was the single change that beat both baselines on dev. Other TOT_* values were confirmed, not changed.
+TOT_CONVERGE_SCORE = 0.8  # stop after depth 1 (no LLM calls) when top >= this ...
 TOT_CONVERGE_MARGIN = 0.2  # ... and leads the best other-scenario node by this much
 TOT_TIE = 0.05  # scores within this are tied -> tie-break policy
 TOT_UNCERTAIN_MARGIN = (

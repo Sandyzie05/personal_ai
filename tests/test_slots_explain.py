@@ -25,7 +25,7 @@ def test_slot_clamps_tools_and_keeps_safety_rules_last():
     agent = slots.agent_for(vault, "forecast.critic.event")
     assert agent["mcp_server_ids"] == [] and agent["max_tool_rounds"] == 0
     assert "Focus on filings." in agent["instructions"] and agent["instructions"].endswith(_COMMON)
-    assert "Missing evidence is not neutral" in agent["instructions"]  # forecast-critic skill folded in
+    assert "Missing evidence is never support" in agent["instructions"]  # forecast-critic skill folded in
     assert set(slots.critic_agents(vault)) == {"macro", "valuation", "event", "downside"}
 
 
@@ -67,7 +67,8 @@ def test_thesis_explainer_cites_only_thesis_evidence():
     tree = SimpleNamespace(selected_id="n1", runner_up_id=None, margin=0.3, node=lambda _id: pick)
     card = SimpleNamespace(evidence_id="ev1", source_id="yahoo-chart", title="Prices", summary="Up 4 of 5 sessions")
     snapshot = SimpleNamespace(symbol="AAPL", evidence=(card,))
-    good = {"summary": "Trend led with score 0.82.", "what_would_change": "A weak close.", "evidence_ids": ["ev1"]}
+    # the model sees short aliases (E1..) and they are mapped back to the snapshot's real ids
+    good = {"summary": "Trend led with score 0.82.", "what_would_change": "A weak close.", "evidence_ids": ["E1"]}
     out, status, _ = explain_thesis(Client(good), {"instructions": ""}, snapshot, tree)
     assert status == "completed" and out.evidence_ids == ("ev1",)
     _, status, reason = explain_thesis(Client({**good, "evidence_ids": ["evx"]}), {}, snapshot, tree)

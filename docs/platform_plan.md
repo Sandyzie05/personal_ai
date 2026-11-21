@@ -49,6 +49,9 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S16 | Untrusted-derived text never reaches a `Finding.summary`/prompt: summaries are templated, free-text schema fields are closed enums or tight allowlists, all rendered output is markdown-escaped | `schemas.py`, `ingest.py`, `workers.render_report` | eval row, `test_audit_regressions.py` |
 | S17 | Workflow-slot agents: tools, output schema and budget are fixed by the slot; user tweaks touch only `EDITABLE_FIELDS`; the shared safety rules stay last; slot runs log ids/status only | `agents/slots.py`, `store.builtin_agent`, `templates.compose_instructions` | `test_agent_overrides.py`, `test_slots_explain.py`, `test_agents_page_smoke.py` |
 | S12 | Skills are instructions only (no personal data); installer never overwrites user edits | `orchestration/skill_pack.py` | `test_orchestration_service.py` |
+| S18 | Approved Core Memory is read only via `memory.recall` on the calling thread; recalled facts go only to the report's "From your approved memory" section and (trusted cash-flow facts) the expense step's `budget_baseline:*`; never on a bus edge, never to market/forecaster/email/portal inputs, never into RAG; untrusted-approved facts stay labelled; Forget deletes behind a purpose-bound (`forget`) single-use UI token | `memory.py`, `service.run_query`, `coordinator.dependency_inputs` | `test_core_memory_recall.py`, `test_composition_leaks.py`, eval P4/P5 rows |
+| S19 | Dependency findings reach a dependent worker only through a per-edge allowlist (`coordinator.DEPENDENCY_INPUTS`: expense→market `cashflow_delta:*`, brokerage→market `holdings`; everything else nothing) | `coordinator.py` | `test_composition_leaks.py` (positive control), eval P4 row |
+| S20 | Robinhood: code-built calls only (fixed tool, validated ticker/id/date args, never model-built); exact-name allowlists + `ROBINHOOD_NEVER` denylist (banking, credit, orders, `decline_*`, `set_*`); no writes; broker free text dropped; account data only in Portfolio fit + a tool-less local agent, never in the AI-review snapshot, logs or any request except account tools | `forecaster/robinhood.py`, `mcp.SENSITIVE_TOOL_PREFIXES` | `test_robinhood.py`, `evals/robinhood.py` |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
 obedience is not relied on (schema validation is); Chroma index is plaintext if persisted (currently in-memory; see `security_design.md`); no live
@@ -167,12 +170,23 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Refusal of out-of-scope asks / false refusals | 100% / 0 | 24/24 / 0/12 | regex first gate; real controls are allowlists |
 | ToT thesis selection vs linear / critic-vote baselines (8 labeled synthetic cases) | ≥ both, 100% | 8/8 vs 6/8 / 7/8 (2026-11-02) | ablation of the search policy, not market accuracy |
 | ToT bounded search: max nodes / critic reviews | ≤ 9 / ≤ 1 per case | 7 / 3 of 8 (5 converged with 0 LLM calls) | |
+| ToT held-out accuracy (seeds 200-299; tuned on 0-99) vs linear / critic-vote (P8) | ≥ both | 0.76 vs 0.59 / 0.70 (abstain 0.02) | planted-label generator `evals/tot_synth.py`; 100-199 burned |
+| ToT held-out Brier, dev-calibrated (P8) | < both | 0.414 vs 0.488 / 0.430 | raw normalised scores: 0.473 vs 0.495 / **0.378** (vote better uncalibrated) |
+| Stress set: action + figures correct, coordinated / B1 (P1) | 100% / info | 56/56 / 34/56 | 6 kinds incl. ambiguous, incomplete, stale, conflict, wrong-record |
+| Planner chose the expected specialists (golden + stress, P1) | ≥ 90% | 100% (76/76) | |
+| Evidence relevance: wrong-record citations caught (P2) | 100% | 7/7 | W6 target ≥ 95% |
+| Escalation precision / recall (P6) | ≥ 90% / ≥ 90% | 100% / 100% (tp 31, fp 0, fn 0) | escalations per run mean 1.09, max 4 (info) |
+| Missing statements reported, never invented (P12) | 100% | 3/3 | needs a ledger expectation |
+| Core Memory recall / superseded-or-forgotten returned (P5) | ≥ 9/10 / 0 | 9/9 / 0 | |
+| Composed leakage: canaries outside allowed sinks (P4) | 0 | 0 (114 runs, 969 sinks, 102 hops) | golden + stress + service chains with memory |
+| Robinhood: broker free text / account canaries / valuation golden (Track R) | 0 / 0 / 100% | 0/5 / 0 in 19 sinks × 3 / 3/3 | synthetic fixtures; no live account |
+| Stability: every hard row across `RUNS=10` perturbed runs (P7) | 100% | 10/10 each | shuffle, duplicates, paraphrase, jitter, workers 1/2, concurrency 1 |
 
 **How success is scored.** A golden task passes only if *every* expected claim is present with the expected value (±0.01) or the
 expected status (`evals/golden.py::score`); partial credit does not exist. The 30 tasks are hand-built synthetic cases: 10 cross-domain
 (records + market), 20 single-domain. Fault, conflict, injection, disclosure and refusal rows are separate suites with their own
-pass rules (`evals/run.py::evaluate`). Planned rows (stress set, evidence relevance, escalation precision/recall, composed leakage,
-memory recall, stability, held-out ToT) are specified in [roadmap.md](roadmap.md).
+pass rules (`evals/run.py::evaluate`). The stress set (P1), relevance (P2), escalation (P6), composed-leakage (P4), memory-recall (P5), stability (P7),
+held-out ToT (P8) and Robinhood (Track R) rows are measured as of 2026-11-21 (rows above). All data is synthetic.
 
 Answer to "benefit of coordination vs running each repo alone": cross-domain tasks (records + market) are unanswerable by B1
 (0%) and about 2.4x faster than sequential B2 on the fan-out workload, without regressing single-domain tasks.
@@ -184,7 +198,7 @@ Completed phases (all accepted by `make test` + `make eval`; nothing verified on
 2 stock_predictor port, 3 UI merge, 4 agent infra, 5 agent configs/skills/policy, 6 untrusted ingestion (fixtures), 7 evaluation,
 8 docs, 9 independent audit (now in `security_design.md` "Independent audit"), 10 PR #17 hardening merge, 11 Week 4 ToT.
 Former backlog cards B1-B19 and RAG cards R0-R11 are DONE except those carried into the roadmap (B1/B6/B19 → P9, B17/B18/R10 →
-roadmap §6). Track F done (F1 live 2026-11-21). Test count at last full run: 781 pass, 0 fail (2026-11-21).
+roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30). Test count at last full run: 861 pass, 0 fail (2026-11-21).
 
 ## 7. Runbook
 

@@ -7,9 +7,9 @@ code so they are testable and measurable (docs/platform_plan.md §3.2, §4).
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .schemas import Finding, Plan, PlanStep
 
@@ -57,8 +57,12 @@ class Conflict:
 
 @dataclass(frozen=True)
 class Escalation:
-    kind: str  # conflict | unavailable | stale | step_failed | untrusted_write | ungrounded
+    # conflict | unavailable | stale | step_failed | untrusted_write | ungrounded | unsupported (verifier: figure absent
+    # or cited record is the wrong provider/period/account) | clarify (one templated question, no steps run) |
+    # single_source (answer rests on one document / one evidence family) | missing_statement (ledger says a bill is due)
+    kind: str
     detail: str
+    claim_key: str = ""  # for the reviewer log (P6); "" when the escalation is not about one claim
 
 
 @dataclass
@@ -70,6 +74,7 @@ class RunReport:
     wall_s: float
     sum_step_s: float
     parallel_overlap: bool
+    memory: List[Any] = field(default_factory=list)  # P5 CoreFacts, attached by service.run_query; report-only (S18)
 
     @property
     def needs_user(self) -> bool:
@@ -160,6 +165,7 @@ def escalations_for(
         Escalation(
             "conflict",
             f"{c.claim_key}: " + " vs ".join(f"{a}={v}" for a, v, _ in c.options),
+            c.claim_key,
         )
         for c in conflicts
     ]
@@ -171,17 +177,35 @@ def escalations_for(
     for k, f in claims.items():
         # Verifier rule: a confident claim must cite evidence (grounding), else the user is told.
         if f.status == "ok" and f.value is not None and not f.evidence_ids:
-            out.append(Escalation("ungrounded", f"{k}: no evidence cited"))
-        if f.status in ("unavailable", "uncertain"):
-            out.append(Escalation("unavailable", f"{k}: {f.status}"))
+            out.append(Escalation("ungrounded", f"{k}: no evidence cited", k))
+        if k.startswith("missing:"):
+            out.append(Escalation("missing_statement", f"{k}: {f.summary}", k))
+        elif k.startswith("single_source:"):
+            out.append(Escalation("single_source", f"{k}: {f.summary}", k))
+        elif f.status in ("unavailable", "uncertain"):
+            out.append(Escalation("unavailable", f"{k}: {f.status}", k))
         elif f.as_of is not None and now - f.as_of > max_age:
-            out.append(Escalation("stale", f"{k}: as of {f.as_of.date()}"))
+            out.append(Escalation("stale", f"{k}: as of {f.as_of.date()}", k))
     return out
 
 
 def requires_confirmation(claims: Sequence[Finding]) -> bool:
     """Anything derived from untrusted content may not drive a write/memory action unattended."""
     return any(f.trust == "untrusted" for f in claims)
+
+
+# P4: what a dependent step may see of a dependency's findings, per (from_agent, to_agent). Default deny: a step
+# only receives the claim keys its consumer needs (and then re-sends them through a typed bus edge). Without this,
+# every upstream finding (record-derived summaries, Core Memory baselines) reached the dependent worker's inputs.
+DEPENDENCY_INPUTS = {
+    ("expense", "market"): ("cashflow_delta:",),
+    ("brokerage", "market"): ("holdings",),
+}
+
+
+def dependency_inputs(src: str, dst: str, findings) -> Tuple[Finding, ...]:
+    allowed = DEPENDENCY_INPUTS.get((src, dst), ())
+    return tuple(f for f in findings if allowed and f.claim_key.startswith(allowed))
 
 
 class Coordinator:
@@ -228,7 +252,8 @@ class Coordinator:
         try:  # threads from an earlier wave cannot starve this one
             futs, cancels = {}, []
             for s in ready:
-                inputs = {d: results[d].findings for d in s.depends_on}
+                inputs = {d: dependency_inputs(results[d].agent, s.agent, results[d].findings)
+                          for d in s.depends_on}
                 ev = threading.Event()
                 cancels.append(ev)
                 futs[pool.submit(self._attempt, s, inputs, ev)] = (s, time.monotonic() + s.timeout_s, ev)

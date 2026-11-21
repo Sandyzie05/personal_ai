@@ -91,6 +91,8 @@ class TestIsSensitiveTool:
             "follow_watchlist",
             "unfollow_watchlist",
             "mark_alerts_read",
+            "decline_trade_approval",  # Robinhood labels it "read"
+            "set_legend_chart_settings",  # Robinhood labels it "read"
         ],
     )
     def test_write_prefixes_are_sensitive(self, name):

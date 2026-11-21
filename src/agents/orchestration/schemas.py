@@ -9,7 +9,9 @@ from typing import Annotated, Literal, Optional
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
-Trust = Literal["trusted", "untrusted"]  # untrusted = derived from email/portal/web content
+Trust = Literal[
+    "trusted", "untrusted"
+]  # untrusted = derived from email/portal/web content
 Status = Literal["ok", "uncertain", "unavailable", "unresolved"]
 
 # Printable, instruction-hostile allowlist for free-text fields that come from untrusted sources.
@@ -29,7 +31,9 @@ class Finding(Strict):
     confidence: float = Field(ge=0, le=1)
     status: Status = "ok"
     trust: Trust = "trusted"
-    as_of: Optional[AwareDatetime] = None  # naive datetimes are rejected: staleness math needs UTC-aware
+    as_of: Optional[AwareDatetime] = (
+        None  # naive datetimes are rejected: staleness math needs UTC-aware
+    )
 
     @field_validator("value")
     @classmethod
@@ -45,7 +49,11 @@ class PlanStep(Strict):
     goal: str = Field(max_length=300)
     depends_on: tuple[str, ...] = ()
     symbol: Optional[str] = Field(default=None, pattern=r"^[A-Z]{1,5}([.-][A-Z])?$")
-    category: Optional[Literal["electricity", "gas", "mobile", "credit_card", "checking", "brokerage"]] = None
+    category: Optional[
+        Literal["electricity", "gas", "mobile", "credit_card", "checking", "brokerage"]
+    ] = None
+    # Set by code when the question names one of the user's account labels (P2/P3); never by the model planner.
+    account: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9 .&'-]{1,30}$")
     timeout_s: float = Field(default=30, gt=0, le=300)
 
 
@@ -54,6 +62,7 @@ class Plan(Strict):
 
 
 # --- Per-edge bus payloads: only what the receiver needs for its task. ---
+
 
 class CashflowDelta(Strict):  # expense -> market
     period: str = Field(pattern=r"^\d{4}(-Q[1-4]|-\d{2})$")
@@ -66,11 +75,16 @@ class SymbolRequest(Strict):  # coordinator -> forecaster
     horizon_sessions: Literal[5, 21] = 5
 
 
-class HoldingsSummary(Strict):  # coordinator -> market (no account ids, no lot-level data)
-    symbols: tuple[Annotated[str, Field(pattern=r"^[A-Z]{1,5}([.-][A-Z])?$")], ...] = Field(max_length=25)
+class HoldingsSummary(
+    Strict
+):  # coordinator -> market (no account ids, no lot-level data)
+    symbols: tuple[Annotated[str, Field(pattern=r"^[A-Z]{1,5}([.-][A-Z])?$")], ...] = (
+        Field(max_length=25)
+    )
 
 
 # --- Quarantine output schemas (untrusted -> structured, no free text of consequence). ---
+
 
 class EmailFacts(Strict):
     sender_domain: str = Field(pattern=r"^(?:[a-z0-9-]{1,30}\.){1,4}[a-z]{2,10}$")
@@ -78,15 +92,46 @@ class EmailFacts(Strict):
     amount: Optional[float] = None
     due_date: Optional[date] = None
     # Closed vocabulary, not free text: free prose from an email must never reach a summary/prompt.
-    topic: Literal["", "electricity", "gas", "water", "internet", "mobile", "credit_card", "bank",
-                   "brokerage", "insurance", "subscription", "other"] = ""
+    topic: Literal[
+        "",
+        "electricity",
+        "gas",
+        "water",
+        "internet",
+        "mobile",
+        "credit_card",
+        "bank",
+        "brokerage",
+        "insurance",
+        "subscription",
+        "other",
+    ] = ""
+
+
+class CoreFact(Strict):
+    """An approved Core Memory item as read back for a later run (P5). Never sent on any bus edge (S18)."""
+    key: str = Field(max_length=80)
+    value: str = Field(max_length=200)
+    approved_at: AwareDatetime
+    trust: Trust
 
 
 class NewsFacts(Strict):
     """One headline, as closed enums only (F7). No free-text field: headline prose never leaves quarantine."""
+
     ticker: str = Field(default="", pattern=r"^(?:[A-Z]{1,5}(?:[.-][A-Z])?)?$")
-    topic: Literal["", "earnings", "guidance", "product", "legal", "regulation", "macro", "management", "deal",
-                   "other"] = ""
+    topic: Literal[
+        "",
+        "earnings",
+        "guidance",
+        "product",
+        "legal",
+        "regulation",
+        "macro",
+        "management",
+        "deal",
+        "other",
+    ] = ""
     sentiment: Literal["positive", "neutral", "negative"]
     materiality: Literal["low", "medium", "high"]
 

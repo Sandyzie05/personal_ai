@@ -23,6 +23,7 @@ SourceId = Literal[
     "sec-edgar",
     "fred",
     "curated-ai-infrastructure-theme",
+    "robinhood",
 ]
 
 
@@ -109,7 +110,7 @@ class DataSourceProfile(Contract):
 
 class EvidenceCard(Contract):
     source_id: SourceId
-    source_type: Literal["market", "news", "macro", "filing", "curated"]
+    source_type: Literal["market", "news", "macro", "filing", "curated", "fundamental", "earnings", "options"]
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=1200)
     retrieved_at: datetime

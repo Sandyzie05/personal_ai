@@ -141,6 +141,13 @@ def _research(vault):
 
     tabs = _tabs_module()
     st.subheader("1 · Evidence")
+    # A widget's state can only be set before it is created, so the draft fill lands on the next run.
+    pending = st.session_state.pop("forecast_schedule_pending", None)
+    if pending is not None:
+        st.session_state["forecast_schedule_text"] = pending
+    last = (st.session_state.get("forecast_research_result") or {}).get(
+        "snapshot", {}
+    ).get("market") or {}
     with st.form("forecast_research"):
         left, right = st.columns([2, 2])
         symbol = left.text_input(
@@ -151,19 +158,43 @@ def _research(vault):
         )
         with st.expander("Advanced: outcome tracking (optional)"):
             st.caption(
-                "To save a forecast that can be scored later, paste the official exchange-session sequence from the "
-                "origin through the target and confirm it. No holiday calendar is fetched or guessed. Without it, "
-                "current-day candles are excluded conservatively and research is unscheduled."
+                "To save a forecast that can be scored later, the app needs the exchange's trading days from before "
+                "today through the target. 1) Pick the listing exchange. 2) Click *Fill draft session list* (built "
+                "offline from NYSE holiday rules; it misses one-off closures). 3) Check it against the official "
+                "calendar, tick the box, then *Research ticker*. Step 4 then lets you save the forecast."
+            )
+            exchanges = ["XNAS", "XNYS"]
+            exchange = st.selectbox(
+                "Listing exchange",
+                exchanges,
+                index=exchanges.index(last["exchange"])
+                if last.get("exchange") in exchanges
+                else 0,
+                help="Nasdaq = XNAS (e.g. AAPL, ADBE, AVGO), NYSE = XNYS. After one research run it is preselected.",
+                key="forecast_schedule_exchange",
             )
             schedule = st.text_area(
-                "Official session sequence (JSON array)",
+                "Session sequence (JSON array)",
+                key="forecast_schedule_text",
+                height=120,
                 placeholder='[{"exchange":"XNAS","session":"2026-10-19",'
                 '"closes_at":"2026-10-19T20:00:00Z"}, ...]',
             )
+            fill = st.form_submit_button("Fill draft session list")
             confirmed = st.checkbox(
                 "I verified this is a complete official exchange-session sequence"
             )
         requested = st.form_submit_button("Research ticker", type="primary")
+    if fill:
+        from zoneinfo import ZoneInfo
+
+        from src.forecaster.sessions import draft_sessions
+
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        st.session_state["forecast_schedule_pending"] = json.dumps(
+            [s.to_api() for s in draft_sessions(exchange, today)], indent=0
+        )
+        st.rerun()
     if requested:
         try:
             sessions = ()
@@ -182,7 +213,8 @@ def _research(vault):
                 sessions=sessions,
             )
             with st.spinner("Researching public sources…"):
-                prediction = asyncio.run(ResearchPredictionService().research(request))
+                prediction = asyncio.run(ResearchPredictionService(
+                    robinhood=tabs.robinhood_client(vault)).research(request))
             st.session_state["forecast_research_result"] = prediction.to_api()
             for key in (
                 "forecast_scenarios",
@@ -191,6 +223,12 @@ def _research(vault):
                 "forecast_explanation",
             ):
                 st.session_state[key] = None
+        except (
+            ValueError,
+            TypeError,
+        ) as exc:  # includes pydantic ValidationError; messages are code-written
+            msg = exc.errors()[0]["msg"] if hasattr(exc, "errors") else str(exc)
+            st.error(f"Research not run: {msg[:200]}. No forecast was saved.")
         except Exception:
             st.error(
                 "Research unavailable or invalid ticker/horizons. No forecast was saved."
@@ -303,9 +341,15 @@ def _research(vault):
         st.caption(
             "Public evidence only; no vault documents, chat, holdings, or account data."
         )
+        if "robinhood" not in {p.source_id for p in prediction.source_provenance}:
+            st.caption(tabs.ROBINHOOD_HINT + " It adds fundamentals, analyst targets, earnings, options-implied move "
+                       "and SEC figures to the evidence.")
     _ai_review(vault, prediction, tabs)
     st.subheader("4 · Track (optional)")
     _prepare_forecast(vault, prediction, st.session_state.get("forecast_scenarios"))
+    last_bar = snap.market.bars[-1] if snap.market and snap.market.bars else None
+    tabs.render_portfolio_fit(vault, snap.symbol, (last_bar.adjusted_close or last_bar.close) if last_bar else None,
+                              client_factory=lambda: _scenario_factory(vault))
 
 
 def _ai_review(vault, prediction, tabs):
@@ -330,7 +374,7 @@ def _ai_review(vault, prediction, tabs):
     )
     st.caption(
         "Thesis explainer = the writer. The critics and the thesis search decide the verdict; the explainer does not "
-        "vote. It only turns the winning thesis and its evidence into ≤ 3 plain sentences (\"Why this verdict\" under "
+        'vote. It only turns the winning thesis and its evidence into ≤ 3 plain sentences ("Why this verdict" under '
         "3 · Verdict). If its reply breaks the rules (invented numbers, unknown evidence), a rule-based summary is shown."
     )
     if st.button("Run AI review", type="primary"):
@@ -544,8 +588,14 @@ def _verdict(prediction):
             st.markdown("**Why this verdict** (AI explanation)")
             # Evidence ids are listed below by title; strip any the model also pasted into the prose.
             st.text(_HEX_ID.sub("", explanation["summary"]).replace("()", "").strip())
-            st.caption("What would change this: " + _HEX_ID.sub("", explanation["what_would_change"]))
-            st.caption("Based on: " + "; ".join(titles.get(e, e[:10]) for e in explanation["evidence_ids"]))
+            st.caption(
+                "What would change this: "
+                + _HEX_ID.sub("", explanation["what_would_change"])
+            )
+            st.caption(
+                "Based on: "
+                + "; ".join(titles.get(e, e[:10]) for e in explanation["evidence_ids"])
+            )
         else:
             run = st.session_state.get("forecast_explanation_run") or {}
             beat = (
@@ -576,9 +626,8 @@ def _prepare_forecast(vault, prediction, scenarios):
     sessions = prediction.snapshot.sessions
     if not sessions:
         st.caption(
-            "Research is unscheduled, so it cannot be saved for scoring. To track it, open "
-            '"Advanced: outcome tracking" above, paste and confirm the official session sequence, '
-            "then click Research ticker again."
+            "Research is unscheduled, so it cannot be saved for scoring. To track it: step 1 → "
+            '"Advanced: outcome tracking" → Fill draft session list → check it → tick the box → Research ticker.'
         )
         return
     st.markdown("**Prepare an outcome-tracked forecast**")
@@ -600,7 +649,12 @@ def _prepare_forecast(vault, prediction, scenarios):
         try:
             if horizon is None:
                 raise ValueError("A supported researched horizon is required")
-            forecast = create_forecast(prediction, horizon, sessions=sessions)
+            forecast = create_forecast(
+                prediction,
+                horizon,
+                sessions=sessions,
+                tree=st.session_state.get("forecast_tree"),
+            )  # P8: keep the ToT verdict
             if forecast.target is None:
                 raise ValueError(
                     "Official sequence does not include the target session"
@@ -626,6 +680,38 @@ def _prepare_forecast(vault, prediction, scenarios):
                 "Cannot prepare forecast. Check schedule, origin, horizon, and market coverage."
             )
     _save_preview(vault, "forecast_prepared", SNAPSHOT_PREFIX, "Save forecast")
+
+
+def _fill_closes(vault, forecast, tabs):
+    """R5: origin/target closes for the symbol and benchmark from Robinhood daily bars (provenance "robinhood")."""
+    from src.forecaster.robinhood import session_closes
+
+    client = tabs.robinhood_client(vault)
+    if client is None:
+        st.warning(tabs.ROBINHOOD_HINT)
+        return
+    sessions = [forecast.origin] + ([forecast.target] if forecast.target else [])
+    adjusted = forecast.price_convention == "split_dividend_adjusted_close"
+    try:
+        closes = session_closes(client, [forecast.symbol, forecast.benchmark_symbol], sessions[0].session,
+                                sessions[-1].session, adjustment="all" if adjusted else "none")
+    except Exception:
+        st.warning("Robinhood closes unavailable. Nothing changed.")
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for sym, exchange in ((forecast.symbol, forecast.origin.exchange), (forecast.benchmark_symbol, forecast.benchmark_exchange)):
+        for s in sessions:
+            close = closes.get(sym, {}).get(s.session)
+            if close:  # a missing session stays missing; no latest quote substitutes
+                rows.append({"symbol": sym, "exchange": exchange, "session": s.session.isoformat(), "close": close,
+                             **({"adjusted_close": close} if adjusted else {}), "source_id": "robinhood",
+                             "retrieved_at": now})
+    if not rows:
+        st.warning("Robinhood returned no closes for these sessions yet.")
+        return
+    st.session_state["forecast_eval_prices_pending"] = json.dumps(rows)
+    st.rerun()
 
 
 def _outcomes(vault):
@@ -662,9 +748,11 @@ def _outcomes(vault):
     st.session_state.setdefault(
         "forecast_evaluated_at", datetime.now(timezone.utc).isoformat()
     )
+    tabs = _tabs_module()
+    tabs._apply_pending("forecast_eval_prices")
     with st.form("forecast_evaluate"):
         prices_json = st.text_area(
-            "Session closing prices (JSON array)",
+            "Session closing prices (JSON array)", key="forecast_eval_prices",
             placeholder='[{"symbol":"AAPL","exchange":"XNAS","session":"2026-10-19",'
             '"close":100,"source_id":"yahoo-chart","retrieved_at":"2026-10-19T21:00:00Z"}, ...]',
         )
@@ -673,6 +761,9 @@ def _outcomes(vault):
             key="forecast_evaluated_at",
         )
         evaluate = st.form_submit_button("Evaluate outcome")
+        fill = st.form_submit_button("Fill closes from Robinhood")
+    if fill:
+        _fill_closes(vault, forecast, tabs)
     if evaluate:
         try:
             values = json.loads(prices_json)
