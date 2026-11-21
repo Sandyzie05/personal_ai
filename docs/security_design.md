@@ -403,6 +403,12 @@ never the user or host. SEC requests keep the user-configured contact UA that SE
   is still rejected. Evidence ids must come from the snapshot. Explainer output is rejected if it cites unknown ids/symbols or
   contains a number absent from its input; it is rendered with `st.text` (no markdown).
 - Activity log entries for slot runs carry ids, status, latency and a closed reason only (no prompt or model text).
+- News analyst (F7, slot `forecast.news_analyst`): each headline goes only through `quarantine.extract_facts` into
+  `schemas.NewsFacts` (closed ticker pattern/topic/sentiment/materiality; no free text). A ticker the feed did not link to the
+  story is ignored. Output = per-ticker counts + per-story sentiment keyed by the code-made story id. The user's agent tweak is
+  appended after quarantine's fixed `SYSTEM`, never replacing it. Eval row "News analyst: injected text reaching output" = 0
+  (hard). Headlines render as `st.dataframe` cells (inert text), never markdown.
+- Critic diagnostics (`output_chars`, `finish_reason`) are counts/closed enums; model text is never stored or shown raw.
 
 ## Planned controls (2026-11-20)
 

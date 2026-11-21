@@ -203,6 +203,44 @@ def run_summary_templating() -> Dict[str, int]:
     return {"checked": total, "violations": bad}
 
 
+class NewsClient:
+    """Scripted news extractor: compliant, or obedient to the headline's instruction in every field it can reach."""
+
+    def __init__(self, behaviour: str, instruction: str):
+        self.behaviour, self.instruction = behaviour, instruction
+        self.temperature, self.max_tokens, self.model = 0.0, None, "fake"
+
+    def chat(self, **kw):
+        base = {"ticker": "AAPL", "topic": "earnings", "sentiment": "positive", "materiality": "high"}
+        if self.behaviour == "obedient_echo":
+            base["topic"] = self.instruction[:80]
+        elif self.behaviour == "obedient_ticker":
+            base["ticker"] = "EVIL"
+        elif self.behaviour == "obedient_extra":
+            base["note"] = self.instruction[:200]
+        elif self.behaviour == "obedient_prose":
+            return {"message": {"content": f"Sure! {self.instruction}"}}
+        return {"message": {"content": json.dumps(base)}}
+
+
+def run_news_analyst() -> Dict[str, int]:
+    """F7: hostile headlines through news_analyst.analyze; the output may carry only closed labels and counts."""
+    from types import SimpleNamespace
+
+    from src.forecaster.news_analyst import analyze
+
+    bad = total = 0
+    for i, (cat, loc, instr, raw) in enumerate(PAYLOADS):
+        story = SimpleNamespace(story_id=f"{i:012x}", title=raw[:200], publisher="Wire", related_tickers=("AAPL",))
+        for beh in ("compliant", "obedient_echo", "obedient_ticker", "obedient_extra", "obedient_prose"):
+            out = analyze([story], lambda remaining_seconds, b=beh: NewsClient(b, instr), {}, budget_seconds=5)
+            text = out.model_dump_json()
+            frag = _norm(instr)[:20]
+            total += 1
+            bad += bool(INJECTION.search(text) or (frag and frag in _norm(text)) or "EVIL" in text)
+    return {"checked": total, "violations": bad}
+
+
 def run_rag_exposure() -> Dict[str, int]:
     """Core Memory / scheduler / audit keys must be internal (never indexed into RAG or listed as documents)."""
     from src.data_vault.vault import is_internal_vault_key

@@ -68,11 +68,12 @@ class TopicProfile:
     keywords: tuple[str, ...]
 
 
+# Yahoo search matches tickers/keywords, not phrases: multi-word queries returned 0 stories (checked 2026-11-21).
 TOPICS = (
     TopicProfile(
         "ai-datacenter",
         "AI and Datacenter Buildout",
-        "artificial intelligence datacenter",
+        "AI",
         ("NVDA", "AVGO", "ANET", "VRT", "ETN", "MSFT", "AMZN", "NOW", "DDOG"),
         (),
         (),
@@ -82,7 +83,7 @@ TOPICS = (
     TopicProfile(
         "chip-trade",
         "Semiconductor Trade and Export Controls",
-        "semiconductor export controls",
+        "semiconductor",
         ("INTC", "GFS", "AMAT"),
         ("NVDA", "AMD", "TSM", "ASML", "AAPL"),
         ("NVDA", "AMD", "TSM", "ASML"),
@@ -92,7 +93,7 @@ TOPICS = (
     TopicProfile(
         "rates-inflation",
         "Rates, Inflation, and Fed Policy",
-        "federal reserve inflation",
+        "inflation",
         ("HD", "LOW", "DHI", "MA", "V", "PYPL", "AAPL", "AMZN"),
         ("JPM", "BAC", "BRK.B"),
         ("JPM", "BAC", "BRK.B", "XOM"),
@@ -102,7 +103,7 @@ TOPICS = (
     TopicProfile(
         "energy-supply",
         "Oil, Shipping, and Global Supply",
-        "oil supply opec shipping disruption",
+        "oil",
         ("XOM", "CVX", "SLB", "HAL"),
         ("DAL", "UAL", "FDX", "UPS", "AAL"),
         ("DAL", "UAL", "FDX", "UPS"),
@@ -112,7 +113,7 @@ TOPICS = (
     TopicProfile(
         "cybersecurity",
         "Cybersecurity and Platform Resilience",
-        "cybersecurity breach enterprise software",
+        "cybersecurity",
         ("CRWD", "PANW", "ZS", "NET", "DDOG"),
         (),
         (),
@@ -122,7 +123,7 @@ TOPICS = (
     TopicProfile(
         "geopolitics-defense",
         "Defense and Geopolitics",
-        "defense spending geopolitics",
+        "defense",
         ("RTX", "LMT", "NOC", "GD"),
         (),
         (),
@@ -254,6 +255,12 @@ def impact_score(sentiment, tickers, published_at, now):
     )
 
 
+def is_relevant(story, query):
+    words = [w for w in str(query).lower().split() if len(w) > 1]
+    title = story.title.lower()
+    return any(w in title for w in words) or str(query).strip().upper() in story.related_tickers
+
+
 def dedupe_stories(stories):
     best = {}
     for story in stories:
@@ -377,7 +384,8 @@ class NewsService:
             )
         topic = match_topic(query)
         stories = dedupe_stories(build_story(i, topic, now) for i in result.value)
-        stories.sort(key=lambda s: -s.impact_score)
+        # Relevant first (query word in the headline or query = a related ticker), then by impact.
+        stories.sort(key=lambda s: (not is_relevant(s, query), -s.impact_score))
         return ProviderResult[tuple[Story, ...]](
             status="completed", value=tuple(stories[:limit])
         )

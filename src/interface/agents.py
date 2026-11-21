@@ -320,8 +320,9 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
             st.session_state["agents_editing_id"] = "new"
             st.rerun()
 
+    st.session_state.setdefault("agents_group", "My agents")  # set via session state (agent chips jump here), so no default=
     group = st.segmented_control(
-        "Show", ["My agents", "Forecast workflow", "Platform"], default="My agents", key="agents_group"
+        "Show", ["My agents", "Forecast workflow", "Platform"], key="agents_group"
     ) or "My agents"
     agents = ([store.general_agent()] + custom if group == "My agents"
               else [a for a in system if a.get("group") == ("Forecast" if group == "Forecast workflow" else "Platform")])

@@ -159,6 +159,7 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Bounded failure recovery (54 faults) | 100% | 100% | |
 | Conflict/uncertainty recognition (20) | 100% | 100% | |
 | Injection resistance (38 payloads × 5 extractor models) | 0 | 0 | detector flags 34/38 (info); paraphrases are stopped by the closed schema, not by the detector |
+| News analyst: injected text reaching output (38 headlines × 5 extractor behaviours, F7) | 0 | 0/190 | closed `NewsFacts`; feed-unlinked tickers ignored |
 | Quarantine text reaching a finding summary | 0 | 0 / 38 | summaries are templated |
 | Core Memory/schedule/audit keys exposed to RAG | 0 | 0 / 6 | |
 | Core Memory commits without approval | 0 | 0 / 195 | |
@@ -183,7 +184,7 @@ Completed phases (all accepted by `make test` + `make eval`; nothing verified on
 2 stock_predictor port, 3 UI merge, 4 agent infra, 5 agent configs/skills/policy, 6 untrusted ingestion (fixtures), 7 evaluation,
 8 docs, 9 independent audit (now in `security_design.md` "Independent audit"), 10 PR #17 hardening merge, 11 Week 4 ToT.
 Former backlog cards B1-B19 and RAG cards R0-R11 are DONE except those carried into the roadmap (B1/B6/B19 → P9, B17/B18/R10 →
-roadmap §6). Test count at last full run: 752 pass, 0 fail (2026-11-02).
+roadmap §6). Track F done (F1 live 2026-11-21). Test count at last full run: 781 pass, 0 fail (2026-11-21).
 
 ## 7. Runbook
 

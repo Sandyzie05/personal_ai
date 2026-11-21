@@ -169,3 +169,13 @@ def test_separate_conflicts_keeps_one_sided_symbols():
     bull, bear, dis = separate_conflicts(up, down, 5)
     assert [b.symbol for b in bull] == ["B"] and [b.symbol for b in bear] == ["C"]
     assert dis[0].symbol == "A" and dis[0].stronger_side == "down"
+
+
+def test_topic_queries_are_single_words_and_relevance_needs_term_or_ticker():
+    from types import SimpleNamespace
+
+    from src.forecaster.news import TOPICS, is_relevant
+
+    assert all(len(t.query.split()) == 1 for t in TOPICS)  # Yahoo search returned 0 stories for phrases
+    s = SimpleNamespace(title="Snowflake vs. Adobe: which AI stock", related_tickers=("SNOW",))
+    assert is_relevant(s, "adobe") and is_relevant(s, "SNOW") and not is_relevant(s, "tesla")
