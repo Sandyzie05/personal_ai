@@ -226,3 +226,33 @@ def test_imports_are_tickers_only_and_closes_skip_interpolated_bars():
     assert set(closes) == {"NVDA", "SPY"} and all(v for v in closes.values())
     cal = rh.earnings_calendar(c, NOW.date())
     assert cal[0].symbol == "MSFT" and cal[0].timing == "pm"
+
+
+def test_r8_evals_pass_and_catch_planted_leaks(monkeypatch):
+    import logging
+
+    from evals import robinhood as ev
+
+    assert ev.run_broker_injection()["violations"] == 0
+    assert ev.run_account_egress()["violations"] == 0
+    assert ev.run_valuation_golden() == {"passed": 3, "total": 3}
+    real = rh.fundamentals_card
+    monkeypatch.setattr(
+        rh,
+        "fundamentals_card",
+        lambda *a: real(*a).model_copy(update={"summary": HOSTILE}),
+    )
+    assert (
+        ev.run_broker_injection()["violations"] > 0
+    )  # eval is sensitive to free text reaching a card
+    monkeypatch.setattr(rh, "fundamentals_card", real)
+    leaky = rh.research_evidence
+
+    def research_evidence(*a, **k):
+        logging.getLogger("leak").warning("acct %s", CANARY_ACCOUNT)
+        return leaky(*a, **k)
+
+    monkeypatch.setattr(rh, "research_evidence", research_evidence)
+    assert (
+        ev.run_account_egress()["violations"] > 0
+    )  # eval is sensitive to a canary in a log line

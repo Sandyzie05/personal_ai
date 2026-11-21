@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:30:41+00:00",
+  "generated_at": "2026-11-21T18:47:31+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.41,
+      "measured": 0.4,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.675,
+      "measured": 0.671,
       "pass": true,
       "hard": false
     },
@@ -121,6 +121,27 @@
       "hard": true
     },
     {
+      "metric": "Robinhood: broker free text reaching evidence/prompts (R8)",
+      "target": "0",
+      "measured": "0/5",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Robinhood: account canaries outside account tools (requests, logs, activity log, snapshot; R-S6)",
+      "target": "0",
+      "measured": "0 in 19 sinks x 3 canaries",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "Robinhood: fundamentals reach valuation critic + ToT driver (golden)",
+      "target": "100%",
+      "measured": "3/3",
+      "pass": true,
+      "hard": true
+    },
+    {
       "metric": "Core Memory/schedule/audit keys exposed to RAG or Files page",
       "target": "0",
       "measured": "0/6",
@@ -214,13 +235,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.41,
+        "ratio": 0.4,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.675,
+        "ratio": 0.671,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3
