@@ -263,6 +263,12 @@ List each provider whose bill should keep arriving (one row each, monthly or qua
 bills (names must match exactly) or type one. Expect "on time" / "overdue" / "no bill yet" per row, a warning above when a bill
 is late, and *Remove* per row.
 
+### E6c. Bills from Gmail email text (R11)
+Agents → MCP Servers → Gmail (Google's server) connected. Upload → Sync → *Bills from Gmail*: add `Rocky Mountain Power`,
+`electricity`, `rockymountainpower.net` (check the real sender domain in one of their emails) and the same for gas and
+T-Mobile (`mobile`) → *Sync bills from Gmail*. Expect "N new" with provider + period, records on the Dashboard, Expected
+bills "on time"; a second sync says duplicates, no new model calls. Fail if any email text appears in Files, chat or RAG.
+
 ### E7. Portal and Gmail attachments (R8-R10): supervised, optional
 Only mock-portal fixtures are tested. A real provider needs a recipe recorded with `playwright codegen` (run `venv/bin/playwright install chromium-headless-shell` first). Never give credentials to the chat; 2FA stops for you. Gmail attachment tool names (`search_messages`, `get_attachment`) are assumptions; check them against your Gmail MCP server.
 

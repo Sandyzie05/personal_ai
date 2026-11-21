@@ -1185,7 +1185,10 @@ class PersonalAIInterface:
             ollama_client=ollama_client,
             on_uploaded=self._on_document_uploaded,
         )
-        sync_panel.render(self.vault, self._on_document_uploaded)
+        from src.ai_engine.engine import worker_client
+
+        client = worker_client(self.chat_engine.ollama_client) if self.chat_engine else None
+        sync_panel.render(self.vault, self._on_document_uploaded, quarantine_client=client)
 
     def _on_document_uploaded(self, storage_key: str, data: Dict[str, Any]) -> None:
         """Index a newly-uploaded document into RAG so it's searchable immediately.

@@ -4,6 +4,14 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat: Gmail bill sync from email text; Expected bills form; internal-key fix
+
+- `data_ingestion/gmail_bills.py` (R11): sender allowlist (provider, category, domain) → read-only `search_threads`/`get_thread`
+  (args fitted to the live schema) → quarantine `BillEmailFacts` → templated record + manifest; feeds Dashboard, Expected bills
+  and chat. Upload → Sync → *Bills from Gmail*. Eval row + tests.
+- Expected bills: no expander (it collapsed on every add), a form that clears, known-provider picker, list + Remove.
+- Fix: `trader_paper_v1` and `gmail_bill_senders` are internal vault keys (the paper ledger was indexable and listed in Files).
+
 ## (pending) - 2026-11-21 - feat/fix: Robinhood Portfolio chat agent, earnings-calendar fix, Expected bills, Trader Forward record
 
 - New chat agent "Robinhood Portfolio" (`builtin-portfolio`, S25): code reads holdings, local tool-less model answers; skill
