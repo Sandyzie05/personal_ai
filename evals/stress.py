@@ -366,6 +366,58 @@ def _build() -> List[StressCase]:
             )
         )
 
+    # wrong_record (P2): right figure, wrong record cited (period, provider or account) -> verifier escalates
+    two_providers = [
+        t for t in records if len({r["metadata"]["provider"] for r in t.records}) > 1
+    ]
+    for t in records[:3]:
+        cases.append(
+            StressCase(
+                f"wrong-period-{t.id}",
+                "wrong_record",
+                t.query,
+                t.records,
+                {},
+                "escalate",
+                {},
+                EXPECTED_AGENTS["records"],
+                tamper="wrong_period",
+            )
+        )
+    for t in two_providers[:2]:
+        cases.append(
+            StressCase(
+                f"wrong-provider-{t.id}",
+                "wrong_record",
+                t.query,
+                t.records,
+                {},
+                "escalate",
+                {},
+                EXPECTED_AGENTS["records"],
+                tamper="wrong_provider",
+            )
+        )
+    for i, q in enumerate(
+        (
+            "What was my credit card bill ending 1111 for Q3 2026?",
+            "Show my Card 1111 credit card spending for 2026.",
+        )
+    ):
+        cases.append(
+            StressCase(
+                f"wrong-account-{i}",
+                "wrong_record",
+                q,
+                _two_cards(),
+                {},
+                "escalate",
+                {},
+                EXPECTED_AGENTS["records"],
+                tamper="wrong_account",
+            )
+        )
+
     # ambiguous: no period for a single-amount question, two accounts and none named, or market words but no ticker
     for t in records[:3]:
         cases.append(
@@ -438,7 +490,17 @@ def evaluate() -> Dict[str, Any]:
         for c in list(GOLDEN) + STRESS
         if c.expected_agents
     ]
+    wrong = [r for r in results if r.case.kind == "wrong_record"]
+    caught = sum(
+        r.action == "escalate"
+        and any(
+            e.kind == "unsupported" and "cited record" in e.detail
+            for e in r.report.escalations
+        )
+        for r in wrong
+    )
     return {
+        "relevance": (caught, len(wrong)),
         "n": len(results),
         "gated": len(gated),
         "passed": sum(r.passed for r in gated),

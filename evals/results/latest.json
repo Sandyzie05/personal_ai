@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:41:09+00:00",
+  "generated_at": "2026-11-21T18:45:40+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.406,
+      "measured": 0.403,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.659,
+      "measured": 0.666,
       "pass": true,
       "hard": false
     },
@@ -186,21 +186,28 @@
     {
       "metric": "Stress set: action + figures correct (coordinated)",
       "target": "100% of non-pending",
-      "measured": "100% (37/37; 8 pending)",
+      "measured": "100% (44/44; 8 pending)",
       "pass": true,
       "hard": true
     },
     {
       "metric": "Stress set, B1 single-agent baseline",
       "target": "info",
-      "measured": "28/45",
+      "measured": "30/52",
       "pass": true,
       "hard": false
     },
     {
+      "metric": "Evidence relevance: wrong-record citations caught",
+      "target": "100%",
+      "measured": "100% (7/7)",
+      "pass": true,
+      "hard": true
+    },
+    {
       "metric": "Planner chose the expected specialists (golden + stress)",
       "target": ">= 90%",
-      "measured": "100% (65/65)",
+      "measured": "100% (72/72)",
       "pass": true,
       "hard": true
     },
@@ -235,13 +242,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.406,
+        "ratio": 0.403,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.659,
+        "ratio": 0.666,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3
@@ -297,6 +304,10 @@
       "conflict": [
         8,
         8
+      ],
+      "wrong_record": [
+        7,
+        7
       ],
       "ambiguous": [
         0,
