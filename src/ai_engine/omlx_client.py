@@ -206,7 +206,9 @@ class OmlxClient:
             choices = response.get("choices") or []
             if not choices:
                 raise OllamaClientError("oMLX returned no choices")
-            return {"message": _from_openai_message(choices[0]["message"])}
+            # done_reason mirrors Ollama; "length" = cut by max_tokens
+            return {"message": _from_openai_message(choices[0]["message"]),
+                    "done_reason": choices[0].get("finish_reason")}
         else:
             # Streaming response - parse SSE
             return self._stream_chat_response(data)

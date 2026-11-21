@@ -112,6 +112,20 @@ def _scenario_factory(vault):
     return factory
 
 
+REASON_TEXT = {
+    "empty": "empty reply",
+    "not_json": "reply was not valid JSON",
+    "truncated": "reply cut off at the token limit",
+    "schema": "reply missed a required field or length limit",
+    "unknown_evidence": "cited evidence that is not in the snapshot",
+    "invented_number": "used a number that is not in the evidence",
+}
+TERMINATION_TEXT = {
+    "converged": "the leading thesis was clear after the first round",
+    "depth_limit": "the search used its full depth",
+    "all_pruned": "every thesis was pruned",
+    "no_evidence": "there was no usable evidence",
+}
 ROLE_LABEL = {
     "macro": "Macro",
     "valuation": "Valuation",
@@ -312,6 +326,10 @@ def _ai_review(vault, prediction, tabs):
         "forecast.thesis_explainer",
         run=st.session_state.get("forecast_explanation_run"),
     )
+    st.caption(
+        "The thesis explainer runs after the verdict: it turns the selected thesis and its evidence into "
+        "≤ 3 plain sentences shown under 3 · Verdict. If its reply breaks the rules, a rule-based summary is shown."
+    )
     if st.button("Run AI review", type="primary"):
         from src.forecaster.explain import explain_thesis
         from src.forecaster.scenarios import ScenarioSwarmService
@@ -389,7 +407,11 @@ def _ai_review(vault, prediction, tabs):
             {
                 "critic": ROLE_LABEL[r["role"]],
                 "status": r["status"]
-                + (f" ({r['invalid_reason']})" if r.get("invalid_reason") else ""),
+                + (
+                    f": {REASON_TEXT.get(r['invalid_reason'], r['invalid_reason'])}"
+                    if r.get("invalid_reason")
+                    else ""
+                ),
                 "stance": (r.get("opinion") or {}).get("stance", "—"),
                 "confidence": f"{(r.get('opinion') or {}).get('confidence', 0):.2f}"
                 if r.get("opinion")
@@ -413,13 +435,47 @@ def _ai_review(vault, prediction, tabs):
                     + r["opinion"]["what_changes_my_view"]
                 )
                 st.caption("Risks: " + "; ".join(r["opinion"]["risks"]))
-        elif r.get("reason"):
+        elif r.get("reason") and not r.get(
+            "invalid_reason"
+        ):  # timeout/budget/failed: say why
             st.caption(f"{ROLE_LABEL[r['role']]}: {r['reason']}")
     _verdict(prediction)
-    with st.expander("Details: raw critic report and thought tree"):
-        st.subheader("Specialist scenarios")
-        st.json(report_raw, expanded=False)
-        st.json(st.session_state.get("forecast_tree") or {}, expanded=False)
+    with st.expander("Details: critic diagnostics and thought tree"):
+        st.caption(
+            f"Critics completed {sum(r['status'] == 'completed' for r in report_raw['specialists'])}/4 · "
+            f"model calls {report_raw['model_calls']} · overall {report_raw['verdict']}. "
+            "Reply size and stop reason help tell a token-limit cut from a malformed reply."
+        )
+        st.dataframe(
+            [
+                {
+                    "critic": ROLE_LABEL[r["role"]],
+                    "status": r["status"],
+                    "model": r.get("model_id") or "—",
+                    "reply chars": r.get("output_chars"),
+                    "stopped because": r.get("finish_reason") or "—",
+                }
+                for r in report_raw["specialists"]
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+        tree = st.session_state.get("forecast_tree") or {}
+        if tree.get("nodes"):
+            st.dataframe(
+                [
+                    {
+                        "thesis": n["thought"]["scenario"],
+                        "driver": n["thought"]["driver"],
+                        "round": n["depth"],
+                        "score": round(n["score"], 2),
+                        "status": n["status"],
+                    }
+                    for n in tree["nodes"]
+                ],
+                hide_index=True,
+                width="stretch",
+            )
 
 
 def _deadline_text():
@@ -488,12 +544,25 @@ def _verdict(prediction):
             )
         else:
             run = st.session_state.get("forecast_explanation_run") or {}
+            beat = (
+                f", ahead of {runner.thought.scenario} by {tree.margin:.2f}"
+                if runner and tree.margin is not None
+                else ""
+            )
+            st.text(
+                f"Rule-based summary: the {pick.thought.scenario} thesis wins, driven mainly by "
+                f"{pick.thought.driver} evidence{beat}; {TERMINATION_TEXT.get(tree.termination, tree.termination)}."
+            )
+            why = REASON_TEXT.get(run.get("invalid_reason"), run.get("invalid_reason"))
             st.caption(
-                f"Explainer {run.get('status', 'not run')}"
-                + (f" ({run['invalid_reason']})" if run.get("invalid_reason") else "")
-                + f"; rule-based summary: {pick.thought.scenario} driven by {pick.thought.driver} evidence, "
-                f"{sum(n.status == 'pruned' for n in tree.nodes)} of {len(tree.nodes)} branches pruned, "
-                f"{tree.termination}."
+                f"AI explanation {run.get('status', 'not run')}"
+                + (f": {why}" if why else "")
+                + "."
+            )
+        if tree.critic_calls == 0:
+            st.caption(
+                "The critics' opinions were not needed for this verdict (the rule-based first round was decisive); "
+                "they are shown above for review."
             )
 
 
@@ -558,7 +627,6 @@ def _prepare_forecast(vault, prediction, scenarios):
 def _outcomes(vault):
     from src.forecaster.outcomes import ForecastRecord, SessionPrice, evaluate_outcome
 
-    st.subheader("Saved forecasts and outcomes")
     keys = sorted(key for key in vault.list_keys() if key.startswith(SNAPSHOT_PREFIX))
     if not keys:
         st.caption(

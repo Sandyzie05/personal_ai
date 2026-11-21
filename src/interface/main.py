@@ -14,6 +14,7 @@ from typing import Dict, Any, List, Optional
 
 # Load environment variables from .env file if it exists
 from dotenv import load_dotenv
+
 load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -145,24 +146,27 @@ class PersonalAIInterface:
         from src.ai_engine.chat_engine import ChatEngine
         from src.ai_engine.embeddings import EmbeddingsGenerator
         from src.ai_engine.engine import (
-            build_chat_client, build_embed_client, client_kwargs_from_config,
+            build_chat_client,
+            build_embed_client,
+            client_kwargs_from_config,
         )
 
         self._load_ollama_config()
         client_kwargs = client_kwargs_from_config(self.ollama_config)
 
         chat_kwargs = {
-            k: v for k, v in client_kwargs.items()
-            if not k.startswith("embed_")
+            k: v for k, v in client_kwargs.items() if not k.startswith("embed_")
         }
 
         return ChatEngine(
             ollama_client=build_chat_client(**chat_kwargs),
-            embedding_generator=EmbeddingsGenerator(client=build_embed_client(
-                engine=client_kwargs["embed_engine"],
-                host=client_kwargs["embed_host"],
-                model=client_kwargs["embed_model"],
-            )),
+            embedding_generator=EmbeddingsGenerator(
+                client=build_embed_client(
+                    engine=client_kwargs["embed_engine"],
+                    host=client_kwargs["embed_host"],
+                    model=client_kwargs["embed_model"],
+                )
+            ),
             vault_path=_key_path,
             encryption_key=_key,
         )
@@ -195,12 +199,15 @@ class PersonalAIInterface:
     def _lock_vault(self) -> None:
         """Release session-held vault data and keys; this is not memory zeroization."""
         owners = (
-            self, self.chat_engine, self.chat_history,
+            self,
+            self.chat_engine,
+            self.chat_history,
             st.session_state.get("agent_runtime"),
             st.session_state.get("mcp_manager"),
         )
         vaults = {
-            id(vault): vault for owner in owners
+            id(vault): vault
+            for owner in owners
             if (vault := getattr(owner, "vault", None)) is not None
         }
         close_failed = False
@@ -284,7 +291,9 @@ class PersonalAIInterface:
             self._init_vault()
             if self.vault is None:
                 raise RuntimeError("Vault not accessible")
-            with st.spinner("Re-embedding vault documents with the current embedding model..."):
+            with st.spinner(
+                "Re-embedding vault documents with the current embedding model..."
+            ):
                 if self.chat_engine is None:
                     self._initialize_rag()
                     count = self.chat_engine._indexed_count
@@ -296,7 +305,9 @@ class PersonalAIInterface:
             st.success(f"RAG index rebuilt ({count} documents).")
 
     def _update_rag_document(
-        self, key: str, data: Optional[Dict[str, Any]] = None,
+        self,
+        key: str,
+        data: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._ensure_vault_and_rag()
         if self.chat_engine is None:
@@ -362,12 +373,19 @@ class PersonalAIInterface:
         # would otherwise raise a StreamlitAPIException on this render.
         agent_list = (
             [agent_store.general_agent()]
-            + [a for a in agent_store.list_builtin_agents(self.vault) if a.get("chat_capable")]
+            + [
+                a
+                for a in agent_store.list_builtin_agents(self.vault)
+                if a.get("chat_capable")
+            ]
             + agent_store.list_agents(self.vault)
         )
         agent_ids = [a["id"] for a in agent_list]
-        agent_names = {a["id"]: ("System · " if str(a["id"]).startswith("builtin-") else "") + a["name"]
-                       for a in agent_list}
+        agent_names = {
+            a["id"]: ("System · " if str(a["id"]).startswith("builtin-") else "")
+            + a["name"]
+            for a in agent_list
+        }
         if st.session_state.get("active_agent_id") not in agent_ids:
             session = next((s for s in sessions if s.get("id") == active_id), None)
             session_agent = (session or {}).get("agent_id")
@@ -397,8 +415,7 @@ class PersonalAIInterface:
         with agent_col:
             st.selectbox(
                 "Agent",
-                agent_ids,
-                index=agent_ids.index(st.session_state["active_agent_id"]),
+                agent_ids,  # value comes from the keyed session state (set above); index= would conflict
                 format_func=lambda aid: agent_names.get(aid, aid),
                 label_visibility="collapsed",
                 key="active_agent_id",
@@ -469,12 +486,18 @@ class PersonalAIInterface:
             self._load_ollama_config()
 
         try:
-            from src.ai_engine.engine import build_chat_client, client_kwargs_from_config
+            from src.ai_engine.engine import (
+                build_chat_client,
+                client_kwargs_from_config,
+            )
 
-            client = build_chat_client(**{
-                k: v for k, v in client_kwargs_from_config(self.ollama_config).items()
-                if not k.startswith("embed_")
-            })
+            client = build_chat_client(
+                **{
+                    k: v
+                    for k, v in client_kwargs_from_config(self.ollama_config).items()
+                    if not k.startswith("embed_")
+                }
+            )
 
             # Reuse the exact same grounding-first system prompt as the RAG path
             # so a fallback answer can't silently drift into "answer from your own
@@ -510,6 +533,7 @@ class PersonalAIInterface:
         except Exception as e:
             # Declare engine in local scope to avoid UnboundLocalError
             from src.ai_engine.engine import client_kwargs_from_config
+
             kw = client_kwargs_from_config(self.ollama_config)
             engine, host = kw["engine"], kw["host"] or PERSONAL_AI_OMLX_HOST
             return (
@@ -554,7 +578,9 @@ class PersonalAIInterface:
             st.session_state["agent_runtime"] = cached
         return cached
 
-    def _respond_coordinated(self, user_query: str, active_id: str, agent: Dict[str, Any]) -> None:
+    def _respond_coordinated(
+        self, user_query: str, active_id: str, agent: Dict[str, Any]
+    ) -> None:
         """Coordinator turn: plan -> parallel specialists -> deterministic merge -> escalation."""
         from src.agents.orchestration import service
         from src.agents.orchestration.workers import render_report
@@ -563,24 +589,46 @@ class PersonalAIInterface:
 
         try:
             coordinator = service.build_coordinator(
-                self.vault, self.chat_engine.get_structured_records, _scenario_factory(self.vault),
-                mcp=self._agent_runtime().mcp, quarantine_client=worker_client(self.chat_engine.ollama_client))
+                self.vault,
+                self.chat_engine.get_structured_records,
+                _scenario_factory(self.vault),
+                mcp=self._agent_runtime().mcp,
+                quarantine_client=worker_client(self.chat_engine.ollama_client),
+            )
             with st.status("Coordinator delegating to specialists...", expanded=True):
                 report = service.run_query(
-                    coordinator, user_query, only=agent.get("role") if agent.get("id") != "builtin-coordinator" else None,
-                    planner_client=worker_client(self.chat_engine.ollama_client))
+                    coordinator,
+                    user_query,
+                    only=agent.get("role")
+                    if agent.get("id") != "builtin-coordinator"
+                    else None,
+                    planner_client=worker_client(self.chat_engine.ollama_client),
+                )
             service.propose_from_report(self.vault, report)
             answer = render_report(report)
-            answer += "\n\n_Parallel specialists: " + ("overlapped" if report.parallel_overlap else "single step") + f", {report.wall_s:.1f}s._"
+            answer += (
+                "\n\n_Parallel specialists: "
+                + ("overlapped" if report.parallel_overlap else "single step")
+                + f", {report.wall_s:.1f}s._"
+            )
         except ValueError as exc:  # refusals, nothing delegable
             answer = str(exc)
-        except Exception:  # never surface a traceback (or internal detail) from an agent turn
-            answer = "The coordinator could not complete this request. Nothing was changed."
+        except (
+            Exception
+        ):  # never surface a traceback (or internal detail) from an agent turn
+            answer = (
+                "The coordinator could not complete this request. Nothing was changed."
+            )
         with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
             st.markdown(answer)
         self.chat_history.add_message("user", user_query)
         self.chat_history.add_message("assistant", answer, [])
-        chat_sessions.touch_session(self.vault, active_id, title=user_query.strip()[:40], agent_id=agent.get("id"))
+        chat_sessions.touch_session(
+            self.vault,
+            active_id,
+            title=user_query.strip()[:40],
+            agent_id=agent.get("id"),
+        )
         st.rerun()
 
     def _respond_with_agent(
@@ -596,7 +644,11 @@ class PersonalAIInterface:
         (so it survives the confirmation pause); the assistant answer lands
         in the history when the run reaches a terminal status.
         """
-        if agent.get("id") == "builtin-coordinator" or agent.get("role") in ("expense", "forecaster", "market"):
+        if agent.get("id") == "builtin-coordinator" or agent.get("role") in (
+            "expense",
+            "forecaster",
+            "market",
+        ):
             return self._respond_coordinated(user_query, active_id, agent)
         runtime = self._agent_runtime()
         with st.status(f"{agent.get('name', 'Agent')} is working...", expanded=True):
@@ -605,7 +657,9 @@ class PersonalAIInterface:
         if result.status == "awaiting_confirmation":
             self.chat_history.add_message("user", user_query)
             chat_sessions.touch_session(
-                self.vault, active_id, title=user_query.strip()[:40],
+                self.vault,
+                active_id,
+                title=user_query.strip()[:40],
                 agent_id=agent.get("id"),
             )
             st.rerun()
@@ -618,7 +672,9 @@ class PersonalAIInterface:
         self.chat_history.add_message("user", user_query)
         self.chat_history.add_message("assistant", result.answer, result.sources)
         chat_sessions.touch_session(
-            self.vault, active_id, title=user_query.strip()[:40],
+            self.vault,
+            active_id,
+            title=user_query.strip()[:40],
             agent_id=agent.get("id"),
         )
         st.rerun()
@@ -636,9 +692,13 @@ class PersonalAIInterface:
         pending = state.get("pending") or {}
         server = agent_store.get_mcp_server(self.vault, pending.get("server", ""))
         server_name = (
-            server.get("name", pending.get("server", "")) if server else pending.get("server", "")
+            server.get("name", pending.get("server", ""))
+            if server
+            else pending.get("server", "")
         )
-        agent_name = agent.get("name", "Agent") if agent else state.get("agent_name", "Agent")
+        agent_name = (
+            agent.get("name", "Agent") if agent else state.get("agent_name", "Agent")
+        )
 
         with st.container(border=True):
             st.markdown(
@@ -664,7 +724,9 @@ class PersonalAIInterface:
             allow_col, deny_col, abort_col = st.columns(3)
             with allow_col:
                 if st.button(
-                    "Allow", type="primary", use_container_width=True,
+                    "Allow",
+                    type="primary",
+                    use_container_width=True,
                     key="agent_confirm_allow",
                 ):
                     self._resolve_paused_run(active_id, agent, "allow")
@@ -675,7 +737,9 @@ class PersonalAIInterface:
                     self._resolve_paused_run(active_id, agent, "deny")
             with abort_col:
                 if st.button(
-                    "Abort", icon=":material/stop:", use_container_width=True,
+                    "Abort",
+                    icon=":material/stop:",
+                    use_container_width=True,
                     key="agent_confirm_abort",
                 ):
                     self._resolve_paused_run(active_id, agent, "abort")
@@ -712,12 +776,8 @@ class PersonalAIInterface:
             with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
                 st.markdown(result.answer)
                 render_sources(result.sources)
-            self.chat_history.add_message(
-                "assistant", result.answer, result.sources
-            )
-        chat_sessions.touch_session(
-            self.vault, active_id, agent_id=agent.get("id")
-        )
+            self.chat_history.add_message("assistant", result.answer, result.sources)
+        chat_sessions.touch_session(self.vault, active_id, agent_id=agent.get("id"))
         st.rerun()
 
     def _load_ollama_config(self) -> None:
@@ -743,20 +803,24 @@ class PersonalAIInterface:
             self.ollama_config = {
                 "engine": PERSONAL_AI_LLM_ENGINE,
                 "llm_host": (
-                    PERSONAL_AI_OMLX_HOST if PERSONAL_AI_LLM_ENGINE == "omlx"
+                    PERSONAL_AI_OMLX_HOST
+                    if PERSONAL_AI_LLM_ENGINE == "omlx"
                     else DEFAULT_OLLAMA_HOST
                 ),
                 "llm_model": (
-                    PERSONAL_AI_OMLX_CHAT_MODEL if PERSONAL_AI_LLM_ENGINE == "omlx"
+                    PERSONAL_AI_OMLX_CHAT_MODEL
+                    if PERSONAL_AI_LLM_ENGINE == "omlx"
                     else DEFAULT_CHAT_MODEL
                 ),
                 "embed_engine": PERSONAL_AI_EMBED_ENGINE,
                 "embed_host": (
-                    PERSONAL_AI_OMLX_HOST if PERSONAL_AI_EMBED_ENGINE == "omlx"
+                    PERSONAL_AI_OMLX_HOST
+                    if PERSONAL_AI_EMBED_ENGINE == "omlx"
                     else DEFAULT_OLLAMA_HOST
                 ),
                 "embed_model": (
-                    PERSONAL_AI_OMLX_EMBED_MODEL if PERSONAL_AI_EMBED_ENGINE == "omlx"
+                    PERSONAL_AI_OMLX_EMBED_MODEL
+                    if PERSONAL_AI_EMBED_ENGINE == "omlx"
                     else DEFAULT_EMBED_MODEL
                 ),
                 "temperature": 0.7,
@@ -853,6 +917,7 @@ class PersonalAIInterface:
 
                         # Determine which engine to check
                         from src.ai_engine.engine import client_kwargs_from_config
+
                         kw = client_kwargs_from_config(self.ollama_config)
                         engine = kw["engine"]
                         client = build_chat_client(engine=engine, host=kw["host"])
@@ -934,7 +999,11 @@ class PersonalAIInterface:
                 )
 
         with st.expander(":material/tune: Advanced"):
-            stale = self.chat_engine.rag_index_stale() if getattr(self, "chat_engine", None) else None
+            stale = (
+                self.chat_engine.rag_index_stale()
+                if getattr(self, "chat_engine", None)
+                else None
+            )
             if stale:
                 st.warning(f"Search index is stale ({stale}). Rebuild it.")
             if st.button("Rebuild RAG Index", icon=":material/sync:"):
@@ -1164,8 +1233,13 @@ class PersonalAIInterface:
         self._init_vault()
         if not (self.vault and self.chat_engine):
             return []
-        return service.run_scheduled(self.vault, self.chat_engine.get_structured_records, _scenario_factory(self.vault),
-                                     mcp=self._agent_runtime().mcp, quarantine_client=worker_client(self.chat_engine.ollama_client))
+        return service.run_scheduled(
+            self.vault,
+            self.chat_engine.get_structured_records,
+            _scenario_factory(self.vault),
+            mcp=self._agent_runtime().mcp,
+            quarantine_client=worker_client(self.chat_engine.ollama_client),
+        )
 
     def render_agents_page(self) -> None:
         """Render the Agents page (agents, MCP servers, skills, activity)."""
@@ -1403,7 +1477,9 @@ class PersonalAIInterface:
         # no-op, so toggling back off cleanly returns to the light paint.
         theme.apply_app_shell()
 
-        if not st.session_state.get("_schedule_ran"):  # due scheduled jobs run once per session, at app open
+        if not st.session_state.get(
+            "_schedule_ran"
+        ):  # due scheduled jobs run once per session, at app open
             st.session_state["_schedule_ran"] = True
             try:
                 self._run_scheduled()

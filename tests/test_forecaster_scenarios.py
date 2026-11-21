@@ -235,6 +235,8 @@ class RawClient(Client):
     (lambda b: b[:-15], "invalid", "truncated"),
     (lambda b: "I think the outlook is mixed.", "invalid", "not_json"),
     (lambda b: "", "invalid", "empty"),
+    (lambda b: b + "\n" + b, "completed", None),  # small models sometimes repeat the object
+    (lambda b: b.replace('"Mixed."', '"Mixed\nview."'), "completed", None),  # raw newline inside a string
 ])
 def test_specialist_parsing_reports_closed_invalid_reason(render, status, reason):
     report = asyncio.run(ScenarioSwarmService(lambda remaining_seconds: RawClient(render)).analyze(snapshot()))
@@ -259,3 +261,18 @@ def test_agent_settings_reach_the_critic_client_but_slot_rules_stay_first():
     assert seen["temperature"] == .4 and seen["model"] == "small-worker"
     assert seen["max_tokens"] == ForecastSettings().model_max_tokens  # budget cap wins over the agent setting
     assert report.specialists[0].agent_id == "builtin-critic-macro"
+
+
+class LengthClient(RawClient):
+    def chat(self, **kwargs):
+        reply = super().chat(**kwargs)
+        return {**reply, "done_reason": "length"}
+
+
+def test_token_cap_cut_is_reported_truncated_with_closed_diagnostics():
+    report = asyncio.run(ScenarioSwarmService(
+        lambda remaining_seconds: LengthClient(lambda b: b[:40] + "}")).analyze(snapshot()))
+    result = report.specialists[0]
+    assert (result.status, result.invalid_reason, result.finish_reason) == ("invalid", "truncated", "length")
+    assert result.output_chars == 41
+    assert "Mixed" not in json.dumps(result.to_api())  # diagnostics carry no model text
