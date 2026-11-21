@@ -7,6 +7,41 @@ do them in order, one card per branch/PR, and a card is done only when its **Acc
 Course commitments come from the weekly checkpoints and instructor feedback (Weeks 1-6, kept outside the repo in `.idea/`).
 Each card names the feedback it answers (`W5` = Week 5 feedback).
 
+## 00. Start here (handoff for the next session, updated 2026-11-21)
+
+**State.** `main` contains everything through PR #25 (Track F: Forecast overhaul on configurable workflow agents). No open PRs.
+`make test` 770 pass, `make eval` Overall PASS (offline, synthetic). Two laptops: this repo is developed on one without models;
+the app runs with real data and local models (oMLX, Qwen3.8-27B) on the other. **Nothing has been verified on live models yet.**
+
+**Waiting on the user (model laptop), in this order:**
+1. `git pull` → `venv/bin/pip install -U -r requirements.txt` → `venv/bin/pip uninstall -y fastapi` (stray, see
+   `user_testing_guide.md` §0 step 6) → `venv/bin/pip check`.
+2. Restart `make run`; Forecast → AAPL → *Research ticker* → *Run AI review*. Optionally tweak a critic (Agents → Forecast
+   workflow) and run again.
+3. Paste a state report (opencode prompt below). The `<LIVE>` section must list critics completed N/4 with each status,
+   `invalid_reason` and seconds.
+
+**Next card for the agent, decided by that report:**
+
+| Report says | Do |
+|---|---|
+| ≥ 3/4 critics `completed` | Mark F1 live ✓ (§0 diagram + Miro), then **F7 remainder** (LLM news analyst), then **P1** |
+| `timeout` on 2+ critics | Set `PERSONAL_AI_OMLX_WORKER_MODEL` to a small model (user), or raise `PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS`; never drop the deadline |
+| `invalid (truncated)` | Raise the critic agent's max tokens in the Agents tab, up to `FORECAST_MODEL_MAX_TOKENS` (700; ForecastSettings allows ≤ 1024) |
+| `invalid (not_json)` / `(schema)` | Check `omlx_client` honours `format=` (json_schema response_format) on the live server; add a unit test with the observed shape (no model text in fixtures) |
+| `invalid (unknown_evidence)` | Model invents ids: add the evidence-id list explicitly to `SLOT_RULES` user message; keep the validation |
+| oMLX `no (...)` | Fix connectivity first (`state_report.md` §2 explains each error) |
+
+**Opencode prompt for the model laptop** (the user pastes it after each testing session; output is pasted back here, never
+committed): run `make state-report` per `docs/state_report.md`; ask the user once for the user-testing rows, live timings
+(including the AI review critic table), UI document counts, errors (type + file:line); fill only the placeholders; re-read
+against §1 of that doc; print one markdown block.
+
+**How work is done here (learned this session).** One branch + PR per card unless the user asks to batch. If a PR conflicts,
+merge `main` into the branch (force-push is blocked by a local hook; never rebase a pushed branch). After each card: update §0
+diagram, §1 status, the Miro frames named in §0, `CHANGELOG.md`, and `security_design.md` when security behaviour changed.
+The repo is **public**: no personal paths, names, amounts or vault data in docs, tests or fixtures.
+
 ## 0. Where we are (progress journey)
 
 Updated after every card (also mirrored on the Miro board, frame "Progress journey"). Green = done, amber = in progress, grey = planned, blue = needs a live run by the user.
@@ -112,7 +147,7 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 ## 2. Order
 
 **Track F first (user decision 2026-11-21):** `F1 → F2 → F3 → F4 → F5 → F6 → F7 → F8 → F9 → F10`, then
-`P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) then `P9, P10` (user runs live) then `P11` (final packaging).
+**Now:** F1 live check (user) → F7 remainder → `P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) then `P9, P10` (user runs live) then `P11` (final packaging).
 F2-F3 are the agent-slot foundation; F4-F9 rebuild one Forecast section each on top of it.
 P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 so the leakage eval also covers memory reads.
 
@@ -213,12 +248,32 @@ Slots in scope (Forecast first; other pages later):
   per symbol citing evidence ids. "Research" button per row opens F5 for that ticker.
 - **Accept:** AppTest renders 3 symbols; explainer failure degrades to reason codes only.
 
-#### F7. Events (fix + news analyst) — PARTIAL: crash fixed (PR #23), layout + "no agent" chip done; LLM news analyst still PLANNED
+#### F7. Events: LLM news analyst behind quarantine — PARTIAL (crash fixed, layout + "no agent" chip done)
 
-- Diagnose the current failure first (user to paste the screen). Headlines stay untrusted: show title/source/time as escaped text
-  links; the `forecast.news_analyst` slot sees only quarantine output and returns closed-enum sentiment counts per topic (this also
-  delivers roadmap §6 "news into ToT" as an optional `news` driver behind the same schema).
-- **Accept:** injection eval row stays 0; AppTest with a hostile headline renders it inert.
+- **Why:** every AI step should have an agent (user, 2026-11-21); news is the one Forecast step without one. Headlines are
+  untrusted (S1, S16), so the agent may only see quarantine output.
+- **Now:** `forecaster/news.py::NewsService` scores sentiment by keyword (`Story.sentiment`, `directional_bias`,
+  `impact_score`); `forecast_tabs.render_events` shows stories via `st.text`. `orchestration/quarantine.extract_facts(raw, source,
+  schema, client)` returns `Extraction(facts, flagged, error, trust="untrusted")`, rejects instruction-like output and blanks
+  `topic` on flagged input. Pattern to copy: `schemas.EmailFacts` (closed enums, no free text).
+- **Build:**
+  1. `schemas.NewsFacts(Strict)`: `ticker` (ticker pattern or ""), `topic: Literal[earnings, guidance, product, legal,
+     regulation, macro, management, deal, other]`, `sentiment: Literal[positive, neutral, negative]`, `materiality:
+     Literal[low, medium, high]`. No free-text field.
+  2. Slot `forecast.news_analyst` → `builtin-news-analyst` (templates role, skill `untrusted-content-handling`, no tools,
+     temperature 0). The slot's "agent" call **is** `extract_facts` with the agent's model/temperature; its instructions are
+     appended after quarantine's fixed `SYSTEM` (never replace it).
+  3. `forecaster/news_analyst.py::analyze(stories, client, agent, limit=10)`: one `extract_facts` per headline
+     (`title + " — " + publisher`), bounded by `FORECAST_SPECIALIST_CALL_SECONDS` total; returns per-ticker counts
+     `{ticker: {positive, neutral, negative, high_materiality}}` plus `flagged` count. Nothing else leaves the function.
+  4. Events UI: agent chip + *Analyze with AI* button; show the counts table next to the keyword leanings and say where they
+     disagree. Headlines stay `st.text`.
+  5. Optional, after review: feed counts into ToT as the `news` driver (`tot.FAMILY["news"]`), counts only.
+- **Files:** `schemas.py`, `templates.py`, `slots.py`, new `forecaster/news_analyst.py`, `forecast_tabs.py`, tests.
+- **Accept:** unit tests (hostile headline → facts None or topic blank; counts only); `evals/injection.py` run through
+  `news_analyst.analyze` adds a row "News analyst: injected text reaching output" = 0 (hard); AppTest renders the counts and the
+  hostile headline inert; `make eval` PASS.
+- **Don't:** add a free-text field to `NewsFacts`, pass headlines to the critics, or render any model output with markdown.
 
 #### F8. Screens and Technical drilldown — DONE (line chart + SMA; candlestick not added)
 
