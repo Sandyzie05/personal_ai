@@ -112,7 +112,7 @@ adapters cannot reconstruct historical data vintages.
 
 Optional provider configuration lives in `src/config.py`, including
 `PERSONAL_AI_SEC_USER_AGENT` (SEC contact/identification header),
-`PERSONAL_AI_FRED_API_KEY`, and `PERSONAL_AI_ALPHA_VANTAGE_API_KEY`.
+`PERSONAL_AI_FRED_API_KEY`, and `PERSONAL_AI_ALPHA_VANTAGE_API_KEY` (unprefixed `SEC_USER_AGENT`, `FRED_API_KEY`, `ALPHA_VANTAGE_API_KEY` in `.env` also work).
 Without those settings, coverage is reduced explicitly. Keep credentials
 out of source control; do not enter them into forecast prompts.
 

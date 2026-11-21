@@ -200,11 +200,14 @@ FORECAST_MODEL_CALL_BUDGET = 8
 FORECAST_MODEL_MAX_TOKENS = 400
 FORECAST_SNAPSHOT_MAX_CHARS = 18000
 FORECAST_MODEL_OUTPUT_MAX_CHARS = 5000
-FORECAST_SEC_USER_AGENT = os.environ.get("PERSONAL_AI_SEC_USER_AGENT", "")
+# Prefixed names win; the providers' conventional names (as people usually write them in .env) also work.
+FORECAST_SEC_USER_AGENT = os.environ.get("PERSONAL_AI_SEC_USER_AGENT") or os.environ.get("SEC_USER_AGENT", "")
 # Yahoo answers 429 to httpx's default "python-httpx/x" UA. Keep it generic: no name, email or host.
 FORECAST_HTTP_USER_AGENT = os.environ.get("PERSONAL_AI_HTTP_USER_AGENT", "personal_ai/1.0")
-FORECAST_FRED_API_KEY = os.environ.get("PERSONAL_AI_FRED_API_KEY", "")
-FORECAST_ALPHA_VANTAGE_API_KEY = os.environ.get("PERSONAL_AI_ALPHA_VANTAGE_API_KEY", "")
+FORECAST_FRED_API_KEY = os.environ.get("PERSONAL_AI_FRED_API_KEY") or os.environ.get("FRED_API_KEY", "")
+FORECAST_ALPHA_VANTAGE_API_KEY = os.environ.get("PERSONAL_AI_ALPHA_VANTAGE_API_KEY") or os.environ.get(
+    "ALPHA_VANTAGE_API_KEY", ""
+)
 # A forecaster coordinator step covers research + specialist deadlines plus slack.
 FORECAST_STEP_TIMEOUT_SECONDS = (
     FORECAST_RESEARCH_DEADLINE_SECONDS + FORECAST_SCENARIO_DEADLINE_SECONDS + 5

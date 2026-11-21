@@ -16,27 +16,24 @@ vault/Chroma file contents; exception *messages* (type + file:line only); absolu
 **Do not** unlock the vault, read `~/.personal_ai_vault`, `~/.personal_ai_auth` or the Chroma directory, or ask for the password.
 Vault numbers come from the user reading the UI (counts only).
 
-**Self-check before printing:** run the scanner below on the draft and drop every flagged line; then re-read for names/amounts.
+## 2. Generate it (do not hand-collect)
 
 ```bash
-PYTHONPATH=. python3 -c "import sys; from src.agents.orchestration.bus import PII_PATTERNS as P; t=open(sys.argv[1]).read(); [print(k, m) for k,r in P.items() for m in r.findall(t)]" /tmp/state_report.md
+git pull && venv/bin/pip install -q -r requirements.txt   # once per pull: the report checks the venv, not system python
+make state-report            # full: also runs make test, eval, eval-rag, check-context (~2 min)
+make state-report QUICK=1    # machine/engine/config only
 ```
 
-## 2. Commands (run from the repo root; record only the fields in §3)
+`scripts/state_report.py` measures everything machine-readable the same way every time: packages from the **project venv**,
+oMLX reachability through the app's own host and `OMLX_API_KEY` (HTTP status or error type, never the key), effective config
+from `src/config.py` (env + defaults; the Settings page can override), free memory, oMLX RSS, eval result rows. It redacts
+home paths, runs the bus PII scanner on its own output, and restores `evals/results/` afterwards.
 
-| Field | Command |
-|---|---|
-| Code | `git rev-parse --abbrev-ref HEAD`, `git rev-parse --short HEAD`, `git status --porcelain \| wc -l` |
-| Runtime | `python3 --version`; `pip show streamlit chromadb pydantic mcp playwright 2>/dev/null \| grep -E '^(Name\|Version)'` |
-| Machine | `sysctl -n hw.memsize` (GB), `sw_vers -productVersion`, `memory_pressure -Q \| tail -1` |
-| oMLX | `curl -s -m 5 http://127.0.0.1:8000/v1/models` (add `-H "Authorization: Bearer $OMLX_API_KEY"` if needed; **never print the key**); report model ids only |
-| Config | non-secret values of `PERSONAL_AI_LLM_ENGINE`, `PERSONAL_AI_OMLX_CHAT_MODEL`, `PERSONAL_AI_OMLX_EMBED_MODEL`, `PERSONAL_AI_OMLX_WORKER_MODEL`, `PERSONAL_AI_INFERENCE_CONCURRENCY` (print each by name; never dump `env`) |
-| oMLX memory | `ps -o rss= -p $(pgrep -f -n omlx)` before and after the session (GB) |
-| Tests | `make test 2>&1 \| tail -1` |
-| Evals (synthetic, safe to paste) | `make eval` → table from `evals/results/latest.md`; `make eval-rag` → `evals/results/rag_latest.md`; `make eval-live` if oMLX is up |
-| Context | `make check-context` (last 5 lines) |
+The agent only replaces the `<ROWS>`, `<LIVE>`, `<VAULT>`, `<ERRORS>`, `<QUESTIONS>` placeholders with what the user reports,
+then re-reads the whole report against §1. The script loads `.env` like the app does, so keys there count. If oMLX shows `no (HTTP 401 ...)`, the key in `.env`/env is wrong or missing; if
+`no (ConnectionRefusedError)`, nothing listens on the configured host/port.
 
-## 3. Report template (fill exactly this; leave a field `n/a` rather than guess)
+## 3. Report template (reference: what the script prints)
 
 ```markdown
 # State report: <host alias, e.g. "model-laptop">, <YYYY-MM-DD HH:MM>
