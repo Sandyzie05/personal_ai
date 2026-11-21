@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:42:15+00:00",
+  "generated_at": "2026-11-21T18:46:01+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.4,
+      "measured": 0.404,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.669,
+      "measured": 0.666,
       "pass": true,
       "hard": false
     },
@@ -203,6 +203,13 @@
       "measured": "0 (190 msgs, 190 log, 40 egress, 180 forced)",
       "pass": true,
       "hard": true
+    },
+    {
+      "metric": "Composed leakage: canaries outside allowed sinks (multi-hop, memory, merge) (P4)",
+      "target": "0",
+      "measured": "0 (60 runs, 570 sinks, 90 hops)",
+      "pass": true,
+      "hard": true
     }
   ],
   "all_pass": true,
@@ -228,13 +235,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.4,
+        "ratio": 0.404,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.669,
+        "ratio": 0.666,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3
