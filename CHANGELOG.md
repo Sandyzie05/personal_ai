@@ -8,7 +8,10 @@
 
 - The first hand-collected report was wrong: system python instead of the venv (packages "n/a", pytest "missing"), a bare curl
   without the oMLX key reported "not reachable", and "memory pressure" was actually free memory. `scripts/state_report.py`
-  now measures these the same way the app does; the agent only fills user-reported sections. Smoke test `test_state_report.py`.
+  now measures these the same way the app does (it loads `.env` like `main.py`); the agent only fills user-reported sections.
+  Smoke test `test_state_report.py`.
+- Forecast keys: `.env` entries named `FRED_API_KEY`, `ALPHA_VANTAGE_API_KEY`, `SEC_USER_AGENT` were ignored (the app only read the
+  `PERSONAL_AI_` names), so FRED/SEC showed `not_configured`. Both names now work; the prefixed one wins.
 
 ## (pending) - 2026-11-20 - docs: consolidate docs, add executable roadmap (Week 6 feedback)
 

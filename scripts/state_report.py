@@ -86,6 +86,9 @@ def results_table(path):
 
 def main(quick: bool) -> str:
     sys.path.insert(0, str(ROOT))
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")  # same as the app (main.py), before src.config reads env
     from src import config as c
     from src.agents.orchestration.bus import PII_PATTERNS
 
@@ -135,9 +138,10 @@ branch: {branch} | commit: {commit} | modified tracked files: {changed.replace(c
 python: {platform.python_version()} ({venv}) | {versions()}
 ## Machine and engine
 RAM: {int(mem) // 2**30 if mem.isdigit() else "n/a"} GB | macOS: {platform.mac_ver()[0]} | memory free: {free_pct}% (memory_pressure -Q) | oMLX RSS: {omlx_rss_gb()}
-oMLX ({c.PERSONAL_AI_OMLX_HOST}) reachable: {reach} | API key in this shell: {"yes" if os.environ.get("omlx_api_key") or os.environ.get("OMLX_API_KEY") else "no"}
+oMLX ({c.PERSONAL_AI_OMLX_HOST}) reachable: {reach} | oMLX key loaded (env or .env): {"yes" if os.environ.get("omlx_api_key") or os.environ.get("OMLX_API_KEY") else "no"}
 models served: {models}
 config (env/defaults; the Settings page can override): engine={c.PERSONAL_AI_LLM_ENGINE}, embed_engine={c.PERSONAL_AI_EMBED_ENGINE}, chat={c.PERSONAL_AI_OMLX_CHAT_MODEL}, embed={c.PERSONAL_AI_OMLX_EMBED_MODEL}, worker={c.PERSONAL_AI_OMLX_WORKER_MODEL or "(= chat)"}, concurrency={c.PERSONAL_AI_INFERENCE_CONCURRENCY}, context_window={c.DEFAULT_CONTEXT_WINDOW_TOKENS}, ollama_enabled={c.OLLAMA_ENABLED}
+forecast sources configured (yes/no only): fred={"yes" if c.FORECAST_FRED_API_KEY else "no"}, alpha_vantage={"yes" if c.FORECAST_ALPHA_VANTAGE_API_KEY else "no"}, sec_user_agent={"yes" if c.FORECAST_SEC_USER_AGENT else "no"}
 ## Automated checks
 """
         + "\n".join(checks)

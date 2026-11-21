@@ -137,7 +137,7 @@ market-research-brief, untrusted-content-handling, conflict-escalation, forecast
 | `PERSONAL_AI_INFERENCE_CONCURRENCY` | `2` | App-wide cap on in-flight chat requests to the local server (all agents share it); see `ai_engine.md` "Memory budget" |
 | `PERSONAL_AI_OMLX_WORKER_MODEL` | unset (= chat model) | Optional smaller model for background roles: forecast specialists/ToT critics, quarantine extractor, verifier, planner |
 | `PERSONAL_AI_SKILLS_DIR` | `~/.personal_ai/skills` | skills install dir |
-| `PERSONAL_AI_FRED_API_KEY`, `..._ALPHA_VANTAGE_API_KEY`, `..._SEC_USER_AGENT` | unset | optional forecaster sources |
+| `PERSONAL_AI_FRED_API_KEY`, `..._ALPHA_VANTAGE_API_KEY`, `..._SEC_USER_AGENT` (or unprefixed `FRED_API_KEY`, `ALPHA_VANTAGE_API_KEY`, `SEC_USER_AGENT`) | unset | optional forecaster sources; `.env` is loaded by the app and by `make state-report` |
 
 ## 5. Success criteria and measured evidence
 

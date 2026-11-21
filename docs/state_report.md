@@ -30,7 +30,7 @@ from `src/config.py` (env + defaults; the Settings page can override), free memo
 home paths, runs the bus PII scanner on its own output, and restores `evals/results/` afterwards.
 
 The agent only replaces the `<ROWS>`, `<LIVE>`, `<VAULT>`, `<ERRORS>`, `<QUESTIONS>` placeholders with what the user reports,
-then re-reads the whole report against §1. If oMLX shows `no (HTTP 401 ...)`, export `OMLX_API_KEY` in that shell and rerun; if
+then re-reads the whole report against §1. The script loads `.env` like the app does, so keys there count. If oMLX shows `no (HTTP 401 ...)`, the key in `.env`/env is wrong or missing; if
 `no (ConnectionRefusedError)`, nothing listens on the configured host/port.
 
 ## 3. Report template (reference: what the script prints)
