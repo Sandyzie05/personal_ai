@@ -17,7 +17,11 @@ Horizon = Literal[5, 21]
 Exchange = Literal["XNYS", "XNAS"]
 PriceConvention = Literal["unadjusted_close", "split_dividend_adjusted_close"]
 SourceId = Literal[
-    "yahoo-chart", "yahoo-news", "alpha-vantage", "sec-edgar", "fred",
+    "yahoo-chart",
+    "yahoo-news",
+    "alpha-vantage",
+    "sec-edgar",
+    "fred",
     "curated-ai-infrastructure-theme",
 ]
 
@@ -56,16 +60,24 @@ class TradingSession(Contract):
 
     @model_validator(mode="after")
     def local_date(self):
-        if self.closes_at.astimezone(ZoneInfo("America/New_York")).date() != self.session:
-            raise ValueError("close timestamp must fall on declared New York session date")
+        if (
+            self.closes_at.astimezone(ZoneInfo("America/New_York")).date()
+            != self.session
+        ):
+            raise ValueError(
+                "close timestamp must fall on declared New York session date"
+            )
         return self
 
 
 def ordered_sessions(value):
     days = [item.session for item in value]
     closes = [item.closes_at for item in value]
-    if (days != sorted(set(days)) or closes != sorted(set(closes))
-            or len({item.exchange for item in value}) > 1):
+    if (
+        days != sorted(set(days))
+        or closes != sorted(set(closes))
+        or len({item.exchange for item in value}) > 1
+    ):
         raise ValueError("sessions must be unique, chronological and from one exchange")
     return value
 
@@ -200,8 +212,15 @@ class MarketData(Contract):
 class ProviderIssue(Contract):
     source_id: SourceId
     code: Literal[
-        "unavailable", "transport", "timeout", "http", "schema", "budget",
-        "unsupported_as_of", "not_configured", "incomplete",
+        "unavailable",
+        "transport",
+        "timeout",
+        "http",
+        "schema",
+        "budget",
+        "unsupported_as_of",
+        "not_configured",
+        "incomplete",
     ]
     message: str = Field(min_length=1, max_length=200)
 
@@ -252,7 +271,11 @@ class EvidenceSnapshot(Contract):
             raise ValueError("cutoff exceeds snapshot creation")
         if self.market and self.market.symbol != self.symbol:
             raise ValueError("snapshot market symbol mismatch")
-        if self.market and self.sessions and self.sessions[0].exchange != self.market.exchange:
+        if (
+            self.market
+            and self.sessions
+            and self.sessions[0].exchange != self.market.exchange
+        ):
             raise ValueError("snapshot schedule exchange mismatch")
         ids = [item.evidence_id for item in self.evidence]
         if len(ids) != len(set(ids)):
@@ -285,6 +308,8 @@ class HorizonPrediction(Contract):
     outlook: Literal["bullish", "mixed", "bearish"]
     expected_excess_return_pct: float = Field(allow_inf_nan=False)
     reasoning: tuple[str, ...]
+    # signal -> (input value, signed contribution to heuristic_score); empty on records saved before it existed.
+    drivers: dict[str, tuple[float, float]] = Field(default_factory=dict)
     score_kind: Literal["uncalibrated_heuristic"] = "uncalibrated_heuristic"
 
 

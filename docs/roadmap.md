@@ -10,10 +10,13 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 ## 00. Start here (handoff for the next session, updated 2026-11-21)
 
 **State.** `main` contains everything through PR #25 (Track F: Forecast overhaul on configurable workflow agents). No open PRs.
-`make test` 770 pass, `make eval` Overall PASS (offline, synthetic). Two laptops: this repo is developed on one without models;
+`make test` 772 pass, `make eval` Overall PASS (offline, synthetic). Two laptops: this repo is developed on one without models;
 the app runs with real data and local models (oMLX, Qwen3.8-27B) on the other. **Nothing has been verified on live models yet.**
+AI-review critics now default to `Qwen3-4B-Instruct-2507-MLX-8bit` (`PERSONAL_AI_FORECAST_CRITIC_MODEL`).
 
 **Waiting on the user (model laptop), in this order:**
+0. Download `lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit` into oMLX; confirm its id in `curl 127.0.0.1:8000/v1/models`
+   (if it differs, `export PERSONAL_AI_FORECAST_CRITIC_MODEL=<id>`). A saved critic tweak with a model keeps that model.
 1. `git pull` → `venv/bin/pip install -U -r requirements.txt` → `venv/bin/pip uninstall -y fastapi` (stray, see
    `user_testing_guide.md` §0 step 6) → `venv/bin/pip check`.
 2. Restart `make run`; Forecast → AAPL → *Research ticker* → *Run AI review*. Optionally tweak a critic (Agents → Forecast
@@ -26,7 +29,7 @@ the app runs with real data and local models (oMLX, Qwen3.8-27B) on the other. *
 | Report says | Do |
 |---|---|
 | ≥ 3/4 critics `completed` | Mark F1 live ✓ (§0 diagram + Miro), then **F7 remainder** (LLM news analyst), then **P1** |
-| `timeout` on 2+ critics | Set `PERSONAL_AI_OMLX_WORKER_MODEL` to a small model (user), or raise `PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS`; never drop the deadline |
+| `timeout` on 2+ critics | Check critics actually run on the 4B (agent chip); else `PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS`; never drop the deadline |
 | `invalid (truncated)` | Raise the critic agent's max tokens in the Agents tab, up to `FORECAST_MODEL_MAX_TOKENS` (700; ForecastSettings allows ≤ 1024) |
 | `invalid (not_json)` / `(schema)` | Check `omlx_client` honours `format=` (json_schema response_format) on the live server; add a unit test with the observed shape (no model text in fixtures) |
 | `invalid (unknown_evidence)` | Model invents ids: add the evidence-id list explicitly to `SLOT_RULES` user message; keep the validation |

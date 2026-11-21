@@ -78,7 +78,7 @@ def prediction(sessions=()):
         horizons=(HorizonPrediction(
             horizon_sessions=5, heuristic_score=.5, downside_score=.5, coverage=.5,
             outlook="mixed", expected_excess_return_pct=1,
-            reasoning=("Synthetic partial coverage",),
+            reasoning=("Synthetic partial coverage",), drivers={"price trend": (.2, .024)},
         ),),
         events=(), theme_exposures=(),
         source_provenance=(DataSourceProfile(
@@ -162,7 +162,9 @@ def test_invalid_ticker_never_reaches_public_provider(page):
 def test_research_shows_provenance_partial_status_and_no_automatic_save(page):
     at = research_page(page)
     assert any("partial" in item.value for item in at.subheader)
-    assert any("Provider provenance" in item.value for item in at.subheader)
+    assert any("source" in df.value.columns and "Synthetic source" in df.value["source"].tolist() for df in at.dataframe)
+    assert any("signal" in df.value.columns for df in at.dataframe)
+    assert not any("Synthetic source" in str(j.value) for j in at.json)  # provenance is a table, not raw JSON
     assert any("Uncalibrated" in item.value for item in at.warning)
     assert at.session_state["synthetic_vault"].writes == []
     assert "Save forecast" not in [button.label for button in at.button]

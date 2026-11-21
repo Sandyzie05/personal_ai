@@ -31,6 +31,7 @@ How retrieval quality is being improved: [rag_design.md](rag_design.md).
 | `PERSONAL_AI_OMLX_TOOLS` | `true` | Declare tool-calling support (oMLX exposes no capability flags) |
 | `PERSONAL_AI_INFERENCE_CONCURRENCY` | `2` | App-wide cap on in-flight chat requests to the local server (all agents share it); see "Memory budget" |
 | `PERSONAL_AI_OMLX_WORKER_MODEL` | unset (= chat model) | Optional smaller model for background roles: forecast specialists/ToT critics, quarantine extractor, verifier, planner |
+| `PERSONAL_AI_FORECAST_CRITIC_MODEL` | `Qwen3-4B-Instruct-2507-MLX-8bit` | Default model of the 4 AI-review critics (`builtin-critic-*`; download `lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit`, ~4.3 GB). Non-thinking, so no `<think>` eats the 700-token cap. `""` = worker/chat model; an Agents-tab tweak wins |
 | `PERSONAL_AI_CONTEXT_WINDOW_TOKENS` | `8192` | Prompt budget |
 | `PERSONAL_AI_EMBED_BATCH_SIZE` | `32` | Texts per embeddings request |
 | `PERSONAL_AI_RAG_HYBRID` | `true` | Dense + BM25 fusion |

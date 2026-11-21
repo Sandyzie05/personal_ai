@@ -52,10 +52,17 @@ PERSONAL_AI_OMLX_EMBED_MODEL = os.environ.get(
 # Local-hardware guards (docs/ai_engine.md "Memory budget"). All agents share ONE local server, so agent count does not
 # load more models; concurrent requests do (each in-flight request holds its own KV cache in unified memory).
 # This caps in-flight chat requests across the whole app process.
-PERSONAL_AI_INFERENCE_CONCURRENCY = max(1, int(os.environ.get("PERSONAL_AI_INFERENCE_CONCURRENCY", "2")))
+PERSONAL_AI_INFERENCE_CONCURRENCY = max(
+    1, int(os.environ.get("PERSONAL_AI_INFERENCE_CONCURRENCY", "2"))
+)
 # Optional smaller model for background roles (forecast specialists/ToT critics, quarantine extractor, verifier,
 # planner). Unset = reuse the chat model: one resident model is the smallest footprint.
 PERSONAL_AI_OMLX_WORKER_MODEL = os.environ.get("PERSONAL_AI_OMLX_WORKER_MODEL", "")
+# Default model of the 4 AI-review critics (forecast.critic.*): a small non-thinking instruct model so the JSON answer
+# is not truncated by <think> and 4 calls fit the deadline. oMLX id = model directory name. "" = worker/chat model.
+PERSONAL_AI_FORECAST_CRITIC_MODEL = os.environ.get(
+    "PERSONAL_AI_FORECAST_CRITIC_MODEL", "Qwen3-4B-Instruct-2507-MLX-8bit"
+)
 
 # Default generation temperature for grounded QA. 0.7 (the old default) is too
 # free-wheeling for an assistant that must answer strictly from retrieved
@@ -197,7 +204,9 @@ FORECAST_CACHE_MAX_ENTRIES = 64
 FORECAST_RESEARCH_DEADLINE_SECONDS = 45.0
 # 4 critics share PERSONAL_AI_INFERENCE_CONCURRENCY slots, so the run budget covers ceil(4 / slots) rounds of one call
 # each (a 60 s total let the second pair time out on a 27B model). Explainer calls get one more round.
-FORECAST_SPECIALIST_CALL_SECONDS = float(os.environ.get("PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS", "45"))
+FORECAST_SPECIALIST_CALL_SECONDS = float(
+    os.environ.get("PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS", "45")
+)
 FORECAST_SCENARIO_DEADLINE_SECONDS = min(
     300.0, -(-4 // PERSONAL_AI_INFERENCE_CONCURRENCY) * FORECAST_SPECIALIST_CALL_SECONDS
 )
@@ -206,13 +215,19 @@ FORECAST_MODEL_MAX_TOKENS = 700  # 400 truncated reasoning-model JSON
 FORECAST_SNAPSHOT_MAX_CHARS = 18000
 FORECAST_MODEL_OUTPUT_MAX_CHARS = 5000
 # Prefixed names win; the providers' conventional names (as people usually write them in .env) also work.
-FORECAST_SEC_USER_AGENT = os.environ.get("PERSONAL_AI_SEC_USER_AGENT") or os.environ.get("SEC_USER_AGENT", "")
+FORECAST_SEC_USER_AGENT = os.environ.get(
+    "PERSONAL_AI_SEC_USER_AGENT"
+) or os.environ.get("SEC_USER_AGENT", "")
 # Yahoo answers 429 to httpx's default "python-httpx/x" UA. Keep it generic: no name, email or host.
-FORECAST_HTTP_USER_AGENT = os.environ.get("PERSONAL_AI_HTTP_USER_AGENT", "personal_ai/1.0")
-FORECAST_FRED_API_KEY = os.environ.get("PERSONAL_AI_FRED_API_KEY") or os.environ.get("FRED_API_KEY", "")
-FORECAST_ALPHA_VANTAGE_API_KEY = os.environ.get("PERSONAL_AI_ALPHA_VANTAGE_API_KEY") or os.environ.get(
-    "ALPHA_VANTAGE_API_KEY", ""
+FORECAST_HTTP_USER_AGENT = os.environ.get(
+    "PERSONAL_AI_HTTP_USER_AGENT", "personal_ai/1.0"
 )
+FORECAST_FRED_API_KEY = os.environ.get("PERSONAL_AI_FRED_API_KEY") or os.environ.get(
+    "FRED_API_KEY", ""
+)
+FORECAST_ALPHA_VANTAGE_API_KEY = os.environ.get(
+    "PERSONAL_AI_ALPHA_VANTAGE_API_KEY"
+) or os.environ.get("ALPHA_VANTAGE_API_KEY", "")
 # A forecaster coordinator step covers research + specialist deadlines plus slack.
 FORECAST_STEP_TIMEOUT_SECONDS = (
     FORECAST_RESEARCH_DEADLINE_SECONDS + FORECAST_SCENARIO_DEADLINE_SECONDS + 5
