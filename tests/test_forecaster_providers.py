@@ -147,6 +147,23 @@ def test_native_http_boundary_rejects_redirect_type_and_size(monkeypatch, respon
     assert requests[0].url.host == "query1.finance.yahoo.com"
 
 
+def test_yahoo_gets_generic_user_agent_not_httpx_default(monkeypatch):
+    import httpx
+    original = httpx.AsyncClient
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers.get("user-agent"))
+        return httpx.Response(429, headers={"content-type": "application/json"}, content=b"{}")
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(
+        transport=httpx.MockTransport(handler), **kwargs))
+    result = asyncio.run(PublicDataProviders().market(ResearchRequest(symbol="AAPL")))
+    assert seen and all(ua == "personal_ai/1.0" for ua in seen)
+    assert result.issues[0].code == "transport"
+    assert "HTTP 429" in result.issues[0].message
+
+
 def test_cache_monotonic_expiry_and_capacity():
     now = [0]
     cache = TTLCache(max_entries=2, ttl_seconds=2, clock=lambda: now[0])

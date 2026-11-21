@@ -22,6 +22,7 @@ Design decisions (docs/multi_agent_design.md D2/D5):
 
 import asyncio
 import json
+import logging
 import threading
 import webbrowser
 from dataclasses import dataclass
@@ -85,6 +86,12 @@ class _NeedsAuth(McpError):
 
     def __init__(self):
         super().__init__("authorization required", needs_auth=True)
+
+
+# The SDK logs a full traceback for our expected non-interactive "needs auth" signal; the UI already shows it.
+logging.getLogger("mcp.client.auth.oauth2").addFilter(
+    lambda r: not (r.exc_info and isinstance(r.exc_info[1], _NeedsAuth))
+)
 
 
 @dataclass
