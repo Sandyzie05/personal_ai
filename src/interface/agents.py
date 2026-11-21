@@ -62,8 +62,7 @@ def _ollama_client(ollama_client: Optional[Any], vault: Any) -> Any:
 @st.dialog("Delete this agent?")
 def _delete_agent_dialog(vault: Any, agent_id: str, agent_name: str) -> None:
     st.write(
-        f"This permanently deletes the **{agent_name}** agent. "
-        "This cannot be undone."
+        f"This permanently deletes the **{agent_name}** agent. This cannot be undone."
     )
     confirm_col, cancel_col = st.columns(2)
     with confirm_col:
@@ -127,30 +126,108 @@ def _model_options(clients: Any, current: str) -> List[str]:
     return models
 
 
+def _tool_picker(
+    server_ids, server_labels, agent, builtin, tool_lister, k
+) -> Dict[str, List[str]]:
+    """Per attached server, the exact tools this agent may call (deny by default). Built-in agents only see read
+    tools. Tool lists are cached per server for the session; Refresh re-lists."""
+    saved = agent.get("mcp_tools") or {}
+    out: Dict[str, List[str]] = {}
+    for sid in server_ids:
+        cache_key = f"agent_tool_list_{sid}"
+        if tool_lister is not None and (
+            cache_key not in st.session_state
+            or st.session_state.get(f"{cache_key}_refresh")
+        ):
+            st.session_state.pop(f"{cache_key}_refresh", None)
+            try:
+                st.session_state[cache_key] = [
+                    (t.name, bool(t.is_write), t.description or "")
+                    for t in tool_lister(sid)
+                ]
+            except Exception as exc:
+                st.session_state[cache_key] = None
+                st.caption(
+                    f"Could not list tools for {server_labels.get(sid, sid)}: {str(exc)[:160]}"
+                )
+        listed = st.session_state.get(cache_key) or [
+            (n, False, "") for n in saved.get(sid, [])
+        ]
+        if builtin:
+            listed = [t for t in listed if not t[1]]
+        writes = {n for n, w, _ in listed if w}
+        names = [n for n, _, _ in listed]
+        out[sid] = st.multiselect(
+            f"Tools from {server_labels.get(sid, sid)} (none selected = no tools)",
+            names,
+            default=[n for n in saved.get(sid, []) if n in names],
+            format_func=lambda n: f"{n} (write)" if n in writes else n,
+            key=k(f"tools_{sid}"),
+            help="Pick only what this agent's job needs. Selecting a write tool turns on the approval gate"
+            + ("." if not builtin else "; system agents get read tools only."),
+        )
+        if st.button(
+            "Refresh tool list",
+            key=k(f"tools_refresh_{sid}"),
+            icon=":material/refresh:",
+        ):
+            st.session_state[f"{cache_key}_refresh"] = True
+            st.rerun()
+        if out[sid] and writes & set(out[sid]):
+            st.caption(
+                ":material/warning: Write tools selected: each call pauses for your approval."
+            )
+    return out
+
+
+def _has_write(mcp_tools: Dict[str, List[str]]) -> bool:
+    writes = {
+        n
+        for sid in mcp_tools
+        for n, w, _ in (st.session_state.get(f"agent_tool_list_{sid}") or [])
+        if w
+    }
+    return any(
+        n in writes or McpManager.is_sensitive_tool(n)
+        for names in mcp_tools.values()
+        for n in names
+    )
+
+
 def _agent_form(
     clients: Any,
     details: Dict[str, Any],
     servers: List[Dict[str, Any]],
     agent: Optional[Dict[str, Any]],
     key_prefix: str,
+    tool_lister: Optional[Callable[[str], List[Any]]] = None,
 ) -> Dict[str, Any]:
     """The create/edit agent form. Returns the collected fields; the caller
     renders the single Save button and validates/persists."""
     k = lambda name: f"{key_prefix}_{name}"
     base = store.new_agent_defaults()
     agent = agent or base
-    builtin = bool(agent.get("built_in")) and str(agent.get("id", "")).startswith("builtin-")
+    builtin = bool(agent.get("built_in")) and str(agent.get("id", "")).startswith(
+        "builtin-"
+    )
     if builtin:
-        st.caption("System agent: identity, role rules, tool limits and the shared safety rules are fixed. "
-                   "You can tweak the model, temperature, max tokens, extra instructions, skills"
-                   + (" and tool servers." if agent.get("max_tool_rounds") else ".")
-                   + " Reset restores the shipped defaults.")
+        st.caption(
+            "System agent: identity, role rules, tool limits and the shared safety rules are fixed. "
+            "You can tweak the model, temperature, max tokens, extra instructions, skills"
+            + (" and tool servers." if agent.get("max_tool_rounds") else ".")
+            + " Reset restores the shipped defaults."
+        )
         with st.expander("Fixed role rules", expanded=False):
             st.text(agent.get("role_rules", ""))
 
-    name = st.text_input("Name", value=agent.get("name", ""), key=k("name"), disabled=builtin)
+    name = st.text_input(
+        "Name", value=agent.get("name", ""), key=k("name"), disabled=builtin
+    )
     description = st.text_input(
-        "Description", value=agent.get("description", ""), key=k("description"), disabled=builtin
+        "Description",
+        value=agent.get("description", ""),
+        key=k("description"),
+        disabled=builtin,
     )
     icon = st.text_input(
         "Icon (Material Symbol)",
@@ -160,7 +237,9 @@ def _agent_form(
     )
 
     capabilities = clients.model_capabilities()
-    current = agent.get("model") or ("" if builtin and not agent.get("model") else DEFAULT_CHAT_MODEL)
+    current = agent.get("model") or (
+        "" if builtin and not agent.get("model") else DEFAULT_CHAT_MODEL
+    )
     models = _model_options(clients, current or DEFAULT_CHAT_MODEL)
     if builtin and "" not in models:
         models = [""] + models  # "" = the app's configured (worker) model
@@ -168,8 +247,11 @@ def _agent_form(
         "Model",
         models,
         index=models.index(current) if current in models else 0,
-        format_func=lambda m: "App default (configured chat / worker model)" if not m
-        else f"{m} (tools)" if "tools" in capabilities.get(m, []) else m,
+        format_func=lambda m: "App default (configured chat / worker model)"
+        if not m
+        else f"{m} (tools)"
+        if "tools" in capabilities.get(m, [])
+        else m,
         key=k("model"),
     )
 
@@ -218,9 +300,12 @@ def _agent_form(
         )
 
     instructions = st.text_area(
-        "Extra instructions (added after the role rules, before the safety rules)" if builtin
+        "Extra instructions (added after the role rules, before the safety rules)"
+        if builtin
         else "Instructions (added to the agent's system prompt)",
-        value=agent.get("extra_instructions", "") if builtin else agent.get("instructions", ""),
+        value=agent.get("extra_instructions", "")
+        if builtin
+        else agent.get("instructions", ""),
         height=120,
         key=k("instructions"),
     )
@@ -235,9 +320,7 @@ def _agent_form(
         "RAG scope (empty = all categories)",
         category_keys(),
         default=[
-            c
-            for c in (agent.get("rag_scope_categories") or [])
-            if c in category_keys()
+            c for c in (agent.get("rag_scope_categories") or []) if c in category_keys()
         ],
         format_func=lambda c: get_category(c).label,
         disabled=not rag_enabled,
@@ -249,11 +332,14 @@ def _agent_form(
     server_ids = st.multiselect(
         "MCP tool servers (empty = no tools)",
         server_options,
-        default=[sid for sid in (agent.get("mcp_server_ids") or []) if sid in server_options],
+        default=[
+            sid for sid in (agent.get("mcp_server_ids") or []) if sid in server_options
+        ],
         format_func=lambda sid: server_labels.get(sid, sid),
         key=k("servers"),
         disabled=builtin and not agent.get("max_tool_rounds"),
     )
+    mcp_tools = _tool_picker(server_ids, server_labels, agent, builtin, tool_lister, k)
 
     skill_list = skills.list_skills()
     skill_labels = {s["slug"]: s["name"] for s in skill_list}
@@ -302,9 +388,11 @@ def _agent_form(
         "rag_enabled": bool(rag_enabled),
         "rag_scope_categories": list(scope),
         "mcp_server_ids": list(server_ids),
+        "mcp_tools": mcp_tools,
         "skills": list(skill_slugs),
         "max_tool_rounds": int(max_rounds),
-        "require_tool_confirmation": bool(require_confirm),
+        # Any selected write tool forces the confirmation gate on.
+        "require_tool_confirmation": bool(require_confirm) or _has_write(mcp_tools),
     }
 
 
@@ -320,15 +408,30 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
             st.session_state["agents_editing_id"] = "new"
             st.rerun()
 
-    st.session_state.setdefault("agents_group", "My agents")  # set via session state (agent chips jump here), so no default=
-    group = st.segmented_control(
-        "Show", ["My agents", "Forecast workflow", "Platform"], key="agents_group"
-    ) or "My agents"
-    agents = ([store.general_agent()] + custom if group == "My agents"
-              else [a for a in system if a.get("group") == ("Forecast" if group == "Forecast workflow" else "Platform")])
+    st.session_state.setdefault(
+        "agents_group", "My agents"
+    )  # set via session state (agent chips jump here), so no default=
+    group = (
+        st.segmented_control(
+            "Show", ["My agents", "Forecast workflow", "Platform"], key="agents_group"
+        )
+        or "My agents"
+    )
+    agents = (
+        [store.general_agent()] + custom
+        if group == "My agents"
+        else [
+            a
+            for a in system
+            if a.get("group")
+            == ("Forecast" if group == "Forecast workflow" else "Platform")
+        ]
+    )
     if group == "Forecast workflow":
-        st.caption("These agents run the Forecast page's AI steps. Each step uses its agent here; tweak them to change "
-                   "model, temperature or instructions. Tools, output format and time budget are fixed per step.")
+        st.caption(
+            "These agents run the Forecast page's AI steps. Each step uses its agent here; tweak them to change "
+            "model, temperature or instructions. Tools, output format and time budget are fixed per step."
+        )
 
     for agent in agents:
         with st.container(border=True):
@@ -342,14 +445,14 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
                 if agent.get("description"):
                     st.caption(agent["description"])
                 attached = [
-                    s
-                    for s in servers
-                    if s["id"] in (agent.get("mcp_server_ids") or [])
+                    s for s in servers if s["id"] in (agent.get("mcp_server_ids") or [])
                 ]
                 st.caption(
                     f"Model {agent.get('model') or 'app default'} · "
-                    f"{len(attached)} tool server(s) · "
-                    f"RAG {'on' if agent.get('rag_enabled') else 'off'} · "
+                    f"{len(attached)} tool server(s), "
+                    f"{sum(len((agent.get('mcp_tools') or {}).get(s['id']) or []) for s in attached)} tool(s) allowed · "
+                    + (f"{agent['tools_note']} · " if agent.get("tools_note") else "")
+                    + f"RAG {'on' if agent.get('rag_enabled') else 'off'} · "
                     f"skills: {len(agent.get('skills') or [])}"
                 )
             with actions_col:
@@ -357,14 +460,20 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
                     if st.button("Tweak", key=f"agent_edit_{agent['id']}"):
                         st.session_state["agents_editing_id"] = agent["id"]
                         st.rerun()
-                    if agent.get("tweaked") and st.button("Reset", key=f"agent_reset_{agent['id']}"):
+                    if agent.get("tweaked") and st.button(
+                        "Reset", key=f"agent_reset_{agent['id']}"
+                    ):
                         store.reset_agent(vault, agent["id"])
                         st.rerun()
                 elif not agent.get("built_in"):
                     if st.button("Edit", key=f"agent_edit_{agent['id']}"):
                         st.session_state["agents_editing_id"] = agent["id"]
                         st.rerun()
-                    if st.button("Delete", icon=":material/delete:", key=f"agent_del_{agent['id']}"):
+                    if st.button(
+                        "Delete",
+                        icon=":material/delete:",
+                        key=f"agent_del_{agent['id']}",
+                    ):
                         _delete_agent_dialog(vault, agent["id"], agent["name"])
 
     if editing is not None:
@@ -374,9 +483,20 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
             if existing is None:
                 st.session_state.pop("agents_editing_id", None)
                 st.rerun()
-        title = "New Agent" if existing is None else f"{'Tweak' if existing.get('built_in') else 'Edit'} {existing['name']}"
+        title = (
+            "New Agent"
+            if existing is None
+            else f"{'Tweak' if existing.get('built_in') else 'Edit'} {existing['name']}"
+        )
         with st.expander(f":material/edit: {title}", expanded=True):
-            fields = _agent_form(clients, details, servers, existing, key_prefix=editing)
+            fields = _agent_form(
+                clients,
+                details,
+                servers,
+                existing,
+                key_prefix=editing,
+                tool_lister=_mcp_manager(vault).list_tools,
+            )
             save_col, cancel_col = st.columns([1, 1])
             with save_col:
                 label = "Create agent" if existing is None else "Save changes"
@@ -402,9 +522,7 @@ def _render_agents_tab(vault: Any, clients: Any) -> None:
 
 def _render_mcp_add_form(vault: Any) -> None:
     name = st.text_input("Name", key="mcp_new_name", placeholder="Robinhood Trading")
-    kind = st.radio(
-        "Kind", ["remote", "stdio"], horizontal=True, key="mcp_new_kind"
-    )
+    kind = st.radio("Kind", ["remote", "stdio"], horizontal=True, key="mcp_new_kind")
     url = command = args_text = ""
     if kind == "remote":
         url = st.text_input(
@@ -413,9 +531,7 @@ def _render_mcp_add_form(vault: Any) -> None:
             placeholder="https://agent.robinhood.com/mcp/trading",
         )
     else:
-        command = st.text_input(
-            "Command", key="mcp_new_command", placeholder="npx"
-        )
+        command = st.text_input("Command", key="mcp_new_command", placeholder="npx")
         args_text = st.text_input(
             "Arguments (space-separated)",
             key="mcp_new_args",
@@ -450,7 +566,9 @@ def _render_mcp_add_form(vault: Any) -> None:
         st.rerun()
 
 
-def _render_mcp_server_card(vault: Any, manager: McpManager, server: Dict[str, Any]) -> None:
+def _render_mcp_server_card(
+    vault: Any, manager: McpManager, server: Dict[str, Any]
+) -> None:
     server_id = server["id"]
     status = server.get("last_status")
     icon, label = _SERVER_STATUS.get(status, (":material/help:", "Not connected"))
@@ -494,14 +612,16 @@ def _render_mcp_server_card(vault: Any, manager: McpManager, server: Dict[str, A
                 use_container_width=True,
                 key=f"mcp_auth_{server_id}",
             ):
-                if server.get("kind") == "remote" and not manager.has_stored_credentials(
-                    server_id
-                ):
+                if server.get(
+                    "kind"
+                ) == "remote" and not manager.has_stored_credentials(server_id):
                     st.caption(
                         f"This opens your browser to sign in. It waits up to "
                         f"{MCP_OAUTH_TIMEOUT_SECONDS}s for you to finish."
                     )
-                with st.status(f"Connecting to {server.get('name', server_id)}...", expanded=True):
+                with st.status(
+                    f"Connecting to {server.get('name', server_id)}...", expanded=True
+                ):
                     try:
                         manager.connect(server_id, interactive=True)
                     except McpError as exc:
@@ -527,10 +647,14 @@ def _render_mcp_server_card(vault: Any, manager: McpManager, server: Dict[str, A
                 use_container_width=True,
                 key=f"mcp_del_{server_id}",
             ):
-                _delete_mcp_server_dialog(vault, server_id, server.get("name", server_id))
+                _delete_mcp_server_dialog(
+                    vault, server_id, server.get("name", server_id)
+                )
 
         if server.get("enabled", False):
-            with st.expander(f":material/construction: Tools ({server.get('tool_count') or '?'})"):
+            with st.expander(
+                f":material/construction: Tools ({server.get('tool_count') or '?'})"
+            ):
                 try:
                     tools = manager.list_tools(server_id)
                 except McpError as exc:
@@ -543,7 +667,9 @@ def _render_mcp_server_card(vault: Any, manager: McpManager, server: Dict[str, A
                     st.caption("No tools reported by this server.")
                 for tool in tools:
                     badge = (
-                        ":material/edit: write" if tool.is_write else ":material/visibility: read"
+                        ":material/edit: write"
+                        if tool.is_write
+                        else ":material/visibility: read"
                     )
                     st.markdown(f"**{tool.name}** — {badge}")
                     if tool.description:
@@ -594,7 +720,9 @@ def _render_skills_tab() -> None:
         title = "New skill" if skill is None else f"Edit {skill['name']}"
         with st.expander(f":material/edit: {title}", expanded=True):
             name = st.text_input(
-                "Name", value=skill["name"] if skill else "", key=f"skill_{editing}_name"
+                "Name",
+                value=skill["name"] if skill else "",
+                key=f"skill_{editing}_name",
             )
             description = st.text_input(
                 "Description (one line)",
@@ -614,7 +742,10 @@ def _render_skills_tab() -> None:
                         st.error("The skill needs a name.")
                     else:
                         skills.write_skill(
-                            editing if skill else "", name.strip(), description.strip(), body
+                            editing if skill else "",
+                            name.strip(),
+                            description.strip(),
+                            body,
                         )
                         st.session_state.pop("skills_editing_slug", None)
                         st.rerun()
@@ -680,55 +811,85 @@ def _render_memory_tab(vault: Any) -> None:
         st.info("No pending proposals.")
     for item in pending:
         with st.container(border=True):
-            st.text(f"{item['key']} -> {item['value']}")  # plain text: values may derive from untrusted content
-            st.caption(f"Proposed by {item['proposer']} · evidence: {', '.join(item['evidence_ids']) or 'none'}")
+            st.text(
+                f"{item['key']} -> {item['value']}"
+            )  # plain text: values may derive from untrusted content
+            st.caption(
+                f"Proposed by {item['proposer']} · evidence: {', '.join(item['evidence_ids']) or 'none'}"
+            )
             untrusted = item["trust"] == "untrusted"
             ack = untrusted and st.checkbox(
                 "This came from untrusted content (email/portal/web); I verified it",
                 key=f"ack_{item['id']}",
             )
             approve_col, reject_col = st.columns(2)
-            if approve_col.button("Approve", key=f"ok_{item['id']}", disabled=untrusted and not ack):
+            if approve_col.button(
+                "Approve", key=f"ok_{item['id']}", disabled=untrusted and not ack
+            ):
                 sid = st.session_state.setdefault("_approval_session", uuid.uuid4().hex)
-                memory.approve(vault, item["id"], token=memory.issue_approval_token(sid, item["id"]),
-                               session_id=sid, acknowledge_untrusted=bool(ack))
+                memory.approve(
+                    vault,
+                    item["id"],
+                    token=memory.issue_approval_token(sid, item["id"]),
+                    session_id=sid,
+                    acknowledge_untrusted=bool(ack),
+                )
                 st.rerun()
             if reject_col.button("Reject", key=f"no_{item['id']}"):
                 memory.reject(vault, item["id"])
                 st.rerun()
     st.subheader("Saved")
-    st.caption("Approved items are recalled into later Coordinator answers (a separate \"From your approved memory\" "
-               "section) and, for cash-flow baselines, the expense step. They never go to market, forecast, email or "
-               "portal agents. Forget deletes an item for good.")
+    st.caption(
+        'Approved items are recalled into later Coordinator answers (a separate "From your approved memory" '
+        "section) and, for cash-flow baselines, the expense step. They never go to market, forecast, email or "
+        "portal agents. Forget deletes an item for good."
+    )
     for item in memory.list_core(vault):
         text_col, forget_col = st.columns([5, 1])
-        text_col.text(f"{item['key']}: {item['value']} (approved {item['approved_at'][:10]})"
-                      + (" · untrusted-derived" if item.get("trust") == "untrusted" else ""))
+        text_col.text(
+            f"{item['key']}: {item['value']} (approved {item['approved_at'][:10]})"
+            + (" · untrusted-derived" if item.get("trust") == "untrusted" else "")
+        )
         if forget_col.button("Forget", key=f"forget_{item['id']}"):
             sid = st.session_state.setdefault("_approval_session", uuid.uuid4().hex)
-            memory.forget(vault, item["id"], token=memory.issue_approval_token(sid, item["id"], "forget"),
-                          session_id=sid)
+            memory.forget(
+                vault,
+                item["id"],
+                token=memory.issue_approval_token(sid, item["id"], "forget"),
+                session_id=sid,
+            )
             st.rerun()
 
 
-def _render_schedule_tab(vault: Any, run_due: Optional[Callable[[], List[str]]] = None) -> None:
+def _render_schedule_tab(
+    vault: Any, run_due: Optional[Callable[[], List[str]]] = None
+) -> None:
     from src.agents.orchestration import schedule
 
-    st.caption("Jobs run when the app is opened (no background daemon) or when a cron/launchd caller runs "
-               "`schedule.run_due`. Results are Core Memory proposals; nothing is committed without your approval.")
+    st.caption(
+        "Jobs run when the app is opened (no background daemon) or when a cron/launchd caller runs "
+        "`schedule.run_due`. Results are Core Memory proposals; nothing is committed without your approval."
+    )
     for job in schedule.list_jobs(vault):
         with st.container(border=True):
-            st.text(f"{job['name']} · every {job['every_minutes']} min · \"{job['query']}\"")
-            st.caption(f"Last run: {job['last_run'] or 'never'} · {job.get('last_result', '')}")
+            st.text(
+                f'{job["name"]} · every {job["every_minutes"]} min · "{job["query"]}"'
+            )
+            st.caption(
+                f"Last run: {job['last_run'] or 'never'} · {job.get('last_result', '')}"
+            )
             if st.button("Remove", key=f"sched_rm_{job['id']}"):
                 schedule.remove_job(vault, job["id"])
                 st.rerun()
     with st.form("sched_add", clear_on_submit=True):
         name = st.text_input("Name", max_chars=60)
         query = st.text_input("Question for the Coordinator", max_chars=500)
-        every = st.number_input("Every (minutes)", min_value=schedule.MIN_INTERVAL_MIN, value=1440, step=60)
+        every = st.number_input(
+            "Every (minutes)", min_value=schedule.MIN_INTERVAL_MIN, value=1440, step=60
+        )
         if st.form_submit_button("Add job") and name.strip() and query.strip():
             from src.agents.orchestration.policy import screen
+
             if screen(query):
                 st.error("That request is out of scope and would be refused.")
             else:
@@ -742,8 +903,11 @@ def _render_schedule_tab(vault: Any, run_due: Optional[Callable[[], List[str]]] 
         st.info("\n".join(lines) or "No jobs are due.")
 
 
-def render_agents_page(vault: Any, ollama_client: Optional[Any] = None,
-                       run_due: Optional[Callable[[], List[str]]] = None) -> None:
+def render_agents_page(
+    vault: Any,
+    ollama_client: Optional[Any] = None,
+    run_due: Optional[Callable[[], List[str]]] = None,
+) -> None:
     """The Agents page: four tabs over the agent/MCP/skills/activity state."""
     st.header(":material/agent: Agents")
     st.caption(

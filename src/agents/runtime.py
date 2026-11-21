@@ -255,8 +255,21 @@ class AgentRuntime:
             server = store.get_mcp_server(self.vault, server_id)
             if server is None or not server.get("enabled", False):
                 continue
+            # Deny by default: only tools the user ticked for THIS agent on THIS server are exposed; built-in agents
+            # never get write tools (AGENTS.md: read-only MCP for templates).
+            allowed = set((agent.get("mcp_tools") or {}).get(server_id) or [])
             try:
-                tools.extend(self.mcp.list_tools(server_id))
+                listed = self.mcp.list_tools(server_id)
+                tools.extend(
+                    t
+                    for t in listed
+                    if t.name in allowed and not (agent.get("built_in") and t.is_write)
+                )
+                if listed and not allowed:
+                    notices.append(
+                        f"No tools are selected from '{server.get('name', server_id)}' for this agent "
+                        "(Agents → Edit → Tools)."
+                    )
             except McpError as exc:
                 notices.append(
                     f"Tools from '{server.get('name', server_id)}' are unavailable: {exc}"
@@ -320,9 +333,7 @@ class AgentRuntime:
                 store.delete_run_state(self.vault, session_id)
                 return RunResult(
                     "complete",
-                    answer=_apply_notices(
-                        message.get("content") or "", notices
-                    ),
+                    answer=_apply_notices(message.get("content") or "", notices),
                     sources=sources,
                     trail=trail,
                 )
@@ -421,7 +432,10 @@ class AgentRuntime:
         name = pending["tool"]
         args = pending["args"]
         server_id = pending["server"]
-        if ctx["decision"] == "deny":
+        allowed = name in (
+            (agent.get("mcp_tools") or {}).get(server_id) or []
+        )  # re-checked: scope may have changed
+        if ctx["decision"] == "deny" or not allowed:
             ctx["messages"].append(
                 {"role": "tool", "name": name, "content": DENIED_RESULT_TEXT}
             )
@@ -440,8 +454,12 @@ class AgentRuntime:
                 },
             )
             trail.append(
-                {"server": self._server_name(server_id), "tool": name,
-                 "summary": "denied by user", "ok": False}
+                {
+                    "server": self._server_name(server_id),
+                    "tool": name,
+                    "summary": "denied by user",
+                    "ok": False,
+                }
             )
             return
         executed = self._execute_call(session_id, agent, server_id, name, args)

@@ -55,6 +55,8 @@ Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforce
 - Out-of-scope asks (trade, pay, shell, diagnose, reveal secrets) are refused by `policy.screen` before planning.
 - Gmail/brokerage MCP access is read-only (`ingest.ReadOnlyMcp`); do not add write tools to agent templates. Gmail bill sync
   (`data_ingestion/gmail_bills.py`, R11): sender allowlist in code, body only to `quarantine.extract_facts`, never stored.
+- Agent MCP tools are ticked per agent and per tool (`agent["mcp_tools"]`, deny by default, S26); never expose a whole
+  server to an agent, built-ins never get write tools, a write tool forces the approval gate (`runtime._collect_tools`).
 - New vault keys that are not user documents must go in `INTERNAL_VAULT_KEYS` (`data_vault/vault.py`), or RAG indexes them
   and Files lists them (bug fixed for `trader_paper_v1` in PR #34).
 - Robinhood calls are code-built from validated tickers/ids only, through the exact-name allowlists in

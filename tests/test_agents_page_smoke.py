@@ -68,7 +68,30 @@ def test_chat_page_renders_with_agent_selector(app):
     assert "Agent" in boxes, "the session-controls row must carry the agent selector"
     agent_box = boxes["Agent"]
     assert agent_box.value == "general", "General is the default agent"
-    assert list(agent_box.options) == ["General", "System · Coordinator", "System · Expense & Records", "System · Market", "System · Forecaster", "System · Robinhood Portfolio", "Trader"], "General + built-ins (coordinator + specialists) + seeded Trader"
+    opts = list(agent_box.options)
+    from src.agents.orchestration.templates import BUILTIN_AGENTS
+
+    assert opts[:2] == ["General", "Trader"] and len(opts) == 2 + len(BUILTIN_AGENTS), (
+        "every agent is listed"
+    )
+    assert (
+        "System · Health" in opts
+        and "System · Verifier" in opts
+        and "System · Email Digest" in opts
+    )
+    assert "Workflow · Macro Critic" in opts and "Workflow · Portal Fetcher" in opts
+    assert opts.index("System · Verifier") < opts.index("Workflow · Macro Critic"), (
+        "chat-capable first"
+    )
+
+
+def test_workflow_agent_in_chat_explains_and_disables_input(app):
+    app, _, _ = app
+    app.session_state["active_agent_id"] = "builtin-critic-macro"
+    app.run()
+    assert not app.exception
+    assert any("Run AI review" in i.value for i in app.info)
+    assert app.chat_input[0].disabled
 
 
 def test_stale_agent_selection_resets_to_general(app):
@@ -188,28 +211,44 @@ def test_agents_page_tabs_all_render_without_network(app):
 
     captions = [str(c.value) for c in app.caption]
     assert any("Skills are plaintext instruction files" in c for c in captions)
-    assert any("Jobs run when the app is opened" in c for c in captions), "scheduled tab"
+    assert any("Jobs run when the app is opened" in c for c in captions), (
+        "scheduled tab"
+    )
     assert not app.exception
 
 
 def test_forecast_workflow_agent_can_be_tweaked_and_reset(app):
     app, home, dek = app
     _go_to_agents_page(app)
-    next(s for s in app.segmented_control if s.key == "agents_group").set_value("Forecast workflow").run()
+    next(s for s in app.segmented_control if s.key == "agents_group").set_value(
+        "Forecast workflow"
+    ).run()
     assert not app.exception
     markdowns = " ".join(m.value for m in app.markdown)
     assert "Macro Critic" in markdowns and "Thesis Explainer" in markdowns
-    next(b for b in app.button if b.key == "agent_edit_builtin-critic-macro").click().run()
+    next(
+        b for b in app.button if b.key == "agent_edit_builtin-critic-macro"
+    ).click().run()
     assert not app.exception
-    assert next(t for t in app.text_input if t.label == "Name").disabled  # identity is fixed
-    next(t for t in app.text_area if t.label.startswith("Extra instructions")).set_value("Weigh rates heavily.")
+    assert next(
+        t for t in app.text_input if t.label == "Name"
+    ).disabled  # identity is fixed
+    next(
+        t for t in app.text_area if t.label.startswith("Extra instructions")
+    ).set_value("Weigh rates heavily.")
     next(s for s in app.slider if s.label == "Temperature").set_value(0.4)
     next(b for b in app.button if b.label == "Save changes").click().run()
     assert not app.exception
     vault = DataVault(vault_path=str(home / ".personal_ai_vault"), encryption_key=dek)
     agent = store.get_agent(vault, "builtin-critic-macro")
-    assert agent["tweaked"] and agent["temperature"] == 0.4 and "Weigh rates heavily." in agent["instructions"]
-    next(b for b in app.button if b.key == "agent_reset_builtin-critic-macro").click().run()
+    assert (
+        agent["tweaked"]
+        and agent["temperature"] == 0.4
+        and "Weigh rates heavily." in agent["instructions"]
+    )
+    next(
+        b for b in app.button if b.key == "agent_reset_builtin-critic-macro"
+    ).click().run()
     assert not app.exception
     assert not store.get_agent(vault, "builtin-critic-macro")["tweaked"]
 
@@ -220,7 +259,9 @@ def test_core_memory_forget_button_deletes_the_item(app):
     app, home, dek = app
     seed = DataVault(vault_path=str(home / ".personal_ai_vault"), encryption_key=dek)
     pid = memory.propose(seed, "goal:monthly_savings", "500", proposer="test")
-    memory.approve(seed, pid, token=memory.issue_approval_token("t", pid), session_id="t")
+    memory.approve(
+        seed, pid, token=memory.issue_approval_token("t", pid), session_id="t"
+    )
     del seed
     _go_to_agents_page(app)
     assert any("never go to market" in str(c.value) for c in app.caption)
@@ -228,3 +269,24 @@ def test_core_memory_forget_button_deletes_the_item(app):
     assert not app.exception
     check = DataVault(vault_path=str(home / ".personal_ai_vault"), encryption_key=dek)
     assert memory.list_core(check, include_superseded=True) == []
+
+
+def test_edit_agent_picks_individual_tools_per_server(app, monkeypatch):
+    from src.agents.mcp import McpManager, McpTool
+
+    monkeypatch.setattr(McpManager, "list_tools", lambda self, sid: [
+        McpTool(sid, "get_quotes", "", {}, False), McpTool(sid, "place_order", "", {}, True)])
+    app, home, dek = app
+    _go_to_agents_page(app)
+    next(b for b in app.button if b.label == "Edit").click().run()
+    assert not app.exception
+    picker = next(m for m in app.multiselect if m.label.startswith("Tools from"))
+    assert list(picker.options) == ["get_quotes", "place_order (write)"]
+    assert picker.value == [], "deny by default: nothing ticked"
+    picker.set_value(["get_quotes", "place_order"]).run()
+    next(b for b in app.button if b.label == "Save changes").click().run()
+    assert not app.exception
+    vault = DataVault(vault_path=str(home / ".personal_ai_vault"), encryption_key=dek)
+    trader = next(a for a in store.list_agents(vault) if a["name"] == "Trader")
+    assert sorted(next(iter(trader["mcp_tools"].values()))) == ["get_quotes", "place_order"]
+    assert trader["require_tool_confirmation"] is True, "a write tool forces the approval gate"

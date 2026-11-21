@@ -137,12 +137,22 @@ def _to_mcp_error(exc: Exception, server_name: str) -> McpError:
             needs_auth=True,
         )
     leaf = exc
-    while isinstance(leaf, BaseExceptionGroup) and leaf.exceptions:  # anyio TaskGroup hides the real cause
+    while (
+        isinstance(leaf, BaseExceptionGroup) and leaf.exceptions
+    ):  # anyio TaskGroup hides the real cause
         leaf = leaf.exceptions[0]
-    if leaf is not exc:
+    if isinstance(leaf, (_NeedsAuth, OAuthFlowError)):
+        return _to_mcp_error(leaf, server_name)
+    if (
+        leaf is not exc
+        or getattr(getattr(leaf, "error", None), "code", None) is not None
+    ):
         # Type and JSON-RPC code only: server message text is untrusted and may echo arguments.
         code = getattr(getattr(leaf, "error", None), "code", None)
-        return McpError(f"MCP error from '{server_name}': {type(leaf).__name__}" + (f" (code {code})" if code is not None else ""))
+        return McpError(
+            f"MCP error from '{server_name}': {type(leaf).__name__}"
+            + (f" (code {code})" if code is not None else "")
+        )
     return McpError(f"MCP error: {type(exc).__name__}: {exc}")
 
 
@@ -189,9 +199,7 @@ class VaultTokenStorage:
         if not isinstance(raw, dict) or not raw.get("client_id"):
             return None
         fields = {
-            k: v
-            for k, v in raw.items()
-            if k in OAuthClientInformationFull.model_fields
+            k: v for k, v in raw.items() if k in OAuthClientInformationFull.model_fields
         }
         try:
             return OAuthClientInformationFull(**fields)
@@ -209,9 +217,7 @@ class VaultTokenStorage:
     async def get_client_info(self) -> Optional[OAuthClientInformationFull]:
         return self._client_info_from(self._load().get("client_info"))
 
-    async def set_client_info(
-        self, info: OAuthClientInformationFull
-    ) -> None:
+    async def set_client_info(self, info: OAuthClientInformationFull) -> None:
         record = self._load()
         record["client_info"] = info.model_dump(mode="json")
         self._save(record)
@@ -239,9 +245,7 @@ class _OAuthCallbackServer:
     def __init__(self):
         self._event = threading.Event()
         self._params: Dict[str, str] = {}
-        self._server = ThreadingHTTPServer(
-            ("127.0.0.1", 0), self._make_handler()
-        )
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._make_handler())
         self.port = self._server.server_address[1]
         self.redirect_uri = f"http://localhost:{self.port}/callback"
         self._thread: Optional[threading.Thread] = None
@@ -404,8 +408,10 @@ class McpManager:
                     last_error=str(exc) or "authorization required",
                 )
             else:
-                message = str(exc) if isinstance(exc, McpError) else (
-                    f"{type(exc).__name__}: {exc}"
+                message = (
+                    str(exc)
+                    if isinstance(exc, McpError)
+                    else (f"{type(exc).__name__}: {exc}")
                 )
                 store.update_mcp_server_status(
                     self.vault, server_id, last_status="error", last_error=message
@@ -433,8 +439,7 @@ class McpManager:
             "function": {
                 "name": tool.name,
                 "description": tool.description,
-                "parameters": tool.input_schema
-                or {"type": "object", "properties": {}},
+                "parameters": tool.input_schema or {"type": "object", "properties": {}},
             },
         }
 
@@ -451,9 +456,7 @@ class McpManager:
         if server is None:
             raise McpError(f"Unknown MCP server: {server_id}")
         if not server.get("enabled", False):
-            raise McpError(
-                f"MCP server '{server.get('name', server_id)}' is disabled"
-            )
+            raise McpError(f"MCP server '{server.get('name', server_id)}' is disabled")
         return server
 
     async def _with_session(
@@ -476,9 +479,7 @@ class McpManager:
             if server.get("kind") == "remote":
                 url = server.get("url") or ""
                 if not url:
-                    raise McpError(
-                        f"MCP server '{server.get('name')}' has no url"
-                    )
+                    raise McpError(f"MCP server '{server.get('name')}' has no url")
                 if interactive:
                     callback_server = _OAuthCallbackServer()
                     callback_server.start()
@@ -488,9 +489,7 @@ class McpManager:
             else:
                 command = server.get("command") or ""
                 if not command:
-                    raise McpError(
-                        f"MCP server '{server.get('name')}' has no command"
-                    )
+                    raise McpError(f"MCP server '{server.get('name')}' has no command")
                 params = StdioServerParameters(
                     command=command, args=list(server.get("args") or [])
                 )
@@ -532,8 +531,10 @@ class McpManager:
                         "for browser authorization"
                     )
                 return result
+
             redirect_uri = callback_server.redirect_uri
         else:
+
             async def redirect_handler(url: str) -> None:
                 raise _NeedsAuth()
 
