@@ -427,6 +427,9 @@ def test_ai_review_shows_agents_critics_and_verdict(page, monkeypatch):
     click(at, "Run AI review")
     critics = at.table[0].value
     assert list(critics["status"]) == ["completed"] * 4
+    assert any("reply chars" in df.value.columns for df in at.dataframe)  # diagnostics table, not raw JSON
+    assert not any("scenario-review-v1" in str(j.value) for j in at.json)
+    assert not any("Macro Critic · Macro critic" in m.value for m in at.markdown)  # no duplicated chip label
     assert any("Verdict" in h.value for h in at.subheader)
     # this fixture's snapshot has no scoreable evidence family, so the thesis search must abstain visibly
     assert any("Abstained" in m.value for m in at.markdown) or any("Selected scenario" in m.label for m in at.metric)

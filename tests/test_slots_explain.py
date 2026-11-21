@@ -53,7 +53,7 @@ def test_explainer_rejects_invented_numbers_and_symbols():
     assert status == "completed" and ok.items[0].symbol == "AAPL"
     _, status, reason = explain_leans(Client({"items": [{"symbol": "AAPL", "note": "Target 250."}]}),
                                       agent, [_lean("AAPL")])
-    assert (status, reason) == ("invalid", "schema")
+    assert (status, reason) == ("invalid", "invented_number")
     _, status, reason = explain_leans(Client({"items": [{"symbol": "TSLA", "note": "Sideways."}]}),
                                       agent, [_lean("AAPL")])
     assert (status, reason) == ("invalid", "unknown_evidence")
