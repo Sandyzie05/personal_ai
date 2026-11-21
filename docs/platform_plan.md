@@ -55,6 +55,7 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S21 | Trader (Track T): output has no order/ticket shape and no write tool is reachable; upstream `trader-broker` not ported | `trader/` schemas (`extra="forbid"`), Robinhood allowlists | `evals/trader.py` shape row, `test_trader_agent.py` |
 | S22 | Trader sizing/risk use only user-entered limits (`TRADER_*`); broker account figures never enter trader inputs/outputs | `trader/sizing.py`, `trader/risk.py` | `evals/trader.py` shape row (no broker/MCP import in `src/trader`) |
 | S23 | Trader Monte Carlo is seeded (deterministic), bounded by `TRADER_*` caps, labelled a simulation | `trader/timemachine.py` | `evals/trader.py` simulation row, `test_trader_engines.py` |
+| S24 | Trader paper agents: prompts are code-built relative numbers from bars up to the signal (no ticker/date/price, no lookahead); replies are closed-choice `TraderDecision` (extra fields rejected); code alone sets entry, size and risk; ledger is vault-only, never sent to a broker | `trader/agents.py`, `trader/strategies.py`, `trader/paper.py` | `test_trader_paper.py`, `evals/trader.py` agent-safety + lookahead rows |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
 obedience is not relied on (schema validation is); Chroma index is plaintext if persisted (currently in-memory; see `security_design.md`); no live
@@ -184,6 +185,7 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Composed leakage: canaries outside allowed sinks (P4) | 0 | 0 (114 runs, 969 sinks, 102 hops) | golden + stress + service chains with memory |
 | Robinhood: broker free text / account canaries / valuation golden (Track R) | 0 / 0 / 100% | 0/5 / 0 in 19 sinks × 3 / 3/3 | synthetic fixtures; no live account |
 | Trader: plan shape / seeded Monte Carlo / risk golden (Track T) | 0 / 100% / 100% | 0 in 13 checks / 4/4 / 5/5 | synthetic bars; advice only |
+| Trader paper agents: hostile replies accepted / lookahead / ledger golden (Track T) | 0 / 0 / 100% | 0 in 90 / 0 in 68 / 7/7 | synthetic bars + fake clients; live model results = USER |
 | Stability: every hard row across `RUNS=10` perturbed runs (P7) | 100% | 10/10 each | shuffle, duplicates, paraphrase, jitter, workers 1/2, concurrency 1 |
 
 **How success is scored.** A golden task passes only if *every* expected claim is present with the expected value (±0.01) or the

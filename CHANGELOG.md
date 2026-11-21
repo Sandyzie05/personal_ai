@@ -4,6 +4,14 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat: Trader AI paper agents (Track T5)
+
+- Three LLM strategy agents (ORB, 20-day breakout, oversold bounce) + reviewer as tool-less Forecast slots, instructions from new skill
+  packs adapted from day-trader-skill (`skills/trader-*.md`). Code-built, anonymised, no-lookahead features; closed-choice replies.
+- Local paper ledger in the vault (`src/trader/paper.py`, 1-year retention), backtest (1y daily / 60d 5m) + forward runs, baseline that
+  takes every signal, scoreboard with equity curve, monthly P&L, prediction accuracy/Brier, trade log (Forecast -> Trader -> Paper agents).
+- `PublicDataProviders.daily_history`, `risk.check(window=)`, upstream break-even verdict in `timemachine.verdict`; S24; 3 eval rows.
+
 ## (pending) - 2026-11-21 - feat: Trader forecast section (Track T, advice only)
 
 - Adapted day-trader-skill (MIT) to `src/trader/` (scan, entry, exit_plan, sizing, risk, timemachine, pipeline), `PublicDataProviders.intraday`

@@ -10,7 +10,19 @@ from src.trader.pipeline import DISCLAIMER, analyze
 TICKER = re.compile(r"^[A-Z]{1,5}([.-][A-Z])?$")
 
 
-def render_trader(providers):
+VIEWS = ("Plan", "Paper agents")
+
+
+def render_trader(providers, vault=None, client_factory=None):
+    view = st.segmented_control("Trader view", VIEWS, default="Plan", key="trader_view") or "Plan"
+    if view == "Paper agents":
+        from src.interface.trader_paper_tab import render_paper
+
+        return render_paper(providers, vault, client_factory)
+    render_plan(providers)
+
+
+def render_plan(providers):
     st.warning(DISCLAIMER)
     symbol = st.text_input("Public US ticker", key="trader_symbol", placeholder="TSLA").strip().upper()
     c1, c2, c3, c4 = st.columns(4)

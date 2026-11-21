@@ -145,6 +145,37 @@ _ROLES = {
         "in window). Context, not advice: never say buy, sell, add, trim or hold.",
         False,
     ),
+    "trader-orb": (
+        "ORB Paper Trader",
+        ":material/candlestick_chart:",
+        "Paper-trades opening-range breakouts with the day-trader-skill method (simulation, no real orders)",
+        "You are the opening-range breakout paper agent. Decide take or skip, pick the stop rule and target R, predict "
+        "the first outcome and give a calibrated confidence. Use only the SIGNAL numbers.",
+        False,
+    ),
+    "trader-breakout": (
+        "Breakout Paper Trader",
+        ":material/trending_up:",
+        "Paper-trades 20-day closing-high breakouts (simulation, no real orders)",
+        "You are the 20-day breakout paper agent. Decide take or skip, pick the stop rule and target R, predict the "
+        "first outcome and give a calibrated confidence. Use only the SIGNAL numbers.",
+        False,
+    ),
+    "trader-bounce": (
+        "Bounce Paper Trader",
+        ":material/south_east:",
+        "Paper-trades oversold bounces (simulation, no real orders)",
+        "You are the oversold-bounce paper agent. Decide take or skip, pick the stop rule and target R, predict the "
+        "first outcome and give a calibrated confidence. Use only the SIGNAL numbers.",
+        False,
+    ),
+    "trader-reviewer": (
+        "Paper Trading Reviewer",
+        ":material/fact_check:",
+        "Reviews each paper agent against its take-every-signal baseline",
+        "Compare the AGENT record with the BASELINE record and pick the verdict and one suggestion from the schema.",
+        False,
+    ),
     "news-analyst": (
         "News Analyst",
         ":material/newspaper:",
@@ -177,6 +208,10 @@ FORECAST_ROLES = (
     "watchlist-explainer",
     "news-analyst",
     "portfolio-fit",
+    "trader-orb",
+    "trader-breakout",
+    "trader-bounce",
+    "trader-reviewer",
 )
 EDITABLE_FIELDS = (
     "model",
@@ -214,6 +249,10 @@ _SKILLS = {
     "watchlist-explainer": ["market-research-brief"],
     "news-analyst": ["untrusted-content-handling"],
     "portfolio-fit": ["data-minimization"],
+    "trader-orb": ["trader-orb-method", "trader-risk-rules"],
+    "trader-breakout": ["trader-swing-method", "trader-risk-rules"],
+    "trader-bounce": ["trader-swing-method", "trader-risk-rules"],
+    "trader-reviewer": ["trader-review"],
 }
 
 
@@ -245,7 +284,7 @@ def _build(role: str) -> Dict[str, Any]:
         # "" = the app's configured chat model (or PERSONAL_AI_OMLX_WORKER_MODEL for forecast workers)
         "model": (
             PERSONAL_AI_FORECAST_CRITIC_MODEL
-            if role.startswith("critic-") or role in ("news-analyst", "portfolio-fit")
+            if role.startswith(("critic-", "trader-")) or role in ("news-analyst", "portfolio-fit")
             else ""
         )
         if forecast

@@ -66,6 +66,11 @@ SLOTS: Dict[str, Slot] = {
             "builtin-portfolio-fit",
             "PortfolioNote",
         ),
+        # Trader paper agents (docs/trader.md): tool-less, numbers-only prompts, closed-choice replies (S24).
+        Slot("forecast.trader.orb", "Trader: opening-range agent", "builtin-trader-orb", "TraderDecision"),
+        Slot("forecast.trader.breakout", "Trader: 20-day breakout agent", "builtin-trader-breakout", "TraderDecision"),
+        Slot("forecast.trader.bounce", "Trader: oversold-bounce agent", "builtin-trader-bounce", "TraderDecision"),
+        Slot("forecast.trader.reviewer", "Trader: performance reviewer", "builtin-trader-reviewer", "TraderReview"),
         Slot(
             "forecast.news_analyst",
             "News analyst",

@@ -28,7 +28,7 @@ SECTION_HELP = {
     "Events": "Today's market news (untrusted text, shown inert) and heuristic per-symbol leanings.",
     "Screens": "Reference screens over a fixed large-cap list using price history only.",
     "Drilldown": "Every technical indicator for one ticker, with a chart, plus provider health.",
-    "Trader": "Intraday day-trade plan for one ticker: entry trigger, stop/target, share count, risk label, simulated odds. Advice only, no orders.",
+    "Trader": "Day-trade plan for one ticker, and AI paper agents (day-trader-skill methods) scored on simulated money. No real orders.",
     "Track record": "How saved forecasts did after their horizon, against naive baselines.",
 }
 MAX_LEAN_SYMBOLS = 15
@@ -1117,6 +1117,6 @@ def render_section(
     elif section == "Trader":
         from src.interface.trader_tab import render_trader
 
-        render_trader(_providers)
+        render_trader(_providers, vault, client_factory)
     elif section == "Screens":
         render_screens(vault)

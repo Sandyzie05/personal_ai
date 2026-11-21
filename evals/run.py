@@ -37,7 +37,7 @@ from .reasoning import run_held_out, run_reasoning
 from .refusal import run_refusal
 from .robinhood import run_account_egress, run_broker_injection, run_valuation_golden
 from .stress import evaluate as run_stress
-from .trader import run_risk_golden, run_shape, run_simulation
+from .trader import run_agent_safety, run_ledger_golden, run_no_lookahead, run_risk_golden, run_shape, run_simulation
 from .userguide import run_userguide
 
 RESULTS = Path(__file__).parent / "results"
@@ -187,6 +187,7 @@ def compute() -> Dict[str, Any]:
         run_valuation_golden(),
     )
     tr_shape, tr_sim, tr_risk = run_shape(), run_simulation(), run_risk_golden()
+    tr_safe, tr_look, tr_led = run_agent_safety(), run_no_lookahead(), run_ledger_golden()
     ug = run_userguide()
     integ = run_integrations()
     ing = run_ingest_eval()
@@ -351,6 +352,27 @@ def compute() -> Dict[str, Any]:
             "100%",
             f"{tr_risk['passed']}/{tr_risk['total']}",
             tr_risk["passed"] == tr_risk["total"] > 0,
+            True,
+        ),
+        (
+            "Trader paper agents: hostile replies accepted / code limits exceeded (S24)",
+            "0",
+            f"{tr_safe['violations']} in {tr_safe['checked']} checks",
+            tr_safe["violations"] == 0 and tr_safe["checked"] > 0,
+            True,
+        ),
+        (
+            "Trader paper agents: lookahead or ticker/date/price in agent prompt (S24)",
+            "0",
+            f"{tr_look['violations']} in {tr_look['checked']} checks",
+            tr_look["violations"] == 0 and tr_look["checked"] > 0,
+            True,
+        ),
+        (
+            "Trader paper ledger: outcome/P&L/retention golden",
+            "100%",
+            f"{tr_led['passed']}/{tr_led['total']}",
+            tr_led["passed"] == tr_led["total"] > 0,
             True,
         ),
         (

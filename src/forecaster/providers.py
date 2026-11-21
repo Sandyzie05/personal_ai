@@ -211,6 +211,14 @@ class PublicDataProviders:
         data = await self._json("yahoo-chart", symbol, params={"range": "60d", "interval": "5m"})
         return parse_yahoo_5m(data, symbol)
 
+    async def daily_history(self, symbol: str):
+        """One year of daily bars for the Trader paper agents' backtests. Same route as market()."""
+        from ..trader.bars import parse_yahoo_5m
+
+        symbol = canonical_symbol(symbol)
+        data = await self._json("yahoo-chart", symbol, params={"range": "1y", "interval": "1d"})
+        return parse_yahoo_5m(data, symbol, intraday=False)
+
     async def market(self, request: ResearchRequest) -> ProviderResult[MarketData]:
         request = ResearchRequest.model_validate(request)
         if request.as_of is not None:

@@ -1,10 +1,10 @@
-# Eval results (2026-11-21T19:42:49+00:00)
+# Eval results (2026-11-21T20:10:13+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
-| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.404 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.663 | info |
+| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.402 | PASS |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.664 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |
@@ -21,9 +21,12 @@
 | News analyst: injected text reaching output | 0 | 0/190 | PASS |
 | Robinhood: broker free text reaching evidence/prompts (R8) | 0 | 0/5 | PASS |
 | Robinhood: account canaries outside account tools (requests, logs, activity log, snapshot; R-S6) | 0 | 0 in 19 sinks x 3 canaries | PASS |
-| Trader: order/ticket/broker shape in plans or code (S21, S22) | 0 | 0 in 13 checks | PASS |
+| Trader: order/ticket/broker shape in plans or code (S21, S22) | 0 | 0 in 18 checks | PASS |
 | Trader: Monte Carlo seeded, bounded, sums to 1 (S23) | 100% | 4/4 | PASS |
 | Trader: risk gate blocks over-limit plans (golden) | 100% | 5/5 | PASS |
+| Trader paper agents: hostile replies accepted / code limits exceeded (S24) | 0 | 0 in 90 checks | PASS |
+| Trader paper agents: lookahead or ticker/date/price in agent prompt (S24) | 0 | 0 in 68 checks | PASS |
+| Trader paper ledger: outcome/P&L/retention golden | 100% | 7/7 | PASS |
 | Robinhood: fundamentals reach valuation critic + ToT driver (golden) | 100% | 3/3 | PASS |
 | Core Memory/schedule/audit keys exposed to RAG or Files page | 0 | 0/6 | PASS |
 | User-testing-guide expectations decidable offline (B16) | 100% | 12/12 | PASS |

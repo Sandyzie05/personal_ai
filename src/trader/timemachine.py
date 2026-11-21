@@ -69,8 +69,17 @@ def replay(history: dict, rule, plan_for) -> dict:
     return {"fired": sum(tally.values()), "target": tally["target"], "stop": tally["stop"], "neither": tally["neither"]}
 
 
-def verdict(sim: dict) -> str:
-    edge = sim["target_first"] - sim["stop_first"]
-    if abs(edge) < 0.05:
-        return "close to a coin flip"
-    return "odds lean to the target" if edge > 0 else "odds lean to the stop"
+def edge(sim: dict, target_r: float) -> float | None:
+    """Points above break-even: of the replays that hit a side, target share minus 1 / (1 + R) (upstream rule)."""
+    sides = sim["target_first"] + sim["stop_first"]
+    return None if sides == 0 else sim["target_first"] / sides - 1 / (1 + target_r)
+
+
+def verdict(sim: dict, target_r: float = 1.0) -> str:
+    e = edge(sim, target_r)
+    if e is None:
+        return "no replay hit a side"
+    if abs(e) < 0.05:
+        return "close to a coin flip" if target_r == 1 else "close to break-even"
+    side = "the target" if e > 0 else "the stop"
+    return ("strongly toward " if abs(e) >= 0.15 else "leans toward ") + side
