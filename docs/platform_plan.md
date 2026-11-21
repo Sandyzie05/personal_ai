@@ -206,6 +206,14 @@ roadmap §6). Test count at last full run: 752 pass, 0 fail (2026-11-02).
 - D8 RAG architecture: **Advanced RAG inside the document retriever** (query analysis to filters, hybrid retrieval, rerank, context assembly, numeric grounding check); **Modular behaviour only at system level** (routing between structured records / semantic search / public evidence, Coordinator orchestration, deterministic fusion, approval-gated memory). No free-running retrieve-reflect loops (latency, injection surface, hard to evaluate); at most one bounded re-retrieve when the grounding check fails. See `docs/rag_design.md` §8.1.
 - D9 Tree of Thought only in the forecaster (beam width 3, depth 2, scenario-diverse beam, deterministic thought generator, LLM specialists as a lazy shared critic). Records, planning and RAG stay linear by design. See [forecaster.md](forecaster.md) Part 2.
 - D10 CrewAI/LangChain/MCP are mapped to ToT roles, not imported: no second orchestration framework, all inference stays on the loopback client, invariants stay in this repo's code.
+- D13 Framework review (2026-11-20). Only **MCP** is used (official `mcp` SDK, read-only). No weekly submission commits to LangChain,
+  LangGraph, LangSmith or CrewAI (W4 maps roles and says "plain Python rather than importing"; W5 maps `Plan` onto LangGraph nodes/edges).
+  Verdict for this system: **LangSmith no** (cloud tracing ships vault-derived prompts off-machine; use the encrypted activity log or a
+  self-hosted tracer); **LangChain no** (one local OpenAI-shape server, custom measured RAG; adds hidden prompts and default clients);
+  **CrewAI no** (free agent chat is what per-edge schemas prevent); **LangGraph not now**: its interrupts/checkpoints fit P3/P6/memory
+  approval, but default checkpointers are plaintext SQLite (needs an encrypted vault checkpointer) and a rewrite re-proves every eval row.
+  **Revisit when:** runs must pause and resume across app restarts, plans become dynamic/looping beyond the DAG, or the course requires
+  hands-on framework use (then do the roadmap §6 LangGraph parity eval first).
 - D11 Step budgets come from code: forecaster steps get `FORECAST_STEP_TIMEOUT_SECONDS` (research + specialist deadlines + 5 s); the LLM planner cannot set `timeout_s`.
 - D12 Hardware budget (one 128 GB laptop): all agents share one local server. Memory scales with resident models and with in-flight requests, not with the number of agents, so concurrency is capped app-wide (`PERSONAL_AI_INFERENCE_CONCURRENCY=2`) and background roles can use a smaller `PERSONAL_AI_OMLX_WORKER_MODEL`. Speed comes from smaller worker models, not more parallelism.
 - D7 Latency target applied to the 5-step fan-out workload; B1 target to the cross-domain subset (see §5 notes).

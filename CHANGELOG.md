@@ -4,6 +4,11 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - docs: record AI-framework review (D13)
+
+- `platform_plan.md` D13: only MCP is used; no submission commits to LangChain/LangGraph/LangSmith/CrewAI; per-framework verdict and
+  revisit triggers. `roadmap.md` §6: optional LangGraph parity eval and the W4 MCP thought-tree resource.
+
 ## (pending) - 2026-11-21 - feat: `make state-report` (deterministic, redacted)
 
 - The first hand-collected report was wrong: system python instead of the venv (packages "n/a", pytest "missing"), a bare curl
