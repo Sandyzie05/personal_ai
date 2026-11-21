@@ -33,7 +33,8 @@ on the other, where the user tests and pastes results back.
 **Waiting on the user (model laptop), in this order.** Each line says what to paste back.
 1. `git pull`, `venv/bin/pip install -U -r requirements.txt`, `venv/bin/pip check`, restart `make run`.
    Upload → *Rebuild RAG index* once (drops a Trader-ledger entry that could have been indexed before the PR #34 fix).
-2. **Gmail bills (R11).** Gmail is connected (Google's Gmail MCP, 23 tools, OAuth worked without the user's own client id).
+2. **Gmail bills (R11).** First Agents → MCP Servers → Gmail → *Test read access* (signs in, lists tools, one read-only
+   search). Paste the line it prints (tool counts + "Read call … worked" or the error). Gmail is connected (Google's Gmail MCP, 23 tools, OAuth worked without the user's own client id).
    Upload → Sync → *Bills from Gmail*: add Rocky Mountain Power / electricity / real sender domain, the gas provider, and
    T-Mobile / mobile → the row's *Sync* (or *Sync all Gmail senders*). Paste: the status line (N new / duplicates / failed)
    and, on failure, the grey error line under it (code-built: type + JSON-RPC code, or "requires authorization" → press

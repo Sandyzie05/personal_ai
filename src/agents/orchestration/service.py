@@ -8,7 +8,7 @@ from src.config import FORECAST_STEP_TIMEOUT_SECONDS, PERSONAL_AI_LLM_PLANNER
 from . import memory, schedule
 from .bus import MessageBus
 from .coordinator import Coordinator, Escalation, RunReport
-from .schemas import Plan
+from .schemas import Plan, PlanStep
 from .policy import RequestRefused, screen
 from .ingest import (
     ReadOnlyMcp,
@@ -147,6 +147,9 @@ SPECIALISTS = (
 )  # selectable in chat as builtin-<role>
 
 
+_EMAIL_ONLY = Plan(steps=(PlanStep(id="email", agent="email", goal="Read-only digest of recent email"),))
+
+
 def _restrict(plan: Plan, role: str) -> Plan:
     steps = tuple(
         s.model_copy(update={"depends_on": ()}) for s in plan.steps if s.agent == role
@@ -188,8 +191,8 @@ def run_query(
             ],
             memory=facts,
         )
-    plan = None
-    if planner_client is not None and PERSONAL_AI_LLM_PLANNER:
+    plan = _EMAIL_ONLY if only == "email" else None  # the Email Digest agent always reads mail, whatever the wording
+    if plan is None and planner_client is not None and PERSONAL_AI_LLM_PLANNER:
         try:
             plan = llm_plan(query, planner_client, tuple(coordinator.workers))
         except Exception:
@@ -229,6 +232,11 @@ def run_query(
                     step.agent
                 ]()  # calling thread: vault/OAuth access is safe here
             except Exception as exc:
+                if getattr(exc, "needs_auth", False):  # say what to do instead of a bare "unavailable"
+                    raise ValueError(
+                        f"{'Gmail' if step.agent == 'email' else 'The brokerage'} needs you to sign in again: "
+                        "Agents → MCP Servers → Test read access (or Upload → Sync → Reconnect Gmail)."
+                    ) from exc
                 fetched[step.agent] = exc
     if box is not None:
         box["facts"] = facts  # read on this thread; workers only see this immutable list

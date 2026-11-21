@@ -23,6 +23,8 @@ Design decisions (docs/multi_agent_design.md D2/D5):
 import asyncio
 import json
 import logging
+import re
+import time
 import threading
 import webbrowser
 from dataclasses import dataclass
@@ -232,7 +234,16 @@ class VaultTokenStorage:
     async def set_tokens(self, tokens: OAuthToken) -> None:
         record = self._load()
         record["tokens"] = tokens.model_dump(mode="json")
+        # The SDK keeps expiry only in memory; we open a fresh provider per call, so without this a stale access token
+        # is sent, the 401 starts a full browser flow, and every non-interactive call after ~1h is "needs auth".
+        record["expires_at"] = (
+            time.time() + tokens.expires_in if tokens.expires_in else None
+        )
         self._save(record)
+
+    def expires_at(self) -> Optional[float]:
+        value = self._load().get("expires_at")
+        return float(value) if isinstance(value, (int, float)) else None
 
     async def get_client_info(self) -> Optional[OAuthClientInformationFull]:
         return self._client_info_from(self._load().get("client_info"))
@@ -248,6 +259,20 @@ class VaultTokenStorage:
         if self._token_from(record.get("tokens")) is not None:
             return True
         return self._client_info_from(record.get("client_info")) is not None
+
+
+class _VaultOAuthProvider(OAuthClientProvider):
+    """Restores the stored token expiry so an expired access token is refreshed silently (refresh_token grant)
+    instead of being sent and bounced into an interactive re-authorization."""
+
+    async def _initialize(self) -> None:
+        await super()._initialize()
+        storage = self.context.storage
+        expires = storage.expires_at() if isinstance(storage, VaultTokenStorage) else None
+        if expires is not None:
+            self.context.token_expiry_time = expires - 60  # refresh a minute early
+        elif self.context.current_tokens is not None and self.context.current_tokens.refresh_token:
+            self.context.token_expiry_time = 1  # unknown age (stored before this fix): refresh first; 0 would read as "no expiry"
 
 
 class _OAuthCallbackServer:
@@ -342,6 +367,30 @@ def extract_tool_result_text(
     if len(text) > max_chars:
         text = text[:max_chars] + "\n[truncated]"
     return text
+
+
+_PROBE_QUERY = re.compile(r"^(search|list)_")
+
+
+def _probe_call(tools: List["McpTool"]) -> Optional[tuple]:
+    """One harmless read: a search/list tool given a 1-day query and page size 1, else any read tool with no
+    required arguments. Never a write tool."""
+    reads = [t for t in tools if not t.is_write and not McpManager.is_sensitive_tool(t.name)]
+    for t in sorted(reads, key=lambda t: (not _PROBE_QUERY.match(t.name), t.name)):
+        props = (t.input_schema or {}).get("properties") or {}
+        required = set((t.input_schema or {}).get("required") or [])
+        args: Dict[str, Any] = {}
+        for name in ("query", "q"):
+            if name in props:
+                args[name] = "newer_than:1d"
+                break
+        for name in ("pageSize", "page_size", "maxResults", "max_results", "limit"):
+            if name in props:
+                args[name] = 1
+                break
+        if required <= set(args):
+            return t.name, args
+    return None
 
 
 class McpManager:
@@ -444,6 +493,35 @@ class McpManager:
             last_error=None,
             tool_count=len(tools),
         )
+
+    def probe(self, server_id: str, interactive: bool = True) -> Dict[str, Any]:
+        """Connect (browser sign-in if needed), list tools and make ONE read-only call, all in one session, so a
+        scope step-up for reads is granted in the browser too. Returns counts and a code-built status only."""
+        server = self._require_server(server_id)
+        out: Dict[str, Any] = {"listed": False, "tools": 0, "read": 0, "write": 0, "probe_tool": None,
+                               "probe_ok": None, "error": None, "needs_auth": False}
+
+        async def run(session: ClientSession):
+            tools = await self._list_tools_async(session, server_id)
+            out.update(listed=True, tools=len(tools), read=sum(not t.is_write for t in tools),
+                       write=sum(t.is_write for t in tools))
+            pick = _probe_call(tools)
+            if pick:
+                out["probe_tool"] = pick[0]
+                result = await self._call_tool_async(session, pick[0], pick[1], 200)
+                out["probe_ok"] = result.ok
+
+        try:
+            asyncio.run(self._with_session(server, run, interactive=interactive))
+            store.update_mcp_server_status(self.vault, server_id, last_status="connected", last_error=None,
+                                           tool_count=out["tools"])
+        except Exception as exc:
+            err = _to_mcp_error(exc, server.get("name", server_id))
+            out.update(error=str(err)[:200], needs_auth=err.needs_auth)
+            store.update_mcp_server_status(self.vault, server_id,
+                                           last_status="needs_auth" if err.needs_auth else "error",
+                                           last_error=out["error"])
+        return out
 
     def has_stored_credentials(self, server_id: str) -> bool:
         """For UI captions: True if tokens/client info are already in the
@@ -569,7 +647,7 @@ class McpManager:
             token_endpoint_auth_method="none",
             application_type="web",
         )
-        return OAuthClientProvider(
+        return _VaultOAuthProvider(
             server["url"],
             metadata,
             storage,
