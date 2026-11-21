@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 from src.agents.orchestration import memory
 
-from .disclosure import run_composed, run_disclosure
+from .disclosure import run_composed, run_disclosure, stress_runs
 from .faults import run_cases
 from .memory_eval import run_memory
 from .golden import (
@@ -192,7 +192,7 @@ def compute() -> Dict[str, Any]:
     tot_ho = run_held_out()
     ho = tot_ho["held_out"]
     recall = run_memory()
-    comp = run_composed()
+    comp = run_composed(stress_runs())
     st = run_stress()
     ts_ok, ts_n = st["tool_selection"]
     esc = st["escalation"]

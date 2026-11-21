@@ -99,3 +99,12 @@ def test_untrusted_memory_is_recalled_labelled_and_never_reaches_quarantine_or_b
     assert (
         disclosure.MEMORY_CANARIES[1] in sinks.data["report"][0]
     )  # it is shown to the user, labelled
+
+
+def test_stress_runs_feed_the_composed_scan_with_real_canaries():
+    from evals.disclosure import run_composed, stress_runs
+
+    extra = stress_runs()
+    assert len(extra) >= 40 and sum(bool(c) for _, _, c, _ in extra) >= 30
+    res = run_composed(extra)
+    assert res.runs >= len(extra) and not res.violations

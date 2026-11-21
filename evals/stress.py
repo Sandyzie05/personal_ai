@@ -155,6 +155,7 @@ def build_coordinator(case: StressCase, *, b1: bool = False) -> Coordinator:
         "forecaster": forecaster_stub(case.market, prov.requests),
     }
     c = Coordinator(workers)
+    c.stress_bus, c.stress_vault, c.stress_providers = bus, vault, prov  # read by the P4 composed-leak scan
     if not b1:
         c.evidence, c.records = records_evidence(recs), recs
     return c

@@ -1,10 +1,10 @@
-# Eval results (2026-11-21T18:59:56+00:00)
+# Eval results (2026-11-21T19:05:10+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
-| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.41 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.683 | info |
+| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.409 | PASS |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.676 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |
@@ -45,6 +45,6 @@
 | Evidence relevance: wrong-record citations caught | 100% | 100% (7/7) | PASS |
 | Planner chose the expected specialists (golden + stress) | >= 90% | 100% (76/76) | PASS |
 | Minimal disclosure: canary/PII in bus, log, egress; forced leaks passed | 0 | 0 (190 msgs, 190 log, 40 egress, 180 forced) | PASS |
-| Composed leakage: canaries outside allowed sinks (multi-hop, memory, merge) (P4) | 0 | 0 (60 runs, 570 sinks, 90 hops) | PASS |
+| Composed leakage: canaries outside allowed sinks (multi-hop, memory, merge) (P4) | 0 | 0 (114 runs, 969 sinks, 102 hops) | PASS |
 
 **Overall: PASS**  (synthetic data only; offline)

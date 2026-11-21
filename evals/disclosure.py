@@ -329,6 +329,30 @@ def _service_run(task, vault, sinks, query, *, email=False, brokerage=False):
     return report
 
 
+def stress_runs():
+    """P4 at integration: every P1 stress case through service.run_query, worker inputs recorded, as extra_runs."""
+    from types import SimpleNamespace
+
+    from src.agents.orchestration.policy import RequestRefused
+    from src.agents.orchestration.service import run_query
+
+    from .stress import STRESS, build_coordinator
+
+    out = []
+    for case in STRESS:
+        c = build_coordinator(case)
+        sinks = _Sinks()
+        c.workers = _record_inputs(sinks, c.workers)
+        try:
+            report = run_query(c, case.query)
+        except RequestRefused:
+            continue
+        canaries = tuple(str(r[k]) for r in case.records for k in ("account_number", "ssn", "customer_email") if r.get(k))
+        out.append((f"stress:{case.id}", SimpleNamespace(report=report, vault=c.stress_vault,
+                                                         requests=c.stress_providers.requests), canaries, sinks))
+    return out
+
+
 def run_composed(extra_runs=()) -> ComposedResult:
     """Golden runs (+ `extra_runs`: (tag, Run, record_canaries) tuples, e.g. stress runs at integration) and
     service-level multi-hop chains with Core Memory seeded. A domain's canaries may appear only in its allowed sinks."""
@@ -350,8 +374,8 @@ def run_composed(extra_runs=()) -> ComposedResult:
         run = run_task(t, wrap=lambda ws, s=sinks: _record_inputs(s, ws))
         _finish(sinks, run.report, run.vault, run.requests)
         tally(t.id, sinks, run.report, {"records": t.canaries})
-    for tag, run, canaries in extra_runs:
-        sinks = _Sinks()
+    for tag, run, canaries, *pre in extra_runs:
+        sinks = pre[0] if pre else _Sinks()  # pre-recorded worker inputs (stress runs) are scanned too
         _finish(sinks, run.report, run.vault, run.requests)
         tally(tag, sinks, run.report, {"records": canaries})
     # 2) Service-level chains with Core Memory seeded (memory as a channel), plus email and brokerage hops.
