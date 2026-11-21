@@ -50,7 +50,13 @@ def _error_text(e: Exception) -> str:
     text comes from the server and is untrusted."""
     from src.agents.mcp import McpError
 
-    return str(e)[:200] if isinstance(e, McpError) else type(e).__name__
+    from src.agents.mcp import _error_kind
+
+    if isinstance(e, McpError):
+        return str(e)[:200]
+    if isinstance(e, ConnectionError):  # tool returned an error: closed category only
+        return f"Gmail tool error: {_error_kind(str(e))}"
+    return type(e).__name__
 
 
 def _gmail_sync(vault, server, on_indexed, client, only: Optional[str] = None) -> None:

@@ -43,6 +43,7 @@ from mcp.shared.auth import (
     AuthorizationCodeResult,
     OAuthClientInformationFull,
     OAuthClientMetadata,
+    OAuthMetadata,
     OAuthToken,
 )
 
@@ -276,6 +277,18 @@ class VaultTokenStorage:
         record.pop("expires_at", None)
         self._save(record)
 
+    def set_auth_metadata(self, metadata: Dict[str, Any]) -> None:
+        record = self._load()
+        record["auth_metadata"] = metadata
+        self._save(record)
+
+    def auth_metadata(self) -> Optional[OAuthMetadata]:
+        raw = self._load().get("auth_metadata")
+        try:
+            return OAuthMetadata.model_validate(raw) if isinstance(raw, dict) else None
+        except Exception:
+            return None
+
     def preregistered_client_id(self) -> Optional[str]:
         record = self._load()
         return (record.get("client_info") or {}).get("client_id") if record.get("preregistered") else None
@@ -302,9 +315,18 @@ class _VaultOAuthProvider(OAuthClientProvider):
             self.context.client_metadata.scope = self._pinned_scope
         return await super()._perform_authorization_code_grant()
 
+    async def _exchange_token_authorization_code(self, auth_code: str, code_verifier: str):
+        # Discovery happens only during a full sign-in; keep the AS metadata so later fresh providers refresh at the
+        # real token endpoint (else the SDK guesses <mcp-server-origin>/token: 404 on Google, then a browser flow).
+        if self.context.oauth_metadata is not None and isinstance(self.context.storage, VaultTokenStorage):
+            self.context.storage.set_auth_metadata(self.context.oauth_metadata.model_dump(mode="json"))
+        return await super()._exchange_token_authorization_code(auth_code, code_verifier)
+
     async def _initialize(self) -> None:
         await super()._initialize()
         storage = self.context.storage
+        if self.context.oauth_metadata is None and isinstance(storage, VaultTokenStorage):
+            self.context.oauth_metadata = storage.auth_metadata()
         expires = storage.expires_at() if isinstance(storage, VaultTokenStorage) else None
         if expires is not None:
             self.context.token_expiry_time = expires - 60  # refresh a minute early
@@ -433,11 +455,25 @@ def _google_offline(url: str) -> str:
 _PROBE_QUERY = re.compile(r"^(search|list)_")
 
 
+def _error_kind(text: str) -> str:
+    """Closed category for a tool error (the text itself is server-controlled and never shown)."""
+    t = (text or "").lower()
+    for kind, words in (("permission / scope", ("scope", "permission", "403", "forbidden", "insufficient")),
+                        ("not signed in", ("401", "unauthenticated", "credential")),
+                        ("API not enabled", ("has not been used", "is disabled", "not enabled", "service_disabled")),
+                        ("invalid arguments", ("invalid", "400", "argument", "parameter"))):
+        if any(w in t for w in words):
+            return kind
+    return "other"
+
+
 def _probe_call(tools: List["McpTool"]) -> Optional[tuple]:
     """One harmless read: a search/list tool given a 1-day query and page size 1, else any read tool with no
     required arguments. Never a write tool."""
     reads = [t for t in tools if not t.is_write and not McpManager.is_sensitive_tool(t.name)]
-    for t in sorted(reads, key=lambda t: (not _PROBE_QUERY.match(t.name), t.name)):
+    # Mail search first (it is what Sync and the Email agent use), then any search/list, then the rest.
+    rank = lambda t: (not re.search(r"thread|message|mail", t.name), not _PROBE_QUERY.match(t.name), t.name)
+    for t in sorted(reads, key=rank):
         props = (t.input_schema or {}).get("properties") or {}
         required = set((t.input_schema or {}).get("required") or [])
         args: Dict[str, Any] = {}
@@ -571,6 +607,8 @@ class McpManager:
                 out["probe_tool"] = pick[0]
                 result = await self._call_tool_async(session, pick[0], pick[1], 200)
                 out["probe_ok"] = result.ok
+                if not result.ok:
+                    out["probe_reason"] = _error_kind(result.text)
 
         try:
             asyncio.run(self._with_session(server, run, interactive=interactive))

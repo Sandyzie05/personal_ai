@@ -724,7 +724,9 @@ def _render_probe(r: Optional[Dict[str, Any]]) -> None:
     elif r["probe_ok"]:
         st.success(f"Read call {r['probe_tool']} worked. Agents and Sync can use this server.")
     else:
-        st.error(f"Read call {r['probe_tool']} returned an error (server text not shown).")
+        st.error(f"Read call {r['probe_tool']} failed: {r.get('probe_reason', 'other')} (server text not shown)."
+                 + (" Check the scope in OAuth client and that the Gmail API + Gmail MCP API are enabled."
+                    if r.get("probe_reason") in ("permission / scope", "API not enabled") else ""))
 
 
 def _render_mcp_tab(vault: Any) -> None:
