@@ -37,6 +37,7 @@ from .models import (
 )
 
 SERVER_PATTERN = r"robinhood"
+MAX_PAYLOAD_CHARS = 2_000_000
 ROBINHOOD_RESEARCH_TOOLS = frozenset(
     {
         "get_equity_fundamentals",
@@ -147,14 +148,18 @@ class RobinhoodClient(ReadOnlyMcp):
                     "account_number may only go to account tools (R-S6)"
                 )
         self.requests.append((tool, dict(args)))
-        result = self.mcp.call_tool(self.server_id, tool, args)
+        # Code parses these payloads (never the model), so the 8k chat-context cap would only corrupt the JSON.
+        result = self.mcp.call_tool(self.server_id, tool, args, max_chars=MAX_PAYLOAD_CHARS)
         if not result.ok:
             raise ConnectionError(
-                "Robinhood tool call failed"
+                f"{tool} returned an error"
             )  # server text is not echoed
-        data = json.loads(result.text)
+        try:
+            data = json.loads(result.text)
+        except ValueError:
+            raise ValueError(f"{tool} returned non-JSON or oversized data") from None
         if not isinstance(data, (dict, list)):
-            raise ValueError("unexpected Robinhood response")
+            raise ValueError(f"{tool} returned an unexpected shape")
         return data
 
 
@@ -861,34 +866,54 @@ class PortfolioFit(Contract):
     trust: str = "private"
 
 
-def _account_number(client: RobinhoodClient) -> str:
+def _account_numbers(client: RobinhoodClient) -> List[str]:
+    """Every readable account: holdings are often outside the one account flagged for agents."""
     rows = _rows(client.call("get_accounts", {}), "accounts")
-    pick = next(
-        (r for r in rows if r.get("agentic_allowed")), rows[0] if rows else None
-    )
-    number = str((pick or {}).get("account_number", ""))
-    if not ID.match(number):
+    nums = [str(r.get("account_number", "")) for r in rows]
+    nums = [n for n in dict.fromkeys(nums) if ID.match(n)]
+    if not nums:
         raise ValueError("no readable account")
-    return number
+    return nums[:10]
 
 
-def holdings(client: RobinhoodClient) -> Tuple[str, List[Holding]]:
-    account = _account_number(client)
-    out = []
-    for r in _rows(
-        client.call("get_equity_positions", {"account_number": account}), "positions"
-    ):
-        sym, qty = _sym(r.get("symbol")), _num(r, "quantity", "shares")
-        if sym and qty and qty > 0:
-            out.append(
-                Holding(
-                    symbol=sym,
-                    quantity=qty,
-                    average_cost=_num(r, "average_buy_price", "average_cost"),
-                    market_value=_num(r, "market_value", "equity"),
-                )
+def holdings(client: RobinhoodClient) -> Tuple[List[str], List[Holding]]:
+    merged: Dict[str, Holding] = {}
+    accounts = _account_numbers(client)
+    out: List[Holding] = []
+    for account in accounts:
+        seen = dict(merged)  # fold into earlier accounts only, never within one account
+        for r in _rows(
+            client.call("get_equity_positions", {"account_number": account}),
+            "positions",
+        ):
+            sym, qty = _sym(r.get("symbol")), _num(r, "quantity", "shares")
+            if not (sym and qty and qty > 0):
+                continue
+            cost, value = (
+                _num(r, "average_buy_price", "average_cost"),
+                _num(r, "market_value", "equity"),
             )
-    return account, out
+            old = seen.get(sym)
+            if old:
+                total = old.quantity + qty
+                cost = (
+                    ((old.average_cost or 0) * old.quantity + (cost or 0) * qty) / total
+                    if old.average_cost is not None and cost is not None
+                    else None
+                )
+                value = (
+                    (old.market_value or 0) + value
+                    if old.market_value is not None and value is not None
+                    else None
+                )
+                qty = total
+            h = Holding(symbol=sym, quantity=qty, average_cost=cost, market_value=value)
+            if old:
+                out[out.index(old)] = h
+            else:
+                out.append(h)
+            merged[sym] = h
+    return accounts, out
 
 
 def portfolio_fit(
@@ -897,14 +922,22 @@ def portfolio_fit(
     from .themes import AIInfrastructureThemeModel
 
     symbol = canonical_symbol(symbol)
-    account, held = holdings(client)
-    portfolio = client.call("get_portfolio", {"account_number": account})
-    total = _num(
-        portfolio if isinstance(portfolio, dict) else {},
-        "equity_market_value",
-        "market_value",
-        "total_equity",
-    )
+    accounts, held = holdings(client)
+    total = 0.0
+    for account in accounts:
+        try:
+            portfolio = client.call("get_portfolio", {"account_number": account})
+        except Exception:
+            continue
+        total += (
+            _num(
+                portfolio if isinstance(portfolio, dict) else {},
+                "equity_market_value",
+                "market_value",
+                "total_equity",
+            )
+            or 0
+        )
     for h in held:
         if h.market_value is None and price and h.symbol == symbol:
             held[held.index(h)] = h.model_copy(
@@ -927,18 +960,21 @@ def portfolio_fit(
         and my_themes & {e.theme_slug for e in themes.get_exposures(h.symbol)}
     )
     realized = None
-    try:
-        pnl = client.call(
-            "get_realized_pnl", {"account_number": account, "period": "3m"}
-        )
-        realized = _num(
-            pnl if isinstance(pnl, dict) else {},
-            "total_realized_gain",
-            "realized_gain",
-            "total",
-        )
-    except Exception:
-        realized = None
+    for account in accounts:
+        try:
+            pnl = client.call(
+                "get_realized_pnl", {"account_number": account, "period": "3m"}
+            )
+            part = _num(
+                pnl if isinstance(pnl, dict) else {},
+                "total_realized_gain",
+                "realized_gain",
+                "total",
+            )
+        except Exception:
+            continue
+        if part is not None:
+            realized = (realized or 0) + part
     unreal = None
     if mine and mine.average_cost and price:
         unreal = (price - mine.average_cost) / mine.average_cost * 100

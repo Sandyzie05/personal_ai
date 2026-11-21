@@ -215,7 +215,7 @@ class FakeRobinhoodMcp:
     def is_sensitive_tool(name):
         return McpManager.is_sensitive_tool(name)
 
-    def call_tool(self, server_id, name, args):
+    def call_tool(self, server_id, name, args, max_chars=None):
         self.calls.append((name, dict(args)))
         if name in self.fail or name not in self.data:
             return SimpleNamespace(ok=False, text="error: " + HOSTILE)

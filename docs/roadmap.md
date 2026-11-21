@@ -152,7 +152,7 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 ## 2. Order
 
 All agent-doable cards are done (2026-11-21, PR #30). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
-Robinhood live check (USER: add the server, confirm argument names), then P11 final numbers.
+Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live), then P11 final numbers.
 
 ## 3. Conventions for every card
 

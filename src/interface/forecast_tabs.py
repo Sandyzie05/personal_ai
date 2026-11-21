@@ -161,6 +161,11 @@ def robinhood_client(vault):
         return None
 
 
+def _why(exc):
+    """Short failure reason for the UI: exception type + our own message (never account data)."""
+    return f"{type(exc).__name__}: {str(exc)[:140]}"
+
+
 def _apply_pending(key, default=""):
     """Widget values set by a button land on the next run, before the widget exists (no default+state conflict)."""
     pending = st.session_state.pop(key + "_pending", None)
@@ -184,10 +189,10 @@ def robinhood_import(vault, target_key):
             _health().record(
                 "robinhood", _ok(), at=datetime.now(timezone.utc), latency_ms=0
             )
-        except Exception:
+        except Exception as exc:
             st.session_state[sources_key] = []
             st.warning(
-                "Robinhood lists unavailable (check the MCP server status in Agents)."
+                f"Robinhood lists unavailable ({_why(exc)}). Check the MCP server status in Agents."
             )
     sources = st.session_state.get(sources_key) or []
     if sources:
@@ -200,8 +205,9 @@ def robinhood_import(vault, target_key):
         if st.button("Import tickers", key=target_key + "_rh_import"):
             try:
                 syms = rh.import_symbols(client, sources[pick][0], sources[pick][1])
-            except Exception:
+            except Exception as exc:
                 syms = []
+                st.warning(f"Import failed ({_why(exc)}).")
             if syms:
                 st.session_state[target_key + "_pending"] = ", ".join(syms)
                 st.rerun()
@@ -238,13 +244,18 @@ def render_portfolio_fit(vault, symbol, price, client_factory=None):
                 mode="json"
             )
             st.session_state.pop("forecast_fit_note", None)
-        except Exception:
+        except Exception as exc:
             st.session_state[key] = None
-            st.warning("Robinhood account data unavailable.")
+            st.warning(f"Robinhood account data unavailable ({_why(exc)}).")
     raw = st.session_state.get(key)
     if not raw:
         return
     fit = rh.PortfolioFit.model_validate(raw)
+    if not fit.positions:
+        st.warning(
+            "Robinhood returned no equity positions for any readable account, so 'not held' is unreliable. "
+            "Check the MCP server grants access to your brokerage account."
+        )
     rows = [
         ("Held", "yes" if fit.held else "no"),
         ("Quantity", f"{fit.quantity:g}"),
@@ -594,13 +605,46 @@ def render_validation(vault, snapshot_prefix, outcome_prefix):
         st.caption(line)
     st.subheader("Daily breakdown")
     if result["daily"]:
-        st.dataframe(result["daily"], hide_index=True)
+        st.dataframe(
+            [
+                {
+                    "Date": d["report_date"],
+                    "Scored": d["evaluated"],
+                    "Directional calls": d["directional_calls"],
+                    "Accuracy": d["directional_accuracy_label"],
+                    "Mean excess return %": d["mean_realized_excess_return_pct"],
+                }
+                for d in result["daily"]
+            ],
+            hide_index=True,
+            width="stretch",
+        )
     else:
-        st.caption("No scored days yet (needs evaluated outcomes after target close).")
+        st.info(
+            f"No scored days yet. {summary['pending']} forecast(s) are waiting for their horizon to close and "
+            f"{summary['unresolved']} need an outcome evaluated (Research > Evaluate outcome)."
+        )
+    trend, base = result["trend"], summary["baselines"]
     with st.expander("Trend and baselines (details)"):
-        st.json(
-            {"trend": result["trend"], "baselines": summary["baselines"]},
-            expanded=False,
+        st.markdown(f"**Trend:** {trend['status'].replace('-', ' ')}")
+        st.caption(
+            trend.get("message")
+            or f"Recent {trend.get('recent_accuracy_pct')}% vs prior {trend.get('prior_accuracy_pct')}% accuracy."
+        )
+        st.caption(
+            f"Windows: {trend['recent_evaluated']} recent / {trend['prior_evaluated']} prior scored forecasts."
+        )
+        st.dataframe(
+            [
+                {"Baseline": "Always up", "Scored": base["always_up"]["n"], "Accuracy": base["always_up"]["accuracy_label"]},
+                {"Baseline": "Persistence", "Scored": base["persistence"]["n"], "Accuracy": base["persistence"]["accuracy_label"]},
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+        zero = base["zero_forecast_mean_abs_error_pct"]
+        st.caption(
+            "Zero-forecast mean abs error: " + (f"{zero:.2f}%" if zero is not None else "n/a (nothing scored yet)")
         )
     st.download_button(
         "Download validation CSV",
@@ -757,9 +801,9 @@ def _earnings_calendar(vault):
                         client, datetime.now(timezone.utc).date()
                     )
                 ]
-            except Exception:
+            except Exception as exc:
                 st.session_state["forecast_earnings"] = None
-                st.warning("Robinhood earnings calendar unavailable.")
+                st.warning(f"Robinhood earnings calendar unavailable ({_why(exc)}).")
         rows = st.session_state.get("forecast_earnings")
         if rows:
             st.dataframe(rows, hide_index=True, width="stretch")

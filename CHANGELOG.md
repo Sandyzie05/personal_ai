@@ -4,6 +4,18 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: Robinhood calls returned nothing; Track record UI
+
+- Root cause: `McpManager.call_tool` capped results at 8000 chars (chat-context guard) and appended `[truncated]`, so any
+  large Robinhood payload (positions, calendar, watchlists, scans) failed `json.loads` -> "unavailable". `call_tool` takes
+  `max_chars`; `RobinhoodClient` passes `MAX_PAYLOAD_CHARS` (code parses it, the model never sees it, so the cap is moot).
+- Portfolio fit read only the `agentic_allowed` account; holdings now merge across every readable account (max 10), and
+  `get_portfolio`/`get_realized_pnl` are summed per account. UI warns when 0 positions came back ("not held" unreliable).
+- Robinhood buttons show the failing tool + exception type (no server text, no account data) instead of a generic message.
+- Track record: Daily breakdown table has readable headers and an explanatory empty state (pending/unresolved counts); the
+  raw JSON blob is now a trend line + baselines table.
+- LIVE USER CHECK still needed: re-run Load watchlists / Load earnings / Load my position against the real server.
+
 ## (pending) - 2026-11-21 - feat: P1-P8, P12 and Track R (Robinhood) in one MR
 
 - P1 `evals/stress.py`: 56 labelled cases (ambiguous, incomplete, stale, conflict, wrong-record, clean) through

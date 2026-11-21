@@ -342,7 +342,11 @@ class McpManager:
             raise _to_mcp_error(exc, server.get("name", server_id)) from exc
 
     def call_tool(
-        self, server_id: str, name: str, args: Optional[Dict[str, Any]] = None
+        self,
+        server_id: str,
+        name: str,
+        args: Optional[Dict[str, Any]] = None,
+        max_chars: Optional[int] = None,
     ) -> ToolResult:
         """Execute one tool; server errors come back as ToolResult(ok=False)."""
         server = self._require_server(server_id)
@@ -350,7 +354,9 @@ class McpManager:
             return asyncio.run(
                 self._with_session(
                     server,
-                    lambda session: self._call_tool_async(session, name, args or {}),
+                    lambda session: self._call_tool_async(
+                        session, name, args or {}, max_chars
+                    ),
                     interactive=False,
                 )
             )
@@ -563,11 +569,16 @@ class McpManager:
         return tools
 
     async def _call_tool_async(
-        self, session: ClientSession, name: str, args: Dict[str, Any]
+        self,
+        session: ClientSession,
+        name: str,
+        args: Dict[str, Any],
+        max_chars: Optional[int] = None,
     ) -> ToolResult:
         result = await session.call_tool(name, args)
         return ToolResult(
-            ok=not result.is_error, text=extract_tool_result_text(result)
+            ok=not result.is_error,
+            text=extract_tool_result_text(result, max_chars),
         )
 
     @staticmethod

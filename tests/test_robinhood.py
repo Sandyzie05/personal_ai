@@ -256,3 +256,36 @@ def test_r8_evals_pass_and_catch_planted_leaks(monkeypatch):
     assert (
         ev.run_account_egress()["violations"] > 0
     )  # eval is sensitive to a canary in a log line
+
+
+def test_holdings_span_every_account_not_only_the_agentic_one():
+    c, mcp = client("AAPL")
+    data = mcp.data
+    data["get_accounts"] = {
+        "results": [
+            {"account_number": "A1", "agentic_allowed": True},
+            {"account_number": "B2", "agentic_allowed": False},
+        ]
+    }
+    data["get_equity_positions"] = lambda a: {
+        "results": [{"symbol": "AAPL" if a["account_number"] == "A1" else "NVDA", "quantity": 3}]
+    }
+    fit = rh.portfolio_fit(c, "NVDA", 100.0)
+    assert fit.held and fit.positions == 2
+
+
+def test_client_requests_uncapped_payload_so_large_json_parses():
+    c, mcp = client()
+    seen = {}
+    orig = mcp.call_tool
+    mcp.call_tool = lambda s, n, a, max_chars=None: (seen.update(m=max_chars), orig(s, n, a))[1]
+    c.call("get_watchlists", {})
+    assert seen["m"] and seen["m"] > 100_000
+
+
+def test_non_json_failure_names_the_tool_not_the_server_text():
+    c, mcp = client()
+    mcp.data["get_watchlists"] = None
+    mcp.call_tool = lambda *a, **k: type("R", (), {"ok": True, "text": '{"x": [1, 2\n[truncated]'})()
+    with pytest.raises(ValueError, match="get_watchlists"):
+        c.call("get_watchlists", {})
