@@ -127,6 +127,16 @@ def test_recommendations_labelled_research_lean_with_partial_failure(tmp_path, m
     assert "buy" not in " ".join(str(c) for c in at.dataframe[0].value.columns).lower()
 
 
+def test_watchlist_shows_every_risk_by_default_and_names_hidden_symbols(tmp_path, monkeypatch):
+    at = _launch(tmp_path, monkeypatch, fake_providers())
+    goto(at, "Watchlist")
+    at.text_input[0].set_value("AAPL, MSFT")
+    click(at, "Compute research leans")
+    assert at.selectbox[0].value == "very_high" and len(at.dataframe[0].value) == 2
+    at.slider[0].set_value(0.95).run()
+    assert "Hidden by the filters above: " in texts(at) and "confidence" in texts(at)
+
+
 def test_recommendations_all_unavailable_is_explicit(tmp_path, monkeypatch):
     at = _launch(tmp_path, monkeypatch, fake_providers(fail={"*"}))
     goto(at, "Watchlist")

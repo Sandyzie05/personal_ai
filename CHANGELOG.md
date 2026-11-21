@@ -4,6 +4,21 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: Forecast page readability + watchlist hiding tickers
+
+- Research "Why these scores": one signal table (input + per-horizon effect, from new `HorizonPrediction.drivers`) and a
+  horizon summary table instead of duplicated text per horizon; limitations as a list. "Data sources" table replaces raw
+  provenance JSON. Older saved records without `drivers` fall back to deduplicated text.
+- Saved-forecasts empty state explains how to save one (outcome tracking → Prepare → Save); behaviour unchanged.
+- Watchlist: max-risk filter defaulted to `high`, silently dropping `very_high` tickers (e.g. TSLA). Default now shows all
+  risk levels and a caption names every hidden ticker and why.
+
+## (pending) - 2026-11-21 - feat: small default model for AI-review critics
+
+- New `PERSONAL_AI_FORECAST_CRITIC_MODEL` (default `Qwen3-4B-Instruct-2507-MLX-8bit`, from
+  `lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit`); the 4 `builtin-critic-*` agents default to it. Why: a non-thinking
+  4B keeps JSON inside the 700-token cap and 4 calls inside the deadline next to the resident 27B. Explainers unchanged.
+
 ## (pending) - 2026-11-21 - docs: session handoff
 
 - `roadmap.md` §00 "Start here": state after PR #25, what the user runs next on the model laptop, a decision table for the next

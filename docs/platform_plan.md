@@ -138,6 +138,7 @@ market-research-brief, untrusted-content-handling, conflict-escalation, forecast
 | `OMLX_API_KEY` / `omlx_api_key` | unset | bearer token for oMLX; read from env only |
 | `PERSONAL_AI_OMLX_TOOLS` | `true` | declare tool-calling support (oMLX reports no capabilities) |
 | `PERSONAL_AI_INFERENCE_CONCURRENCY` | `2` | App-wide cap on in-flight chat requests to the local server (all agents share it); see `ai_engine.md` "Memory budget" |
+| `PERSONAL_AI_FORECAST_CRITIC_MODEL` | `Qwen3-4B-Instruct-2507-MLX-8bit` | default model of the 4 AI-review critic agents (oMLX id = model dir name); `""` = worker/chat model; per-agent tweak wins |
 | `PERSONAL_AI_OMLX_WORKER_MODEL` | unset (= chat model) | Optional smaller model for background roles: forecast specialists/ToT critics, quarantine extractor, verifier, planner |
 | `PERSONAL_AI_SKILLS_DIR` | `~/.personal_ai/skills` | skills install dir |
 | `PERSONAL_AI_FRED_API_KEY`, `..._ALPHA_VANTAGE_API_KEY`, `..._SEC_USER_AGENT` (or unprefixed `FRED_API_KEY`, `ALPHA_VANTAGE_API_KEY`, `SEC_USER_AGENT`) | unset | optional forecaster sources; `.env` is loaded by the app and by `make state-report` |

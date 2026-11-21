@@ -50,6 +50,8 @@ def test_real_market_features_with_partial_context_are_not_probabilities():
     assert all(.42 <= h.heuristic_score <= .58 for h in result.horizons)
     assert result.source_provenance[0].source_id == "yahoo-chart"
     assert result.snapshot.historical_supported is False
+    for h in result.horizons:  # drivers explain the score: baseline + contributions (pre-clamp)
+        assert set(h.drivers) >= {"price trend", "volatility"} and h.drivers["volatility"][1] <= 0
 
 
 def test_market_absence_abstains_instead_of_theme_only_forecast():
