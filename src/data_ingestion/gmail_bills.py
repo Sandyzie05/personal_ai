@@ -178,6 +178,7 @@ def sync(
         "results",
     )
     docs = pipeline._manifest(vault)
+    seen = {"msgs": 0, "allowed": 0, "not_bill": 0}
     for t in threads[:MAX_THREADS]:
         tid = re.sub(r"[^A-Za-z0-9_-]", "", str(t.get("id", "")))[:40]
         if not tid:
@@ -206,9 +207,11 @@ def sync(
             if sha in docs:
                 r.duplicates += 1
                 continue
+            seen["msgs"] += 1
             entry = _match(_sender_domain(_pick(m, "sender", "from", "From")), rows)
             if entry is None:
                 continue  # not an allowlisted sender: never read
+            seen["allowed"] += 1
             body = (
                 _pick(
                     m,
@@ -236,6 +239,7 @@ def sync(
                 r.failed.append("model unavailable; sync again later")
                 break  # not cached: retried on the next sync
             if f is None or not f.is_bill or f.total_due is None:
+                seen["not_bill"] += 1
                 docs[sha] = {
                     "sha256": sha,
                     "source": "gmail",
@@ -315,4 +319,6 @@ def sync(
             }
             r.new.append(f"{entry['provider']} {end.isoformat()}")
     pipeline._save(vault, docs)
+    r.checked = (f"searched {len(threads)} thread(s) from {', '.join(x['domain'] for x in rows)}; "
+                 f"{seen['allowed']} new message(s) from allowlisted senders, {seen['not_bill']} not a bill")
     return r

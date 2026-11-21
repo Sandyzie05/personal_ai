@@ -10,7 +10,7 @@ import re
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from src.config import FORECAST_STEP_TIMEOUT_SECONDS
+from src.config import EMAIL_DIGEST_STEP_TIMEOUT_SECONDS, FORECAST_STEP_TIMEOUT_SECONDS
 from src.forecaster.models import ResearchRequest
 from .bus import MessageBus
 from .coordinator import Worker, check_cancel
@@ -195,7 +195,8 @@ def plan_for(query: str, max_symbols: int = 3) -> Plan:
         )
     if EMAIL_WORDS.search(query):
         steps.append(
-            PlanStep(id="email", agent="email", goal="Read-only digest of recent email")
+            PlanStep(id="email", agent="email", goal="Read-only digest of recent email",
+                     timeout_s=EMAIL_DIGEST_STEP_TIMEOUT_SECONDS)
         )
     if wants_holdings:
         steps.append(

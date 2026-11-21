@@ -190,6 +190,9 @@ DEFAULT_AGENT_MAX_TOOL_ROUNDS = int(
 MCP_OAUTH_TIMEOUT_SECONDS = int(os.environ.get("PERSONAL_AI_MCP_OAUTH_TIMEOUT", "300"))
 # 0 = a random free port per sign-in (fine for Google "Desktop app" clients). A Google "Web application" client needs
 # a fixed one: set e.g. 8765 and add http://localhost:8765/callback to its Authorized redirect URIs.
+# The email step reads up to 10 recent threads and runs the local quarantine model once per message; 30 s (the
+# default step budget) timed out every time on a local model.
+EMAIL_DIGEST_STEP_TIMEOUT_SECONDS = float(os.environ.get("PERSONAL_AI_EMAIL_DIGEST_TIMEOUT", "180"))
 MCP_OAUTH_CALLBACK_PORT = int(os.environ.get("PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT", "0"))
 
 # A tool's result is truncated to this many characters before it re-enters

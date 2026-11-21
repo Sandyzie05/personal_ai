@@ -4,6 +4,13 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: chat message lost on rerun; Email Digest timeout; Sync "0 new" explained
+
+- Chat: the question is stored before the agent runs (was after a 30 s+ run; a rerun mid-run dropped it).
+- Email Digest: step budget 180 s (`PERSONAL_AI_EMAIL_DIGEST_TIMEOUT`; 30 s timed out on a local model), coordinator
+  deadline covers it, status/flags labelled with the selected agent, "Email digest" heading / "No new email found."
+- Gmail Sync summary adds code-built counts: threads searched per sender domain, allowlisted messages, not-a-bill.
+
 ## (pending) - 2026-11-21 - feat: read-only Gmail via the standard Gmail API (personal accounts)
 
 - Google's hosted Gmail MCP requires a Workspace Developer Preview project (live error), unavailable to personal
