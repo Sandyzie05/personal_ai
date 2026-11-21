@@ -6,7 +6,12 @@
   sign-flipped; |signal| < 0.15 reads neutral. A planted "base" case has direction 0 (signals are pure noise);
 - critics: 4 opinions, each correct with p=CRITIC_ACC, else a uniformly random other scenario; confidence U(0.4, 0.9);
   10% of cases have no critic report (outage).
-The label is the planted scenario, never a reading of the system's output. Seeds 0-99 = dev, 100-199 = held-out.
+The label is the planted scenario, never a reading of the system's output.
+
+Split. Seeds 0-99 = dev (all tuning). 100-199 was the first held-out range: with raw normalised scores ToT beat both
+baselines on accuracy but lost to critic-vote on Brier (0.506 vs 0.457) because normalised node scores are
+under-confident. That range is now BURNED (reported, never gated). Each method then got a sharpening exponent
+p ~ score^k fitted on dev only (integer grid 1..20), and the gated held-out range is the fresh 200-299.
 """
 
 import random
@@ -27,7 +32,9 @@ SOURCE = {
     "curated": "curated-ai-infrastructure-theme",
 }
 SIGMA, CRITIC_ACC, OUTAGE = 0.35, 0.6, 0.1
-DEV, HELD_OUT = range(0, 100), range(100, 200)
+DEV, BURNED, HELD_OUT = range(0, 100), range(100, 200), range(200, 300)
+# Dev-fitted (2026-11-21), frozen before HELD_OUT was evaluated. Same treatment for every method.
+CALIBRATION_K = {"tot": 7, "linear": 2, "vote": 5}
 
 
 def _card(kind, sentiment, confidence, i):
@@ -117,6 +124,12 @@ def _probs(scores: dict) -> dict:
     )
 
 
+def calibrate(p: dict, k: float) -> dict:
+    q = {s: p[s] ** k for s in SCENARIOS}
+    total = sum(q.values())
+    return {s: q[s] / total for s in SCENARIOS} if total else p
+
+
 def _brier(p: dict, label: str) -> float:
     return sum((p[s] - (s == label)) ** 2 for s in SCENARIOS)
 
@@ -165,7 +178,8 @@ def predict(seed: int):
 def evaluate(seeds=HELD_OUT) -> dict:
     """Accuracy counts an abstention as wrong; Brier is the 3-class sum of squares (0 best, 2 worst, 0.667 uniform)."""
     out = {
-        m: {"correct": 0, "brier": 0.0, "abstain": 0} for m in ("tot", "linear", "vote")
+        m: {"correct": 0, "brier": 0.0, "brier_raw": 0.0, "abstain": 0}
+        for m in ("tot", "linear", "vote")
     }
     n = 0
     for seed in seeds:
@@ -174,13 +188,15 @@ def evaluate(seeds=HELD_OUT) -> dict:
         for m, (choice, p) in methods.items():
             out[m]["correct"] += choice == label
             out[m]["abstain"] += choice == "abstain"
-            out[m]["brier"] += _brier(p, label)
+            out[m]["brier_raw"] += _brier(p, label)
+            out[m]["brier"] += _brier(calibrate(p, CALIBRATION_K[m]), label)
     return {
         "n": n,
         **{
             m: {
                 "accuracy": v["correct"] / n,
                 "brier": v["brier"] / n,
+                "brier_raw": v["brier_raw"] / n,
                 "abstention": v["abstain"] / n,
             }
             for m, v in out.items()
