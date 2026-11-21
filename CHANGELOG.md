@@ -4,6 +4,12 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat: `make state-report` (deterministic, redacted)
+
+- The first hand-collected report was wrong: system python instead of the venv (packages "n/a", pytest "missing"), a bare curl
+  without the oMLX key reported "not reachable", and "memory pressure" was actually free memory. `scripts/state_report.py`
+  now measures these the same way the app does; the agent only fills user-reported sections. Smoke test `test_state_report.py`.
+
 ## (pending) - 2026-11-20 - docs: consolidate docs, add executable roadmap (Week 6 feedback)
 
 - New `docs/roadmap.md`: the single place for remaining work. Capability status table (implemented vs planned vs user-run), order,

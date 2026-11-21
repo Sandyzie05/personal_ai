@@ -1,4 +1,4 @@
-.PHONY: help setup install run demo test check-context install-skills eval eval-live eval-rag
+.PHONY: help setup install run demo test check-context install-skills eval eval-live eval-rag state-report
 
 VENV_BIN := $(shell [ -x venv/bin/python3 ] && echo venv/bin)
 PYTHON := $(if $(VENV_BIN),$(VENV_BIN)/python3,python3)
@@ -16,6 +16,7 @@ help:
 	@echo "  make test           Run isolated offline tests (synthetic loopback callback allowed)"
 	@echo "  make eval-live      Opt-in: injection corpus against the live local model (needs oMLX running)"
 	@echo "  make eval           Run the offline eval harness (evals/results/latest.md); non-zero on target miss"
+	@echo "  make state-report Redacted state report to paste into the dev session (QUICK=1 skips tests/evals)"
 	@echo "  make eval-rag       Run the RAG retrieval/grounding eval (evals/results/rag_latest.md); non-zero on gate miss"
 
 setup:
@@ -39,6 +40,9 @@ test:
 
 eval:
 	PYTHONPATH=. $(PYTHON) -m evals.run
+
+state-report:
+	@PYTHONPATH=. $(PYTHON) scripts/state_report.py $(if $(QUICK),--quick)
 
 eval-rag:
 	PYTHONPATH=. $(PYTHON) -m evals.rag.run
