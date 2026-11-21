@@ -128,7 +128,7 @@ def research_page(page, sessions=SESSIONS):
     at, calls = page
     at.text_input[0].set_value("aapl")
     if sessions:
-        next(item for item in at.text_area if item.label.startswith("Official")).set_value(
+        next(item for item in at.text_area if item.label.startswith("Session sequence")).set_value(
             json.dumps(sessions)
         )
         at.checkbox[0].check()
@@ -188,7 +188,7 @@ def test_forecast_needs_confirmed_schedule_then_exact_explicit_save(page):
 def test_unconfirmed_schedule_cannot_prepare(page):
     at, calls = page
     at.text_input[0].set_value("AAPL")
-    next(item for item in at.text_area if item.label.startswith("Official")).set_value(
+    next(item for item in at.text_area if item.label.startswith("Session sequence")).set_value(
         json.dumps(SESSIONS)
     )
     click(at, "Research ticker")
@@ -347,7 +347,7 @@ def test_unscheduled_research_cannot_prepare_outcome_tracking(page):
 
 def test_unsent_schedule_edits_do_not_change_research_or_prepared_snapshot(page):
     at = research_page(page)
-    next(item for item in at.text_area if item.label.startswith("Official")).set_value(
+    next(item for item in at.text_area if item.label.startswith("Session sequence")).set_value(
         json.dumps(SESSIONS[:2])
     )
     click(at, "Prepare forecast")
@@ -436,3 +436,12 @@ def test_ai_review_shows_agents_critics_and_verdict(page, monkeypatch):
     log = at.session_state["synthetic_vault"].records.get("agent_activity_log", {}).get("entries", [])
     assert {e["slot_id"] for e in log} >= {"forecast.critic.macro", "forecast.thesis_explainer"}
     assert all(set(e) <= {"ts", "kind", "slot_id", "agent_id", "status", "latency_ms", "invalid_reason"} for e in log)
+
+
+def test_fill_draft_session_list_prefills_the_sequence(page):
+    at, calls = page
+    click(at, "Fill draft session list")
+    values = json.loads(next(t for t in at.text_area if t.label.startswith("Session sequence")).value)
+    assert len(values) == 50 and {v["exchange"] for v in values} == {"XNAS"}
+    assert calls == []  # filling the draft never researches or saves
+    assert at.session_state["synthetic_vault"].writes == []

@@ -211,7 +211,8 @@ FORECAST_SCENARIO_DEADLINE_SECONDS = min(
     300.0, -(-4 // PERSONAL_AI_INFERENCE_CONCURRENCY) * FORECAST_SPECIALIST_CALL_SECONDS
 )
 FORECAST_MODEL_CALL_BUDGET = 8
-FORECAST_MODEL_MAX_TOKENS = 700  # 400 truncated reasoning-model JSON
+# 400 truncated reasoning-model JSON; 700 still cut 1 of 4 small-model critics now and then (2026-11-21 live runs).
+FORECAST_MODEL_MAX_TOKENS = 1024
 FORECAST_SNAPSHOT_MAX_CHARS = 18000
 FORECAST_MODEL_OUTPUT_MAX_CHARS = 5000
 # Prefixed names win; the providers' conventional names (as people usually write them in .env) also work.

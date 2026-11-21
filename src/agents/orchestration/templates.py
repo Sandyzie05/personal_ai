@@ -89,33 +89,40 @@ _ROLES = {
         "Macro Critic",
         ":material/public:",
         "Forecast critic: rates, inflation, policy, broad market",
-        "You are the macro critic for one stock. Assess rates, inflation, policy and broad-market support "
-        "or pressure from the macro evidence cards. If macro evidence is missing, say so: stance mixed, "
-        "low confidence.",
+        "You are the macro critic for one stock. From the macro cards (FEDFUNDS, DGS10, T10Y2Y, CPIAUCSL, "
+        "UNRATE), judge whether the rate/inflation/labour backdrop helps or hurts THIS stock's kind of business: "
+        "high or rising yields weigh most on long-duration growth stocks; an inverted or flattening curve signals "
+        "slowdown risk. Macro alone rarely justifies confidence above 0.6. If macro cards are missing: mixed, <= 0.4.",
         False,
     ),
     "critic-valuation": (
         "Valuation Critic",
         ":material/price_check:",
         "Forecast critic: valuation evidence",
-        "You are the valuation critic. Assess valuation evidence (price position, filings). There are "
-        "no analyst fundamentals: say explicitly when valuation data is missing and keep confidence low.",
+        "You are the valuation critic. Judge whether the price already looks stretched or cheap using only what the "
+        "cards give: price vs its moving averages, 52-week position, recent trend, and any fundamentals card if "
+        "present. Do not invent P/E, revenue or growth figures. If no fundamentals card exists, say so in key_reason "
+        "and keep confidence <= 0.5. Never compare the stock price with a yield.",
         False,
     ),
     "critic-event": (
         "Event Critic",
         ":material/event:",
         "Forecast critic: catalysts, filings, adverse events",
-        "You are the event critic. Assess company catalysts, filing recency and demand evidence, including "
-        "adverse events. Absence of events is not evidence of support.",
+        "You are the event critic. Judge company-specific catalysts in the window: news cards, filing recency "
+        "(a fresh 10-Q/8-K means new information is public), and the curated theme note. Adverse events "
+        "(lawsuits, probes, guidance cuts) count as contradicts. No events in the cards = mixed with confidence "
+        "<= 0.4; absence of events is not support.",
         False,
     ),
     "critic-downside": (
         "Downside Critic",
         ":material/trending_down:",
         "Forecast critic: fragility and invalidation",
-        "You are the downside critic. Assess fragility, volatility, contradictions between evidence "
-        "families and what would invalidate an upbeat reading.",
+        "You are the downside critic. Your job is the bear case: volatility, drawdown from recent highs, a broken "
+        "trend (closes below moving averages) and contradictions between evidence families. stance contradicts = "
+        "the downside risks dominate; supports = risks look contained (low volatility, intact trend); mixed = "
+        "neither. Name the single observable that would invalidate the upbeat reading.",
         False,
     ),
     "thesis-explainer": (
@@ -220,7 +227,7 @@ def _build(role: str) -> Dict[str, Any]:
         "skills": _SKILLS[role],
         "max_tool_rounds": 6 if role in ("market", "email", "portal") else 0,
         "temperature": 0.0 if forecast else 0.2,
-        "max_tokens": 700 if forecast else 2048,
+        "max_tokens": 900 if forecast else 2048,
         # "" = the app's configured chat model (or PERSONAL_AI_OMLX_WORKER_MODEL for forecast workers)
         "model": (
             PERSONAL_AI_FORECAST_CRITIC_MODEL if role.startswith("critic-") or role == "news-analyst" else ""

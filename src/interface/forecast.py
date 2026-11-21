@@ -141,6 +141,11 @@ def _research(vault):
 
     tabs = _tabs_module()
     st.subheader("1 · Evidence")
+    # A widget's state can only be set before it is created, so the draft fill lands on the next run.
+    pending = st.session_state.pop("forecast_schedule_pending", None)
+    if pending is not None:
+        st.session_state["forecast_schedule_text"] = pending
+    last = (st.session_state.get("forecast_research_result") or {}).get("snapshot", {}).get("market") or {}
     with st.form("forecast_research"):
         left, right = st.columns([2, 2])
         symbol = left.text_input(
@@ -151,19 +156,37 @@ def _research(vault):
         )
         with st.expander("Advanced: outcome tracking (optional)"):
             st.caption(
-                "To save a forecast that can be scored later, paste the official exchange-session sequence from the "
-                "origin through the target and confirm it. No holiday calendar is fetched or guessed. Without it, "
-                "current-day candles are excluded conservatively and research is unscheduled."
+                "To save a forecast that can be scored later, the app needs the exchange's trading days from before "
+                "today through the target. 1) Pick the listing exchange. 2) Click *Fill draft session list* (built "
+                "offline from NYSE holiday rules; it misses one-off closures). 3) Check it against the official "
+                "calendar, tick the box, then *Research ticker*. Step 4 then lets you save the forecast."
+            )
+            exchanges = ["XNAS", "XNYS"]
+            exchange = st.selectbox(
+                "Listing exchange", exchanges,
+                index=exchanges.index(last["exchange"]) if last.get("exchange") in exchanges else 0,
+                help="Nasdaq = XNAS (e.g. AAPL, ADBE, AVGO), NYSE = XNYS. After one research run it is preselected.",
+                key="forecast_schedule_exchange",
             )
             schedule = st.text_area(
-                "Official session sequence (JSON array)",
+                "Session sequence (JSON array)", key="forecast_schedule_text", height=120,
                 placeholder='[{"exchange":"XNAS","session":"2026-10-19",'
                 '"closes_at":"2026-10-19T20:00:00Z"}, ...]',
             )
+            fill = st.form_submit_button("Fill draft session list")
             confirmed = st.checkbox(
                 "I verified this is a complete official exchange-session sequence"
             )
         requested = st.form_submit_button("Research ticker", type="primary")
+    if fill:
+        from zoneinfo import ZoneInfo
+
+        from src.forecaster.sessions import draft_sessions
+
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        st.session_state["forecast_schedule_pending"] = json.dumps(
+            [s.to_api() for s in draft_sessions(exchange, today)], indent=0)
+        st.rerun()
     if requested:
         try:
             sessions = ()
@@ -191,6 +214,9 @@ def _research(vault):
                 "forecast_explanation",
             ):
                 st.session_state[key] = None
+        except (ValueError, TypeError) as exc:  # includes pydantic ValidationError; messages are code-written
+            msg = exc.errors()[0]["msg"] if hasattr(exc, "errors") else str(exc)
+            st.error(f"Research not run: {msg[:200]}. No forecast was saved.")
         except Exception:
             st.error(
                 "Research unavailable or invalid ticker/horizons. No forecast was saved."
@@ -576,9 +602,8 @@ def _prepare_forecast(vault, prediction, scenarios):
     sessions = prediction.snapshot.sessions
     if not sessions:
         st.caption(
-            "Research is unscheduled, so it cannot be saved for scoring. To track it, open "
-            '"Advanced: outcome tracking" above, paste and confirm the official session sequence, '
-            "then click Research ticker again."
+            "Research is unscheduled, so it cannot be saved for scoring. To track it: step 1 → "
+            '"Advanced: outcome tracking" → Fill draft session list → check it → tick the box → Research ticker.'
         )
         return
     st.markdown("**Prepare an outcome-tracked forecast**")

@@ -306,7 +306,7 @@ new key path or plaintext persistence location.
 
 **Outcome tracking is explicit and limited.** There is no automatic exchange
 calendar verification/fetch, scheduled evaluator, background report, trading,
-or general task-memory coordinator in this page. The user must supply a
+or general task-memory coordinator in this page. The user must supply and attest a
 complete official session sequence (including holidays correctly) and explicit
 source-attributed session closing prices plus an aware evaluation timestamp.
 Structural/chronological validation cannot prove that the supplied sequence
@@ -409,6 +409,12 @@ never the user or host. SEC requests keep the user-configured contact UA that SE
   appended after quarantine's fixed `SYSTEM`, never replacing it. Eval row "News analyst: injected text reaching output" = 0
   (hard). Headlines render as `st.dataframe` cells (inert text), never markdown.
 - Critic diagnostics (`output_chars`, `finish_reason`) are counts/closed enums; model text is never stored or shown raw.
+- Session draft (2026-11-21): *Fill draft session list* builds the sequence offline from NYSE holiday rules
+  (`forecaster/sessions.py`); nothing is fetched. It is a draft: the user must still verify it and tick the attestation, and
+  one-off closures are not covered. 16:00 is used on early-close days (a session counts as completed later, never earlier).
+- MCP write detection (2026-11-21): `SENSITIVE_TOOL_PREFIXES` adds `decline_` and `set_`. Robinhood labels
+  `decline_trade_approval` and `set_legend_chart_settings` as "read" although they change state; without annotations the
+  prefix list is the guard. Track R adds an exact-name allowlist for Forecast (the `get_` prefix also matches banking tools).
 
 ## Planned controls (2026-11-20)
 

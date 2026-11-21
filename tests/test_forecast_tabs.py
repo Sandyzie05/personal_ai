@@ -241,3 +241,14 @@ def test_screens_run_and_unavailable(tmp_path, monkeypatch):
 
 if __name__ == "__main__":
     _test_page()
+
+
+def test_events_today_and_search_render_together_without_duplicate_keys(tmp_path, monkeypatch):
+    item = {"title": "AAPL beats estimates", "link": "https://example.com/a", "publisher": "Wire",
+            "providerPublishTime": int(NOW.timestamp()) - 60, "relatedTickers": ["AAPL"]}
+    at = _launch(tmp_path, monkeypatch, fake_providers(news=[item]))
+    goto(at, "Events")
+    click(at, "Fetch today's stories")
+    at.text_input[0].set_value("AAPL")
+    click(at, "Search news")  # click() asserts no exception (was StreamlitDuplicateElementKey)
+    assert sum(b.label == "Tweak" for b in at.button) == 2

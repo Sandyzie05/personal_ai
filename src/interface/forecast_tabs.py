@@ -51,7 +51,7 @@ def _go_tweak(agent_id):
     st.session_state["agents_group"] = "Forecast workflow"
 
 
-def agent_chip(vault, slot_id, *, run=None):
+def agent_chip(vault, slot_id, *, run=None, key=""):
     """Which agent does this AI step, on which model, and how its last run went; one click to tweak it."""
     from src.agents.slots import SLOTS, agent_for
 
@@ -78,7 +78,7 @@ def agent_chip(vault, slot_id, *, run=None):
         left.caption(" · ".join(bits))
         right.button(
             "Tweak",
-            key=f"tweak_{slot_id}",
+            key=f"tweak_{slot_id}{key}",  # same slot can render twice on a page (Events: today + search)
             on_click=_go_tweak,
             args=(agent["id"],),
             help="Open this agent in the Agents tab",
@@ -515,7 +515,7 @@ def _news_analyst(vault, client_factory, stories, key):
     from src.forecaster.news_analyst import NewsAnalysis, analyze
 
     state_key = f"forecast_news_ai_{key}"
-    agent = agent_chip(vault, "forecast.news_analyst", run=st.session_state.get(state_key + "_run"))
+    agent = agent_chip(vault, "forecast.news_analyst", run=st.session_state.get(state_key + "_run"), key=f"_{key}")
     if client_factory and st.button("Analyze with AI", key=f"forecast_news_ai_btn_{key}"):
         start = time.monotonic()
         try:

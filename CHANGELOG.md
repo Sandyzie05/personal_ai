@@ -4,6 +4,19 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - fix: critic consistency, Track step, Events crash; Track R plan
+
+- Events crashed (`StreamlitDuplicateElementKey`) when today's stories and a search were both shown: `agent_chip(key=)`.
+- Critics: evidence ids sent as short aliases E1..En and mapped back in code (64-hex ids cost ~30 tokens each and were
+  garbled: `unknown_evidence`); rewritten `forecast-critic` skill (what each card family is, stance/confidence bands,
+  like-with-like comparisons, length limits) and per-role rules; critic max tokens 700 → 900, cap 1024.
+- Skill pack upgrades an installed skill that is still an unedited copy of an earlier shipped version (was: never updated).
+- Explainer: aliases too; small whole numbers (<= 31, e.g. "10-year", "3") are wording, not invented data.
+- Track (optional): *Fill draft session list* (offline NYSE holiday rules, `forecaster/sessions.py`) + listing-exchange
+  picker replace hand-writing JSON; research errors now say why (e.g. exchange mismatch).
+- MCP: `decline_` and `set_` are write prefixes (Robinhood labels `decline_trade_approval`/`set_legend_chart_settings` "read").
+- Roadmap Track R: Robinhood research integration plan (R0-R8, rules R-S1..R-S5, decisions R-D1..R-D3).
+
 ## (pending) - 2026-11-21 - feat: F7 news analyst; news, explainer and watchlist UX; F1 live ✓
 
 - F1 live: ADBE 3/4 critics completed on the 4B. Roadmap §0/§1 + Miro updated; next card P1.

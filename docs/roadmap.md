@@ -11,7 +11,7 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 
 **State.** `main` contains Track F through PR #28. **F1 live ✓ 2026-11-21** (ADBE: 3/4 critics completed on
 `Qwen3-4B-Instruct-2507-MLX-8bit`, explainer completed). F7 (news analyst) done offline in the F7 PR; its live check is one
-*Analyze with AI* click on Events. `make test` 781 pass, `make eval` Overall PASS. Two laptops: this repo is developed on one
+*Analyze with AI* click on Events. `make test` 787 pass, `make eval` Overall PASS. Two laptops: this repo is developed on one
 without models; the app runs with real data and local models (oMLX) on the other. **Next card: P1.**
 
 **Waiting on the user (model laptop), in this order:**
@@ -107,6 +107,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
+| Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit | PLANNED | Track R (R0-R8), decisions R-D1..R-D3 |
 | Daily Gmail digest *sent* to a messaging app (W2 idea) | DROPPED | sending is a write; read-only invariant S6. Digest is shown in-app |
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
 
@@ -149,7 +150,8 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-Track F is done (F1 live ✓, F7 offline). **Remaining order:**
+Track F is done (F1 live ✓, F7 offline). Track R (Robinhood) is planned; its position depends on decision R-D3
+(default: after P8). **Remaining order:**
 `P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) →
 `P9, P10` (user runs live) → `P11` (final packaging).
 P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 so the leakage eval also covers memory reads.
@@ -296,6 +298,54 @@ Slots in scope (Forecast first; other pages later):
 - `main.py` agent selector: General + every `chat_capable` slot agent + every custom agent, grouped ("System", "Mine"). Routing
   stays as today (coordinator roles via `run_query(only=role)`, others through the v1 runtime).
 - **Accept:** AppTest: a newly created custom agent and a tweaked built-in both appear and answer.
+
+### Track R. Robinhood research integration (PLANNED 2026-11-21, decisions R-D1..R-D3 below)
+
+**Goal.** Give the Forecast agents real fundamentals, earnings, analyst, options and filing data, and give the user a
+private "fits my trading profile" view, through the Robinhood MCP. Read-only (S6), no orders, no advice.
+
+**Architecture (one rule per row; each gets code + test like S1-S18).**
+
+| Rule | Why |
+|---|---|
+| R-S1 Code calls Robinhood, never the model. Fixed tool + fixed args (the ticker) per evidence family; the critics stay tool-less | No model-built arguments = no private text egress, no tool-call injection |
+| R-S2 Per-feature allowlist of exact tool names (`ROBINHOOD_RESEARCH_TOOLS`), on top of `ReadOnlyMcp` | The `get_*` prefix also matches `get_bank_accounts`/`get_banking_transactions`/`get_credit_transactions`; those never enter Forecast |
+| R-S3 Market data (fundamentals, ratings, earnings, financials, options IV, filings) is **public** → new `EvidenceCard` families in the frozen snapshot; numbers only, parsed by code; broker free text (company profile, filing prose) only via quarantine | Critics see facts with provenance (`source_id="robinhood"`), not broker prose |
+| R-S4 Account data (positions, cost basis, P&L, orders, buying power) is **private** → never in the snapshot, never to a critic; a separate code-only "Portfolio fit" panel | Keeps the public-evidence-only invariant of the AI review |
+| R-S5 Writes stay out (orders, alerts, watchlists, scans, `decline_trade_approval`, `set_legend_*`); `SENSITIVE_TOOL_PREFIXES` now also covers `decline_`/`set_` | Robinhood labels both "read" though they change state (fixed 2026-11-21) |
+
+**Cards.**
+- **R0 Connection + allowlist.** Agents → MCP servers already supports the remote OAuth endpoint. Add `forecaster/robinhood.py`
+  with `RobinhoodResearch(ReadOnlyMcp)` limited to R-S2 names; recorded-fixture tests (synthetic responses, no account data);
+  System health row "robinhood". *Accept:* a non-allowlisted name (incl. `get_bank_accounts`) raises; fixtures parse.
+- **R1 Fundamentals + valuation evidence.** `get_equity_fundamentals` (P/E, P/B, market cap, 52-week range, volume),
+  `get_financials` (revenue, net margin by quarter), `get_equity_analyst_ratings` (target low/avg/high, buy/hold/sell counts)
+  → `source_type="fundamental"` cards. The valuation critic's rule then names P/E vs history and price vs target range.
+  *Accept:* snapshot with these cards; valuation critic cites them in the fake-client eval; ToT gains a `valuation` driver.
+- **R2 Earnings and events.** `get_earnings_results` (last 8 EPS surprises, next date) → event card "earnings in N sessions"
+  (inside the 5/21 window = event risk flag); `get_earnings_calendar` feeds Events ("large caps reporting this week").
+  `get_sec_filing_index` + `get_sec_filing_facts` replace the SEC-EDGAR recency-only card with reported figures.
+- **R3 Options-implied move.** `get_option_chains` → nearest expiry after the horizon → ATM call+put via
+  `get_option_instruments` + `get_option_quotes` → implied move ±% (straddle / price). Downside critic and Verdict compare the
+  heuristic's expected excess return with the market-implied move ("model asks for more than options price in").
+- **R4 Better technicals.** `get_equity_technical_indicators` (RSI, MACD, ATR, Bollinger, ADX) and `get_equity_historicals`
+  (adjusted OHLCV) replace hand-rolled indicators where the local ones are missing (ATR/volume = old B18 gap).
+- **R5 Outcome tracking without pasting.** Evaluate saved forecasts from `get_equity_historicals` daily closes (provenance
+  "robinhood"), so step "Evaluate outcome" needs no JSON; completed sessions come from the returned bars.
+- **R6 Watchlist and Screens sources.** "Import" buttons: `get_watchlists`/`get_watchlist_items` and `get_scans` + `run_scan`
+  (read; exact-name allowlist) → ticker list for Watchlist leans and Screens. Tickers only (same rule as `holdings_fetcher`).
+- **R7 Portfolio fit (private, code-only).** `get_accounts` (read-only account), `get_equity_positions`, `get_portfolio`,
+  `get_realized_pnl`: show for the researched ticker: held? weight in portfolio, sector/theme overlap with other holdings,
+  unrealized vs cost basis, realized P&L history on the symbol, earnings-in-window flag. Numbers stay in the vault session;
+  never logged, never sent to a model (see R-D1). Copy: "context, not advice".
+- **R8 Evals.** Injection eval over broker free-text fields (0 reaching output, hard); disclosure eval: no position, quantity,
+  account number or balance in any snapshot/prompt/Finding (0, hard); valuation-critic golden cases with fundamentals cards.
+
+**Decisions for the user (defaults in bold).**
+- R-D1 Trading-profile data reaching a model: **none (code-only panel)** / closed buckets only (e.g. `position: none|small|large`)
+  to a local critic.
+- R-D2 Writes: **none** / user-click-only alert or watchlist add with an explicit confirm dialog (would amend S6).
+- R-D3 Order: **after P1-P8 (capstone first)** / before.
 
 ### Track P. Capstone feedback cards
 

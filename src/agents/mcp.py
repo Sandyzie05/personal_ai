@@ -66,6 +66,9 @@ SENSITIVE_TOOL_PREFIXES = (
     "follow_",
     "unfollow_",
     "mark_",
+    # Robinhood labels these "read" but they change state (decline a pending trade, change a chart).
+    "decline_",
+    "set_",
 )
 
 
