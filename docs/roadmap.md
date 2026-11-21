@@ -11,8 +11,8 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 
 **State.** Everything agent-doable is built and tested offline. Merged to `main`: Track F, P1-P8, P12, Track R + offline P11
 (PR #30); Track T Trader plan view (PR #31) and AI paper agents (PR #32); Robinhood Portfolio chat agent, Robinhood live-schema
-fit, Trader forward-record fix, Expected bills list (PR #33). **Open: PR #34** (R11 Gmail bill sync from email text, Expected
-bills form fix, internal-key fix for `trader_paper_v1`); merge it before starting new work. At PR #34 head: `make test`
+fit, Trader forward-record fix, Expected bills list (PR #33); R11 Gmail bill sync from email text, Expected bills form fix,
+internal-key fix for `trader_paper_v1` (PR #34); this handoff (PR #35). On `main`: `make test`
 911 pass, `make eval` Overall PASS (53 rows); `make eval-rag` and `make eval-stability RUNS=10` last passed before Track T
 (re-run them in the next session). Two laptops: this one has no models; the app runs with real data and local models (oMLX)
 on the other, where the user tests and pastes results back.
@@ -30,7 +30,7 @@ on the other, where the user tests and pastes results back.
 | Expected bills (overdue ledger) | Upload → Sync → *Expected bills* | `rag_design.md` R7 |
 
 **Waiting on the user (model laptop), in this order.** Each line says what to paste back.
-1. Merge PR #34, `git pull`, `venv/bin/pip install -U -r requirements.txt`, `venv/bin/pip check`, restart `make run`.
+1. `git pull`, `venv/bin/pip install -U -r requirements.txt`, `venv/bin/pip check`, restart `make run`.
    Upload → *Rebuild RAG index* once (drops a Trader-ledger entry that could have been indexed before the PR #34 fix).
 2. **Gmail bills (R11).** Gmail is connected (Google's Gmail MCP, 23 tools, OAuth worked without the user's own client id).
    Upload → Sync → *Bills from Gmail*: add Rocky Mountain Power / electricity / real sender domain, the gas provider, and
@@ -182,7 +182,7 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-All agent-doable cards are done (2026-11-21, PRs #30-#34; #34 open). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
+All agent-doable cards are done (2026-11-21, PRs #30-#35). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
 Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live),
 Trader live check (USER: paper-agent backtest with the local model, invalid-reply rate; Track T), then P11 final numbers. Track T
 (PRs #31-#32) is done offline; T9 broker orders stays planned and needs user sign-off.
