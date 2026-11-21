@@ -10,6 +10,7 @@ Each doc has one job. Status lives in one place: [roadmap.md](roadmap.md) §1.
 | Understand or improve document retrieval (RAG) and bill ingestion | [rag_design.md](rag_design.md) |
 | Work on local models, embeddings, oMLX, memory budget | [ai_engine.md](ai_engine.md) |
 | Work on stock research, Tree of Thought, outcome tracking | [forecaster.md](forecaster.md) |
+| Work on the Trader tab (intraday plan, advice only) | [trader.md](trader.md) |
 | Work on the agent loop, MCP servers, skills, confirmation gate | [multi_agent_design.md](multi_agent_design.md) |
 | Check security design, threat model, residual risks, audit | [security_design.md](security_design.md) |
 | Test the system by hand (RAG, agents, predictions) | [user_testing_guide.md](user_testing_guide.md) |

@@ -253,3 +253,18 @@ TOT_UNCERTAIN_MARGIN = (
 TOT_CRITIC_VETO_CONFIDENCE = (
     0.6  # >=2 critics contradicting at this confidence hard-prune a branch
 )
+
+# Trader (Track T, docs/trader.md): advice-only day-trade planning. User-entered limits, never broker account data (S22).
+TRADER_MAX_LOSS_USD = 50.0  # per trade, at the stop
+TRADER_DAILY_MAX_LOSS_USD = 150.0
+TRADER_BUDGET_USD = 5000.0
+TRADER_MAX_POSITION_PCT = 60.0
+TRADER_MIN_REWARD_RISK = 1.0
+TRADER_NO_ENTRY_BEFORE = "09:45"  # New York time
+TRADER_NO_ENTRY_AFTER = "15:30"
+TRADER_ENTRY_EXPIRES = "11:30"  # an opening-range breakout later than this is stale
+TRADER_FLAT_BY = "15:55"
+TRADER_MC_DRAWS = 10_000
+TRADER_MC_MAX_DRAWS = 20_000  # hard cap (S23)
+TRADER_MC_SEED = 19
+TRADER_LOOKBACK_SESSIONS = 60

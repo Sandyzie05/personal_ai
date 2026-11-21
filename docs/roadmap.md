@@ -55,6 +55,7 @@ flowchart LR
   W1[W1 proposal + assessment] --> W2[W2 reasoning, memory, tools] --> W3[W3 RAG R0-R6] --> W4[W4 ToT forecaster] --> W5[W5 multi-agent] --> W6[W6 safety plan] --> D[Docs + roadmap<br/>2026-11-20]
   D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
   P8 --> R[Track R: Robinhood research R0-R8] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
+  R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T9[T9 paper orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
   classDef todo fill:#eeeeee,color:#333,stroke:#9e9e9e
@@ -63,6 +64,8 @@ flowchart LR
   class D,FX,F,FL done
   class P1,P2,P3,P12,P5,P4,P6,P7,P8,R done
   class P11 now
+  class T0,T1,T2,T3,T4 done
+  class T9 todo
   class P9,P10,RL user
 ```
 
@@ -109,6 +112,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
 | Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3 |
+| Trader: intraday day-trade research and plan (scan, entry, stop/target, Monte Carlo odds, sizing, risk label); advice only, no orders | DONE vs fixtures; live = USER | Track T: shape 0/13, MC 4/4, risk golden 5/5; T9 paper orders PLANNED |
 | Daily Gmail digest *sent* to a messaging app (W2 idea) | DROPPED | sending is a write; read-only invariant S6. Digest is shown in-app |
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
 
@@ -367,6 +371,32 @@ context gets no remote MCP server, no web/news tool and no tool calls at all (`a
 (Robinhood, Yahoo, FRED, SEC, news) is built by code from a ticker/series id only, never from model output or prompt text.
 R8 adds a hard egress eval: synthetic account fixtures with canary values; 0 canaries in any outbound request URL/args/body,
 in logs, or in the activity log.
+
+### Track T. Trader: day-trade research on agents + Robinhood MCP (advice only) — T0-T4 DONE offline 2026-11-21 (live check: USER; T9 planned)
+
+**Goal.** A `Trader` section on the Forecast page adapted from day-trader-skill (see `trader.md`): setups, entry trigger, stop/target,
+Monte Carlo odds, share count and a rule check, from Yahoo 5-minute bars and read-only Robinhood data. No orders, ever (T9 is a later,
+separate decision).
+
+| Rule | Why |
+|---|---|
+| T-S1 (S21) No order/ticket shape in any trader output; no write tool reachable; upstream `trader-broker` not ported | Platform is advice-only (S6, S20, `policy.screen`) |
+| T-S2 (S22) Sizing/risk read only user-entered limits (`TRADER_*`); broker account figures never enter | Keeps S20 account isolation |
+| T-S3 (S23) Monte Carlo seeded + bounded + labelled simulation | Reproducible, cheap, honest |
+| T-S4 Edge `coordinator→trader` `extra="forbid"`; news via `DEPENDENCY_INPUTS` only; headlines via quarantine | S1, S2, S19 |
+
+**Cards (one PR each; new files first, shared files last after `git merge main`).**
+- **T0 Docs.** `trader.md`, this card, §0/§1, platform_plan S21-S23 draft, Miro. *Accept:* docs only; links resolve.
+- **T1 Engines.** `src/trader/{scan,entry,exit_plan,timemachine,sizing,risk}.py`, `PublicDataProviders.intraday`, `TRADER_*` config,
+  `tests/test_trader_*.py` on synthetic bars. *Accept:* `make test`; same seed ⇒ identical odds.
+- **T2 Agents.** `trader_worker`, `TraderRequest` edge, `DEPENDENCY_INPUTS` entry, slot `forecast.trader_brief` + role, skill pack,
+  policy rows. *Accept:* `make test`, `make eval` (refusal rows unchanged or stricter).
+- **T3 UI.** `trader_tab.py` + `Trader` in `SECTIONS`; AppTest. *Accept:* AppTest renders plan, no exception, no order text.
+- **T4 Evals + metrics.** `evals/trader.py` hard rows (no order shape/tool, account canaries absent, seed determinism, over-limit
+  BLOCK, injected headline inert); `platform_plan.md` §5; `security_design.md`; CHANGELOG. *Accept:* `make eval` → `Overall: PASS`.
+- **T9 Paper orders (PLANNED, not built).** Needs new invariants and explicit user sign-off.
+
+**Live check (USER).** Yahoo 5-minute fetch on the real network; Robinhood quote/indicator argument names; optional Robinhood intraday interval.
 
 ### Track P. Capstone feedback cards
 

@@ -21,13 +21,14 @@ from src.forecaster.report import report as build_report, to_csv
 from src.forecaster.screens import ScreenService
 from src.forecaster.technical import technical_snapshot
 
-SECTIONS = ("Research", "Watchlist", "Events", "Screens", "Drilldown", "Track record")
+SECTIONS = ("Research", "Watchlist", "Events", "Screens", "Drilldown", "Trader", "Track record")
 SECTION_HELP = {
     "Research": "One ticker end to end: public evidence, AI critic review, verdict, optional tracking.",
     "Watchlist": "Rank several tickers by a technical research lean; optional AI explanation.",
     "Events": "Today's market news (untrusted text, shown inert) and heuristic per-symbol leanings.",
     "Screens": "Reference screens over a fixed large-cap list using price history only.",
     "Drilldown": "Every technical indicator for one ticker, with a chart, plus provider health.",
+    "Trader": "Intraday day-trade plan for one ticker: entry trigger, stop/target, share count, risk label, simulated odds. Advice only, no orders.",
     "Track record": "How saved forecasts did after their horizon, against naive baselines.",
 }
 MAX_LEAN_SYMBOLS = 15
@@ -1113,5 +1114,9 @@ def render_section(
         render_events(vault, client_factory)
     elif section == "Drilldown":
         render_drilldown()
+    elif section == "Trader":
+        from src.interface.trader_tab import render_trader
+
+        render_trader(_providers)
     elif section == "Screens":
         render_screens(vault)
