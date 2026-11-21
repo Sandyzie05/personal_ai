@@ -205,8 +205,22 @@ Later (after 5 trading sessions): use *Evaluate outcome* (Research → "Saved fo
 2. Forecast → Research a ticker: "Data sources" lists Robinhood; the AI review cites fundamentals/earnings/options cards.
 3. Step 5 "Portfolio fit (private)" → *Load*: your position context for that ticker (never saved).
 4. Watchlist → import a Robinhood watchlist; Events → *Load earnings calendar*; Saved forecasts → *Fill closes from Robinhood*.
-5. Expect: no button anywhere places orders, alerts or watchlist changes. If a step returns nothing, report the step and the
+5. Chat → agent selector → **System · Robinhood Portfolio** → "How concentrated is my portfolio?" and "Which positions are
+   down the most?". Expect answers from your positions only, no buy/sell advice; "sell all my AAPL" is refused.
+6. Expect: no button anywhere places orders, alerts or watchlist changes. If a step returns nothing, report the step and the
    status line (not the data) — the tool argument names may need adjusting.
+
+### C-T. Trader (plan and AI paper agents)
+
+1. Forecast → Trader → *Plan*: `TSLA` → *Plan trade* during market hours. Expect waiting / triggered / expired, and when
+   triggered entry, stop, target, shares, a PASS/BLOCK risk line and simulated odds. No order or broker wording anywhere.
+2. *Paper agents*: tickers `SPY, AAPL`, all three agents → *Run backtest (past year)*. Expect a green line (signals, new AI
+   decisions, reused, invalid, not reviewed), a leaderboard with an `agent` and a `baseline` row per strategy, an equity
+   curve, P&L by month and a trade log. Note the invalid count and how long it took.
+3. Run the backtest again: new AI decisions should be near 0 and "reused" high (decisions are cached).
+4. *Review agents*: each row shows what the numbers say and what the reviewer says, flagged when they disagree.
+5. *Run forward session (latest bars)* on a trading day: only the newest session is decided; *Record → Forward* shows it.
+6. Fail if: any real order is suggested or sent, a ticker or date appears in an agent's activity-log entry, or the app errors.
 
 ## Part D: Security spot checks (10 minutes)
 
@@ -243,6 +257,11 @@ Offline-verified only; these are the first live checks. Record Fail items as cas
 
 ### E6. Specialist selector and partial quarters (B8, B15)
 **Do:** Chat selector: pick Expense only, then Market only. **Expect:** only that specialist runs. Ask a quarter question with a month missing: **Expect** `uncertain`/partial warning, not a confident sum. Note: records lacking `period_start` read as partial.
+
+### E6b. Expected bills (Upload → Sync → Expected bills)
+List each provider whose bill should keep arriving (one row each, monthly or quarterly). Pick a provider from your indexed
+bills (names must match exactly) or type one. Expect "on time" / "overdue" / "no bill yet" per row, a warning above when a bill
+is late, and *Remove* per row.
 
 ### E7. Portal and Gmail attachments (R8-R10): supervised, optional
 Only mock-portal fixtures are tested. A real provider needs a recipe recorded with `playwright codegen` (run `venv/bin/playwright install chromium-headless-shell` first). Never give credentials to the chat; 2FA stops for you. Gmail attachment tool names (`search_messages`, `get_attachment`) are assumptions; check them against your Gmail MCP server.

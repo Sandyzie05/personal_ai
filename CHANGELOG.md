@@ -4,6 +4,17 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-21 - feat/fix: Robinhood Portfolio chat agent, earnings-calendar fix, Expected bills, Trader Forward record
+
+- New chat agent "Robinhood Portfolio" (`builtin-portfolio`, S25): code reads holdings, local tool-less model answers; skill
+  `portfolio-review`; trade asks refused before Robinhood is called; eval row.
+- Robinhood: `RobinhoodClient._fit` matches args to the live tool schema (aliases, drops undeclared, names missing required);
+  MCP `ExceptionGroup` unwrapped to leaf type + JSON-RPC code (was "unhandled errors in a TaskGroup" on the earnings calendar).
+- Expected bills: explained in the panel, list with on time / overdue / no bill yet, Remove per row, provider picker from
+  indexed bills (`pipeline.expectations/remove_expectation/known_providers`).
+- Trader Paper agents: empty Forward/Backtest record no longer crashes the trade log (KeyError on columns).
+- Docs sync from PR #32 (missed the merge) carried here.
+
 ## (pending) - 2026-11-21 - feat: Trader AI paper agents (Track T5)
 
 - Three LLM strategy agents (ORB, 20-day breakout, oversold bounce) + reviewer as tool-less Forecast slots, instructions from new skill
@@ -11,6 +22,8 @@
 - Local paper ledger in the vault (`src/trader/paper.py`, 1-year retention), backtest (1y daily / 60d 5m) + forward runs, baseline that
   takes every signal, scoreboard with equity curve, monthly P&L, prediction accuracy/Brier, trade log (Forecast -> Trader -> Paper agents).
 - `PublicDataProviders.daily_history`, `risk.check(window=)`, upstream break-even verdict in `timemachine.verdict`; S24; 3 eval rows.
+- Docs/Miro sync: roadmap §00/§2, platform_plan §3.1/§3.3/§3.4/§6/D14, forecaster.md slots + sections, architecture diagram,
+  user_testing_guide C-T, README, security_design contents/summary; Miro frames 0-3, 5, 6 updated (Track T cards, Trader node, metrics).
 
 ## (pending) - 2026-11-21 - feat: Trader forecast section (Track T, advice only)
 

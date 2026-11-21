@@ -9,11 +9,12 @@ Each card names the feedback it answers (`W5` = Week 5 feedback).
 
 ## 00. Start here (handoff for the next session, updated 2026-11-21)
 
-**State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R8) and the offline part of P11, in
-one MR (PR #30). `make test` 861 pass, `make eval` Overall PASS (45 rows), `make eval-rag` PASS, `make eval-stability RUNS=10`
-PASS. Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
+**State (2026-11-21).** All agent-doable work is built: Track F, P1-P8, P12, Track R (R0-R10, incl. the Robinhood Portfolio chat agent) and the offline part of P11
+(PR #30), then Track T Trader: plan view T0-T4 (PR #31) and AI paper agents T5 (PR #32). `make test` 905 pass, `make eval`
+Overall PASS (52 rows), `make eval-rag` PASS, `make eval-stability RUNS=10` PASS (last run before Track T). Two laptops: this repo is developed on one without models; the app runs with real data and local models (oMLX) on the
 other. **What is left is USER work:** P9 (live run), P10 (RAG calibration on the real embedder), and first live Robinhood
-connection (confirm tool argument names, see Track R "Live check"). Then P11's final numbers.
+connection (confirm tool argument names, see Track R "Live check"), and a first Trader paper-agent backtest with the local
+model (Track T "Live check"). Then P11's final numbers.
 
 **Waiting on the user (model laptop), in this order:**
 0. Download `lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit` into oMLX; confirm its id in `curl 127.0.0.1:8000/v1/models`
@@ -22,6 +23,8 @@ connection (confirm tool argument names, see Track R "Live check"). Then P11's f
    `user_testing_guide.md` §0 step 6) → `venv/bin/pip check`.
 2. Restart `make run`; Forecast → AAPL → *Research ticker* → *Run AI review*. Optionally tweak a critic (Agents → Forecast
    workflow) and run again.
+4. Forecast → Trader → *Paper agents*: tickers `SPY, AAPL` → *Run backtest (past year)* (up to 30 model calls, minutes on
+   the 4B). Note new decisions / invalid replies from the green line, then *Review agents*. Run it again: decisions are reused.
 3. Paste a state report (opencode prompt below). The `<LIVE>` section must list critics completed N/4 with each status,
    `invalid_reason` and seconds.
 
@@ -54,7 +57,7 @@ Updated after every card (also mirrored on the Miro board, frame "Progress journ
 flowchart LR
   W1[W1 proposal + assessment] --> W2[W2 reasoning, memory, tools] --> W3[W3 RAG R0-R6] --> W4[W4 ToT forecaster] --> W5[W5 multi-agent] --> W6[W6 safety plan] --> D[Docs + roadmap<br/>2026-11-20]
   D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
-  P8 --> R[Track R: Robinhood research R0-R8] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
+  P8 --> R[Track R: Robinhood research R0-R10 + Portfolio chat] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
@@ -111,7 +114,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
-| Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3 |
+| Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
 | Trader: intraday day-trade research and plan (scan, entry, stop/target, Monte Carlo odds, sizing, risk label); advice only, no orders | DONE vs fixtures; live = USER | Track T: shape 0/13, MC 4/4, risk golden 5/5; T5 paper agents: hostile 0/90, lookahead 0/68, ledger 7/7; T9 broker orders PLANNED |
 | Daily Gmail digest *sent* to a messaging app (W2 idea) | DROPPED | sending is a write; read-only invariant S6. Digest is shown in-app |
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
@@ -155,8 +158,10 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-All agent-doable cards are done (2026-11-21, PR #30). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
-Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live), then P11 final numbers.
+All agent-doable cards are done (2026-11-21, PRs #30-#32). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
+Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live),
+Trader live check (USER: paper-agent backtest with the local model, invalid-reply rate; Track T), then P11 final numbers. Track T
+(PRs #31-#32) is done offline; T9 broker orders stays planned and needs user sign-off.
 
 ## 3. Conventions for every card
 
@@ -359,6 +364,14 @@ feature comes back empty, fix `_ARG` / the builders in `robinhood.py` from the l
   Copy: "context, not advice".
 - **R8 Evals.** Injection eval over broker free-text fields (0 reaching output, hard); disclosure eval: no position, quantity,
   account number or balance in any snapshot/prompt/Finding (0, hard); valuation-critic golden cases with fundamentals cards.
+- **R9 Robinhood Portfolio chat agent (DONE vs fixtures 2026-11-21).** Built-in chat agent `builtin-portfolio` (Chat → agent
+  selector → "Robinhood Portfolio"). Code reads holdings via account tools (`portfolio_chat.snapshot`: symbol, quantity, average
+  cost, market value, weight, unrealized %; no account numbers), a tool-less **local** model answers (loopback-only factory, R-D1,
+  R-S6); `policy.screen` refuses trade asks before Robinhood is called; activity log = status + timing (S25). Skill
+  `portfolio-review`. *Accept:* `test_portfolio_chat.py`, eval S25 row. *Live (USER):* ask "How concentrated is my portfolio?".
+- **R10 Live schema fit (2026-11-21).** `RobinhoodClient._fit` reads the live tool schema once per client: renames via `ALIASES`,
+  drops undeclared args, names missing required ones; MCP `ExceptionGroup`s are unwrapped to the leaf type + JSON-RPC code
+  (no server text). Fixes the earnings-calendar "unhandled errors in a TaskGroup" class of failures; re-check live.
 
 **Decisions (user, 2026-11-21).**
 - R-D1 Account data may reach the **local** model (it runs on the laptop). Guardrail instead: it must never leave the machine.
@@ -399,7 +412,9 @@ separate decision).
   *Accept:* `make test`, `make eval` (S24 rows). *Live (USER):* run a backtest on 2-3 tickers with the local model; check invalid-reply rate.
 - **T9 Broker orders (PLANNED, not built).** Alpaca-paper or real orders need new invariants and explicit user sign-off.
 
-**Live check (USER).** Yahoo 5-minute fetch on the real network; Robinhood quote/indicator argument names; optional Robinhood intraday interval.
+**Live check (USER).** Yahoo daily + 5-minute fetch verified on the real network 2026-11-21 (SPY: 251 daily bars, 60 days of 5m,
+71 signals, baseline only). Still USER: a paper-agent backtest with the local model (invalid-reply rate, minutes per run); optional
+Robinhood intraday interval.
 
 ### Track P. Capstone feedback cards
 

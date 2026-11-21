@@ -125,6 +125,16 @@ _ARG = {
 }
 
 
+# Our argument name -> names a server schema may use instead (argument names were inferred from the catalog, Track R).
+ALIASES = {
+    "start_date": ("start", "from_date", "date_from", "start_time"),
+    "end_date": ("end", "to_date", "date_to", "end_time"),
+    "symbols": ("symbol", "tickers"),
+    "symbol": ("ticker", "symbols"),
+}
+_NAME = re.compile(r"^[a-z_]{1,40}$")
+
+
 class RobinhoodClient(ReadOnlyMcp):
     """Exact-name allowlist + argument guard over one Robinhood MCP server. `requests` records every outbound call
     (tool, args) for the egress eval; it is in-memory only and never logged."""
@@ -132,6 +142,34 @@ class RobinhoodClient(ReadOnlyMcp):
     def __init__(self, mcp: Any, server_id: str):
         super().__init__(mcp, server_id)
         self.requests: List[Tuple[str, Dict[str, Any]]] = []
+        self._schemas: Optional[Dict[str, dict]] = None
+
+    def _fit(self, tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Match code-built args to the live tool schema: rename via ALIASES, drop what the tool doesn't declare,
+        fail clearly on a missing required one. No schema available (fixtures, older servers) -> args unchanged."""
+        if self._schemas is None:
+            try:
+                self._schemas = {t.name: t.input_schema or {} for t in self.mcp.list_tools(self.server_id)}
+            except Exception:
+                self._schemas = {}
+        schema = self._schemas.get(tool) or {}
+        props = schema.get("properties") or {}
+        if not props:
+            return args
+        out = {}
+        for key, value in args.items():
+            name = key if key in props else next((a for a in ALIASES.get(key, ()) if a in props), None)
+            if name is None:
+                continue
+            if name in ("symbol", "ticker") and isinstance(value, list):
+                value = value[0]
+            elif name in ("symbols", "tickers") and isinstance(value, str):
+                value = [value]
+            out[name] = value
+        missing = [r for r in schema.get("required") or () if r not in out and isinstance(r, str) and _NAME.match(r)]
+        if missing:
+            raise ValueError(f"{tool} needs argument(s) {', '.join(missing[:4])}; update robinhood.py builders")
+        return out
 
     def call(self, tool: str, args: Dict[str, Any]) -> Any:  # type: ignore[override]
         if (
@@ -147,6 +185,7 @@ class RobinhoodClient(ReadOnlyMcp):
                 raise PermissionError(
                     "account_number may only go to account tools (R-S6)"
                 )
+        args = self._fit(tool, args)
         self.requests.append((tool, dict(args)))
         # Code parses these payloads (never the model), so the 8k chat-context cap would only corrupt the JSON.
         result = self.mcp.call_tool(self.server_id, tool, args, max_chars=MAX_PAYLOAD_CHARS)

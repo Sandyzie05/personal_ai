@@ -203,6 +203,21 @@ def set_expectation(vault, provider: str, cadence: str) -> None:
     vault.store_data(EXPECT_KEY, ex, encrypt=True)
 
 
+def expectations(vault) -> Dict[str, str]:
+    return dict((vault.retrieve_data(EXPECT_KEY) or {}).get("providers", {}))
+
+
+def remove_expectation(vault, provider: str) -> None:
+    ex = vault.retrieve_data(EXPECT_KEY) or {"providers": {}}
+    ex["providers"].pop(provider, None)
+    vault.store_data(EXPECT_KEY, ex, encrypt=True)
+
+
+def known_providers(vault) -> List[str]:
+    """Provider names as extracted from indexed bills: the overdue check matches these exactly."""
+    return sorted({r["provider"] for r in _manifest(vault).values() if r.get("provider")})
+
+
 def overdue(vault, today: Optional[date] = None) -> List[Dict[str, Any]]:
     """Providers whose newest indexed bill is older than cadence. No network."""
     today = today or date.today()

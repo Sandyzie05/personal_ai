@@ -32,3 +32,11 @@ def test_paper_agents_rejects_bad_tickers(tmp_path, monkeypatch):
     at.text_input(key="paper_symbols").set_value("not a ticker").run()
     click(at, "Run backtest (past year)")
     assert any("US tickers" in e.value for e in at.error)
+
+
+def test_forward_record_empty_does_not_crash(tmp_path, monkeypatch):
+    at = _open(tmp_path, monkeypatch)
+    at.text_input(key="paper_symbols").set_value("AAA").run()
+    click(at, "Run backtest (past year)")
+    at.segmented_control(key="paper_mode").set_value("Forward").run()
+    assert not at.exception and "No forward trades yet" in texts(at)

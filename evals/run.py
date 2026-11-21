@@ -35,7 +35,7 @@ from .injection import (
 from .integrations import run_integrations
 from .reasoning import run_held_out, run_reasoning
 from .refusal import run_refusal
-from .robinhood import run_account_egress, run_broker_injection, run_valuation_golden
+from .robinhood import run_account_egress, run_broker_injection, run_portfolio_chat, run_valuation_golden
 from .stress import evaluate as run_stress
 from .trader import run_agent_safety, run_ledger_golden, run_no_lookahead, run_risk_golden, run_shape, run_simulation
 from .userguide import run_userguide
@@ -187,6 +187,7 @@ def compute() -> Dict[str, Any]:
         run_valuation_golden(),
     )
     tr_shape, tr_sim, tr_risk = run_shape(), run_simulation(), run_risk_golden()
+    pf_chat = run_portfolio_chat()
     tr_safe, tr_look, tr_led = run_agent_safety(), run_no_lookahead(), run_ledger_golden()
     ug = run_userguide()
     integ = run_integrations()
@@ -331,6 +332,13 @@ def compute() -> Dict[str, Any]:
             "0",
             f"{rh_egress['violations']} in {rh_egress['sinks']} sinks x {rh_egress['canaries']} canaries",
             rh_egress["violations"] == 0 and rh_egress["sinks"] > 0,
+            True,
+        ),
+        (
+            "Robinhood Portfolio chat: account number in prompt/log, trade asks reaching Robinhood (S25)",
+            "0",
+            f"{pf_chat['violations']} in {pf_chat['checked']} checks",
+            pf_chat["violations"] == 0 and pf_chat["checked"] > 0,
             True,
         ),
         (

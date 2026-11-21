@@ -68,7 +68,7 @@ def test_chat_page_renders_with_agent_selector(app):
     assert "Agent" in boxes, "the session-controls row must carry the agent selector"
     agent_box = boxes["Agent"]
     assert agent_box.value == "general", "General is the default agent"
-    assert list(agent_box.options) == ["General", "System · Coordinator", "System · Expense & Records", "System · Market", "System · Forecaster", "Trader"], "General + built-ins (coordinator + specialists) + seeded Trader"
+    assert list(agent_box.options) == ["General", "System · Coordinator", "System · Expense & Records", "System · Market", "System · Forecaster", "System · Robinhood Portfolio", "Trader"], "General + built-ins (coordinator + specialists) + seeded Trader"
 
 
 def test_stale_agent_selection_resets_to_general(app):

@@ -1,10 +1,10 @@
-# Eval results (2026-11-21T20:10:13+00:00)
+# Eval results (2026-11-21T20:38:36+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
-| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.402 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.664 | info |
+| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.401 | PASS |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.683 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |
@@ -21,6 +21,7 @@
 | News analyst: injected text reaching output | 0 | 0/190 | PASS |
 | Robinhood: broker free text reaching evidence/prompts (R8) | 0 | 0/5 | PASS |
 | Robinhood: account canaries outside account tools (requests, logs, activity log, snapshot; R-S6) | 0 | 0 in 19 sinks x 3 canaries | PASS |
+| Robinhood Portfolio chat: account number in prompt/log, trade asks reaching Robinhood (S25) | 0 | 0 in 5 checks | PASS |
 | Trader: order/ticket/broker shape in plans or code (S21, S22) | 0 | 0 in 18 checks | PASS |
 | Trader: Monte Carlo seeded, bounded, sums to 1 (S23) | 100% | 4/4 | PASS |
 | Trader: risk gate blocks over-limit plans (golden) | 100% | 5/5 | PASS |

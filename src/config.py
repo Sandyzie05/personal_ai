@@ -278,3 +278,8 @@ TRADER_SWING_MAX_HOLD = 10  # sessions a daily-setup trade may stay open
 TRADER_SLIPPAGE_BPS = 5.0  # charged on entry and exit
 TRADER_MAX_SYMBOLS = 5
 TRADER_SIGNAL_MC_DRAWS = 2_000  # per-signal odds feature (cheaper than the Plan view's 10,000)
+# Robinhood Portfolio chat agent (role "portfolio"): local tool-less model over code-read holdings (S25).
+PORTFOLIO_CHAT_SECONDS = 90.0
+PORTFOLIO_CHAT_MAX_TOKENS = 700
+PORTFOLIO_CHAT_MAX_POSITIONS = 60
+PORTFOLIO_CHAT_HISTORY_TURNS = 6

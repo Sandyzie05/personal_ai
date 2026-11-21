@@ -56,6 +56,7 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S22 | Trader sizing/risk use only user-entered limits (`TRADER_*`); broker account figures never enter trader inputs/outputs | `trader/sizing.py`, `trader/risk.py` | `evals/trader.py` shape row (no broker/MCP import in `src/trader`) |
 | S23 | Trader Monte Carlo is seeded (deterministic), bounded by `TRADER_*` caps, labelled a simulation | `trader/timemachine.py` | `evals/trader.py` simulation row, `test_trader_engines.py` |
 | S24 | Trader paper agents: prompts are code-built relative numbers from bars up to the signal (no ticker/date/price, no lookahead); replies are closed-choice `TraderDecision` (extra fields rejected); code alone sets entry, size and risk; ledger is vault-only, never sent to a broker | `trader/agents.py`, `trader/strategies.py`, `trader/paper.py` | `test_trader_paper.py`, `evals/trader.py` agent-safety + lookahead rows |
+| S25 | Robinhood Portfolio chat: code reads holdings (account tools only) and computes figures; a tool-less model on the loopback endpoint answers; no account numbers in the prompt; `policy.screen` before any Robinhood call; activity log holds status + timing only | `agents/portfolio_chat.py`, `interface/main.py::_respond_portfolio` | `test_portfolio_chat.py`, eval S25 row |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
 obedience is not relied on (schema validation is); Chroma index is plaintext if persisted (currently in-memory; see `security_design.md`); no live
@@ -81,26 +82,27 @@ retrieval loops inside the retriever.
 
 | File | Responsibility | Public API |
 |---|---|---|
-| `src/agents/orchestration/schemas.py` | Typed contracts | `Finding`, `Plan`, `PlanStep(symbol?)`, `CashflowDelta`, `SymbolRequest`, `HoldingsSummary`, `EmailFacts`, `StatementFacts`, `EDGES`, `SAFE_TEXT` |
+| `src/agents/orchestration/schemas.py` | Typed contracts | `Finding`, `Plan`, `PlanStep(symbol?)`, `CashflowDelta`, `SymbolRequest`, `TraderRequest`, `HoldingsSummary`, `EmailFacts`, `StatementFacts`, `EDGES`, `SAFE_TEXT` |
 | `.../bus.py` | Scoped message bus | `MessageBus(vault, edges, canaries).send(sender, receiver, payload)`; `DisclosureViolation` |
 | `.../quarantine.py` | Untrusted-input extractor | `extract_facts(raw, source, schema, client) -> Extraction`; `sanitize_text` |
 | `.../memory.py` | Core Memory gate | `propose`, `list_pending`, `list_core`, `issue_approval_token`, `approve(token, acknowledge_untrusted)`, `reject`; `ApprovalError` |
 | `.../coordinator.py` | Delegate/merge/escalate | `Coordinator(workers, max_workers, max_retries, deadline_s, max_age, transient, recheck).run(plan) -> RunReport`; `merge`, `validate_plan`, `escalations_for`, `requires_confirmation` |
-| `.../workers.py` | Service adapters | `plan_for(query)`, `expense_worker(get_records)`, `forecaster_worker(research, swarm)`, `market_worker(providers, bus)`, `render_report(report)` |
+| `.../workers.py` | Service adapters | `plan_for(query)`, `expense_worker(get_records)`, `forecaster_worker(research, swarm)`, `trader_worker(providers)`, `market_worker(providers, bus)`, `render_report(report)` |
 | `.../ingest.py` | Gmail/portal ingestion | `ReadOnlyMcp`, `gmail_fetcher`, `digest_emails`, `ingest_statements`, `email_worker`, `portal_worker`, `PortalFetcher` protocol |
 | `.../schedule.py` | Scheduled runs (vault) | `add_job`, `list_jobs`, `remove_job`, `due_jobs`, `run_due(vault, run_query)` |
 | `.../policy.py` | Refusals | `screen(query) -> Refusal or None`, `RequestRefused` |
 | `.../templates.py` | Built-in agent configs | `BUILTIN_AGENTS` (`builtin-<role>`: coordinator, expense, health, email, portal, market, forecaster, verifier), `list_builtin()` |
-| `.../skill_pack.py` + `skills/*.md` | Built-in skills | `install_builtin_skills()` (6 skills) |
+| `.../skill_pack.py` + `skills/*.md` | Built-in skills | `install_builtin_skills()` (11 skills, incl. 4 `trader-*` adapted from day-trader-skill) |
 | `.../service.py` | UI wiring | `build_coordinator(vault, get_records, scenario_factory, extra_workers)`, `run_query` (applies policy), `propose_from_report` |
 | `src/agents/{runtime,mcp,store,skills}.py` | v1 agent loop, MCP, vault records | see `multi_agent_design.md` |
 | `src/forecaster/*.py` | Public-data research | `research`, `scenarios`, `outcomes`, `technical`, `recommend`, `screens`, `news`, `report`, `health`, `providers` |
 | `src/agents/slots.py` | Workflow slots: fixed default agent per AI step, tool clamp, skills folded in | `SLOTS`, `agent_for(vault, slot_id)`, `critic_agents(vault)`, `log_run` |
 | `src/forecaster/explain.py` | Thesis / watchlist explainer agents (closed schema, grounded numbers) | `explain_thesis`, `explain_leans` |
 | `src/forecaster/tot.py` | Tree-of-Thought thesis search (Week 4) | `search(snapshot, critique) -> ThoughtTree`; `Thought`, `Node`; design + rationale in [forecaster.md](forecaster.md) Part 2 |
+| `src/trader/*.py` | Trader (Track T, [trader.md](trader.md)): plan + AI paper agents | `pipeline.analyze`, `strategies.{orb,daily}_signals`, `agents.decide/review`, `paper.execute/load/save`, `performance.summarize/equity_curve/monthly`, `runner.run` |
 | `src/ai_engine/engine.py` | Client factory | `build_chat_client`, `build_embed_client`, `client_kwargs_from_config`, `EngineDisabledError` |
 | `src/ai_engine/omlx_client.py` | oMLX client | OpenAI-shape chat/embeddings, tool-call mapping (`_to_openai_messages`, `_from_openai_message`) |
-| `src/interface/` | UI | `main.py` (Coordinator in chat selector via `_respond_coordinated`), `forecast.py` + `forecast_tabs.py`, `agents.py` (Core Memory tab) |
+| `src/interface/` | UI | `main.py` (Coordinator in chat selector via `_respond_coordinated`), `forecast.py` + `forecast_tabs.py`, `trader_tab.py` + `trader_paper_tab.py` (Forecast → Trader), `agents.py` (Core Memory tab) |
 | `evals/` | Eval harness | `python -m evals.run` (`make eval`): golden, faults, injection, disclosure, refusal |
 
 ### 3.2 Coordination protocol
@@ -124,14 +126,18 @@ retrieval loops inside the retriever.
 trust∈{trusted,untrusted}, as_of}`. Claim-key conventions: `bill:<provider>:<period_end>`, `cashflow_delta:<YYYY-Qn>`,
 `budget_constraint:<period>`, `outlook:<SYM>:<h>s`, `specialists:<SYM>`, `lean:<SYM>`, `email:<id>`, `statement:<provider>:<end>`,
 `records`. Bus edges (only these exist): `expense→market (CashflowDelta)`, `coordinator→forecaster (SymbolRequest)`,
-`coordinator→market (HoldingsSummary)`, `email→coordinator (EmailFacts)`, `portal→expense (StatementFacts)`.
+`coordinator→market (HoldingsSummary)`, `coordinator→trader (TraderRequest)`, `email→coordinator (EmailFacts)`, `portal→expense (StatementFacts)`.
+Claim keys added by Track T: `trader:<SYM>:{entry,plan,odds}`.
 
 ### 3.4 Agent roster
 
 All are code-constant templates (not editable); the user binds MCP servers in Agents → MCP Servers. Roles/tools/skills are in
-`templates.py` (`_ROLES`, `_SKILLS`); every prompt carries the shared safety rules (`_COMMON`). Only `builtin-coordinator`
-is selectable in chat today; specialists run as coordinator workers. Skills attached: personal-finance-analysis,
-market-research-brief, untrusted-content-handling, conflict-escalation, forecast-evaluation, data-minimization.
+`templates.py` (`_ROLES`, `_SKILLS`); every prompt carries the shared safety rules (`_COMMON`). Chat-selectable built-ins: Coordinator, Expense & Records, Market, Forecaster (via the coordinator) and **Robinhood Portfolio**
+(`builtin-portfolio`, S25: code-read holdings, local tool-less model). Skills attached: personal-finance-analysis,
+market-research-brief, untrusted-content-handling, conflict-escalation, forecast-evaluation, data-minimization, forecast-critic.
+Forecast workflow agents (tool-less slots, tweakable in Agents → Forecast workflow): 4 critics, thesis/watchlist explainers, news
+analyst, portfolio fit, and the Trader paper agents `builtin-trader-{orb,breakout,bounce,reviewer}` (skills `trader-orb-method`,
+`trader-swing-method`, `trader-risk-rules`, `trader-review`; numbers-only prompts, closed-choice replies, S24).
 
 ## 4. Configuration
 
@@ -184,6 +190,7 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Core Memory recall / superseded-or-forgotten returned (P5) | ≥ 9/10 / 0 | 9/9 / 0 | |
 | Composed leakage: canaries outside allowed sinks (P4) | 0 | 0 (114 runs, 969 sinks, 102 hops) | golden + stress + service chains with memory |
 | Robinhood: broker free text / account canaries / valuation golden (Track R) | 0 / 0 / 100% | 0/5 / 0 in 19 sinks × 3 / 3/3 | synthetic fixtures; no live account |
+| Robinhood Portfolio chat: account number in prompt/log, trade asks reaching Robinhood (S25) | 0 | 0 in 5 | synthetic account fixtures |
 | Trader: plan shape / seeded Monte Carlo / risk golden (Track T) | 0 / 100% / 100% | 0 in 13 checks / 4/4 / 5/5 | synthetic bars; advice only |
 | Trader paper agents: hostile replies accepted / lookahead / ledger golden (Track T) | 0 / 0 / 100% | 0 in 90 / 0 in 68 / 7/7 | synthetic bars + fake clients; live model results = USER |
 | Stability: every hard row across `RUNS=10` perturbed runs (P7) | 100% | 10/10 each | shuffle, duplicates, paraphrase, jitter, workers 1/2, concurrency 1 |
@@ -204,7 +211,7 @@ Completed phases (all accepted by `make test` + `make eval`; nothing verified on
 2 stock_predictor port, 3 UI merge, 4 agent infra, 5 agent configs/skills/policy, 6 untrusted ingestion (fixtures), 7 evaluation,
 8 docs, 9 independent audit (now in `security_design.md` "Independent audit"), 10 PR #17 hardening merge, 11 Week 4 ToT.
 Former backlog cards B1-B19 and RAG cards R0-R11 are DONE except those carried into the roadmap (B1/B6/B19 → P9, B17/B18/R10 →
-roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30). Test count at last full run: 861 pass, 0 fail (2026-11-21).
+roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T Trader T0-T5 done (PRs #31-#32). Test count at last full run: 905 pass, 0 fail (2026-11-21).
 
 ## 7. Runbook
 
@@ -241,6 +248,10 @@ roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30). Test co
   hands-on framework use (then do the roadmap §6 LangGraph parity eval first).
 - D11 Step budgets come from code: forecaster steps get `FORECAST_STEP_TIMEOUT_SECONDS` (research + specialist deadlines + 5 s); the LLM planner cannot set `timeout_s`.
 - D12 Hardware budget (one 128 GB laptop): all agents share one local server. Memory scales with resident models and with in-flight requests, not with the number of agents, so concurrency is capped app-wide (`PERSONAL_AI_INFERENCE_CONCURRENCY=2`) and background roles can use a smaller `PERSONAL_AI_OMLX_WORKER_MODEL`. Speed comes from smaller worker models, not more parallelism.
+- D14 Trader paper agents (Track T5): a **local paper ledger**, not Alpaca paper, so no write tool enters the platform (S21); agents
+  see **anonymised, no-lookahead numbers** (no ticker/date/price) so a backtest can't be won from the model's memory of history;
+  every agent is scored against a **take-every-signal baseline** on the same signals; fixed per-trade budget keeps results independent
+  of run order; decisions are cached so the per-run call budget extends coverage instead of re-asking.
 - D7 Latency target applied to the 5-step fan-out workload; B1 target to the cross-domain subset (see §5 notes).
 
 ## 9. Feedback traceability

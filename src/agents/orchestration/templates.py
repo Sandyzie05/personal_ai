@@ -145,6 +145,14 @@ _ROLES = {
         "in window). Context, not advice: never say buy, sell, add, trim or hold.",
         False,
     ),
+    "portfolio": (
+        "Robinhood Portfolio",
+        ":material/account_balance_wallet:",
+        "Chat about your own Robinhood portfolio (read-only, local model only, no advice or orders)",
+        "Answer questions about the user's own holdings from the PORTFOLIO figures code supplies. Concentration, "
+        "winners/losers and cost basis are fine; buy/sell/hold advice and order instructions are not.",
+        False,
+    ),
     "trader-orb": (
         "ORB Paper Trader",
         ":material/candlestick_chart:",
@@ -198,6 +206,7 @@ CHAT_ROLES = (
     "expense",
     "forecaster",
     "market",
+    "portfolio",
 )  # roles the Chat selector can route to
 FORECAST_ROLES = (
     "critic-macro",
@@ -249,6 +258,7 @@ _SKILLS = {
     "watchlist-explainer": ["market-research-brief"],
     "news-analyst": ["untrusted-content-handling"],
     "portfolio-fit": ["data-minimization"],
+    "portfolio": ["portfolio-review", "data-minimization"],
     "trader-orb": ["trader-orb-method", "trader-risk-rules"],
     "trader-breakout": ["trader-swing-method", "trader-risk-rules"],
     "trader-bounce": ["trader-swing-method", "trader-risk-rules"],

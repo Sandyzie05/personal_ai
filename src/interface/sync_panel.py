@@ -47,11 +47,28 @@ def render(vault, on_indexed: Callable[[str, Any], None]) -> None:
         st.warning(f"{o['provider']}: last bill period ended {o['last_period_end'] or 'never'}"
                    + (f", {o['days_overdue']} days overdue" if o["days_overdue"] is not None else ""))
     with st.expander("Expected bills"):
+        st.caption(
+            "Tell the app which bills should keep arriving. Each provider you add here is checked against the newest "
+            "indexed bill from that provider; when one is late (31 days monthly, 92 quarterly) a warning appears above "
+            "and chat answers offer a Sync. Add one row per provider; the name must match the provider on the bill."
+        )
+        current = pipeline.expectations(vault)
+        late = {o["provider"]: o for o in s["overdue"]}
+        for p, cad in sorted(current.items()):
+            a, b, c = st.columns([3, 3, 1])
+            a.text(p)
+            o = late.get(p)
+            b.caption(f"{cad} · " + ("no bill yet" if o and not o["last_period_end"] else "overdue" if o else "on time"))
+            if c.button("Remove", key=f"sync_rm_{p}"):
+                pipeline.remove_expectation(vault, p)
+                st.rerun()
+        known = [p for p in pipeline.known_providers(vault) if p not in current]
         c1, c2, c3 = st.columns([3, 2, 1])
-        prov = c1.text_input("Provider (as in the bill)", key="sync_prov")
+        pick = c1.selectbox("Provider", known + ["Other (type below)"], key="sync_pick") if known else "Other (type below)"
+        typed = c1.text_input("Provider (as in the bill)", key="sync_prov") if pick.startswith("Other") else pick
         cad = c2.selectbox("Cadence", list(pipeline.CADENCE_DAYS), key="sync_cad")
-        if c3.button("Add", key="sync_add") and prov.strip():
-            pipeline.set_expectation(vault, prov.strip(), cad)
+        if c3.button("Add", key="sync_add") and typed.strip():
+            pipeline.set_expectation(vault, typed.strip(), cad)
             st.rerun()
     recipes = store.list_recipes(vault)
     if not recipes:
