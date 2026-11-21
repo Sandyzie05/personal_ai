@@ -133,6 +133,15 @@ _ROLES = {
         "it. Cite evidence ids. Do not add numbers that are not in the evidence.",
         False,
     ),
+    "portfolio-fit": (
+        "Portfolio Fit",
+        ":material/account_balance_wallet:",
+        "Explains how a researched ticker fits your own holdings (private, local only)",
+        "Explain in at most three short sentences how the researched ticker fits the user's current holdings, using "
+        "only the supplied figures (held or not, weight, concentration, overlap, unrealized and realized P&L, earnings "
+        "in window). Context, not advice: never say buy, sell, add, trim or hold.",
+        False,
+    ),
     "news-analyst": (
         "News Analyst",
         ":material/newspaper:",
@@ -164,6 +173,7 @@ FORECAST_ROLES = (
     "thesis-explainer",
     "watchlist-explainer",
     "news-analyst",
+    "portfolio-fit",
 )
 EDITABLE_FIELDS = (
     "model",
@@ -200,6 +210,7 @@ _SKILLS = {
     "thesis-explainer": ["forecast-critic"],
     "watchlist-explainer": ["market-research-brief"],
     "news-analyst": ["untrusted-content-handling"],
+    "portfolio-fit": ["data-minimization"],
 }
 
 
@@ -230,7 +241,7 @@ def _build(role: str) -> Dict[str, Any]:
         "max_tokens": 900 if forecast else 2048,
         # "" = the app's configured chat model (or PERSONAL_AI_OMLX_WORKER_MODEL for forecast workers)
         "model": (
-            PERSONAL_AI_FORECAST_CRITIC_MODEL if role.startswith("critic-") or role == "news-analyst" else ""
+            PERSONAL_AI_FORECAST_CRITIC_MODEL if role.startswith("critic-") or role in ("news-analyst", "portfolio-fit") else ""
         )
         if forecast
         else store.new_agent_defaults()["model"],

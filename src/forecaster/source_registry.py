@@ -33,6 +33,12 @@ _SOURCES = (
         categories=("curated",),
         caveats="Static upstream analyst mapping, not verified live evidence or point-in-time company revenue exposure.",
     ),
+    DataSourceProfile(
+        source_id="robinhood", name="Robinhood market data (your Robinhood MCP)",
+        categories=("fundamental", "earnings", "options", "filings", "market"),
+        caveats="Read-only via your Robinhood MCP connection; latest values, not point-in-time. Numbers only: broker free "
+                "text is dropped. Account data never enters this evidence.",
+    ),
 )
 
 

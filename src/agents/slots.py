@@ -60,6 +60,13 @@ SLOTS: Dict[str, Slot] = {
             "WatchlistExplanation",
         ),
         Slot(
+            # Private account figures: tool-less (allowed_tools=()) and local model only, so nothing can leave (R-S6).
+            "forecast.portfolio_fit",
+            "Portfolio fit",
+            "builtin-portfolio-fit",
+            "PortfolioNote",
+        ),
+        Slot(
             "forecast.news_analyst",
             "News analyst",
             "builtin-news-analyst",
