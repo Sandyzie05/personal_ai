@@ -242,7 +242,9 @@ TOT_BEAM_WIDTH = (
 TOT_MAX_DEPTH = 2  # 1 = heuristic theses, 2 = critic-reviewed theses
 TOT_PRUNE_MIN = 0.35  # soft prune below this (diversity slot exempt)
 TOT_SELECT_MIN = 0.5  # abstain if the best final node scores below this
-TOT_CONVERGE_SCORE = 0.75  # stop after depth 1 (no LLM calls) when top >= this ...
+# P8 (2026-11-21): frozen after a grid search on dev seeds 0-99 of evals/tot_synth.py only (held-out 100-199 unseen);
+# 0.75 -> 0.8 was the single change that beat both baselines on dev. Other TOT_* values were confirmed, not changed.
+TOT_CONVERGE_SCORE = 0.8  # stop after depth 1 (no LLM calls) when top >= this ...
 TOT_CONVERGE_MARGIN = 0.2  # ... and leads the best other-scenario node by this much
 TOT_TIE = 0.05  # scores within this are tied -> tie-break policy
 TOT_UNCERTAIN_MARGIN = (

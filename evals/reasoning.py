@@ -147,6 +147,18 @@ CASES = [
 ]
 
 
+def run_held_out():
+    """P8: 300 parametric cases (evals/tot_synth.py); gates use the fresh held-out range only."""
+    from . import tot_synth
+
+    return {
+        "held_out": tot_synth.evaluate(tot_synth.HELD_OUT),
+        "dev": tot_synth.evaluate(tot_synth.DEV),
+        "burned": tot_synth.evaluate(tot_synth.BURNED),
+        "k": tot_synth.CALIBRATION_K,
+    }
+
+
 def run_reasoning():
     rows, tot_ok, linear_ok, vote_ok, calls, nodes_max = [], 0, 0, 0, 0, 0
     for cid, snap, critics, want in CASES:

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T18:30:41+00:00",
+  "generated_at": "2026-11-21T18:42:13+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.41,
+      "measured": 0.401,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.675,
+      "measured": 0.668,
       "pass": true,
       "hard": false
     },
@@ -170,6 +170,27 @@
       "hard": true
     },
     {
+      "metric": "ToT held-out accuracy (seeds 200-299; tuned on 0-99) vs linear / critic-vote",
+      "target": ">= both baselines",
+      "measured": "0.76 vs 0.59 / 0.70 (abstain 0.02)",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "ToT held-out Brier, dev-calibrated (k 7/2/5)",
+      "target": "< both baselines",
+      "measured": "0.414 vs 0.488 / 0.430",
+      "pass": true,
+      "hard": true
+    },
+    {
+      "metric": "ToT held-out Brier, raw normalised scores (uncalibrated; 100-199 burned)",
+      "target": "info",
+      "measured": "0.473 vs 0.495 / 0.378",
+      "pass": true,
+      "hard": false
+    },
+    {
       "metric": "Core Memory: unauthorized commits",
       "target": "0",
       "measured": "0 / 114 attempts",
@@ -214,13 +235,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.41,
+        "ratio": 0.401,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.675,
+        "ratio": 0.668,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3

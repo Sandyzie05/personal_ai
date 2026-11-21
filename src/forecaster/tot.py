@@ -108,7 +108,9 @@ def _heuristic(thought: Thought, drivers, snapshot) -> dict:
         breadth = sum(1 for _, d, _, _ in drivers if not d) / len(drivers)
     else:
         sign = 1 if thought.scenario == "bullish" else -1
-        support = (sign * net / total + 1) / 2 if total else 0.5
+        # Neutral families are evidence too ("no signal"): scale by the share of families that are directional, so one
+        # weak card among neutral ones cannot reach full support and skip the critics (P8 dev finding).
+        support = ((sign * net / total + 1) / 2) * (len(directional) / len(drivers)) if total else 0.5
         breadth = sum(1 for _, d, _, _ in drivers if d == sign) / len(drivers)
     return {
         "support": support,
