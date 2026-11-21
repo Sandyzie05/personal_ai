@@ -145,7 +145,9 @@ def _research(vault):
     pending = st.session_state.pop("forecast_schedule_pending", None)
     if pending is not None:
         st.session_state["forecast_schedule_text"] = pending
-    last = (st.session_state.get("forecast_research_result") or {}).get("snapshot", {}).get("market") or {}
+    last = (st.session_state.get("forecast_research_result") or {}).get(
+        "snapshot", {}
+    ).get("market") or {}
     with st.form("forecast_research"):
         left, right = st.columns([2, 2])
         symbol = left.text_input(
@@ -163,13 +165,18 @@ def _research(vault):
             )
             exchanges = ["XNAS", "XNYS"]
             exchange = st.selectbox(
-                "Listing exchange", exchanges,
-                index=exchanges.index(last["exchange"]) if last.get("exchange") in exchanges else 0,
+                "Listing exchange",
+                exchanges,
+                index=exchanges.index(last["exchange"])
+                if last.get("exchange") in exchanges
+                else 0,
                 help="Nasdaq = XNAS (e.g. AAPL, ADBE, AVGO), NYSE = XNYS. After one research run it is preselected.",
                 key="forecast_schedule_exchange",
             )
             schedule = st.text_area(
-                "Session sequence (JSON array)", key="forecast_schedule_text", height=120,
+                "Session sequence (JSON array)",
+                key="forecast_schedule_text",
+                height=120,
                 placeholder='[{"exchange":"XNAS","session":"2026-10-19",'
                 '"closes_at":"2026-10-19T20:00:00Z"}, ...]',
             )
@@ -185,7 +192,8 @@ def _research(vault):
 
         today = datetime.now(ZoneInfo("America/New_York")).date()
         st.session_state["forecast_schedule_pending"] = json.dumps(
-            [s.to_api() for s in draft_sessions(exchange, today)], indent=0)
+            [s.to_api() for s in draft_sessions(exchange, today)], indent=0
+        )
         st.rerun()
     if requested:
         try:
@@ -214,7 +222,10 @@ def _research(vault):
                 "forecast_explanation",
             ):
                 st.session_state[key] = None
-        except (ValueError, TypeError) as exc:  # includes pydantic ValidationError; messages are code-written
+        except (
+            ValueError,
+            TypeError,
+        ) as exc:  # includes pydantic ValidationError; messages are code-written
             msg = exc.errors()[0]["msg"] if hasattr(exc, "errors") else str(exc)
             st.error(f"Research not run: {msg[:200]}. No forecast was saved.")
         except Exception:
@@ -356,7 +367,7 @@ def _ai_review(vault, prediction, tabs):
     )
     st.caption(
         "Thesis explainer = the writer. The critics and the thesis search decide the verdict; the explainer does not "
-        "vote. It only turns the winning thesis and its evidence into ≤ 3 plain sentences (\"Why this verdict\" under "
+        'vote. It only turns the winning thesis and its evidence into ≤ 3 plain sentences ("Why this verdict" under '
         "3 · Verdict). If its reply breaks the rules (invented numbers, unknown evidence), a rule-based summary is shown."
     )
     if st.button("Run AI review", type="primary"):
@@ -570,8 +581,14 @@ def _verdict(prediction):
             st.markdown("**Why this verdict** (AI explanation)")
             # Evidence ids are listed below by title; strip any the model also pasted into the prose.
             st.text(_HEX_ID.sub("", explanation["summary"]).replace("()", "").strip())
-            st.caption("What would change this: " + _HEX_ID.sub("", explanation["what_would_change"]))
-            st.caption("Based on: " + "; ".join(titles.get(e, e[:10]) for e in explanation["evidence_ids"]))
+            st.caption(
+                "What would change this: "
+                + _HEX_ID.sub("", explanation["what_would_change"])
+            )
+            st.caption(
+                "Based on: "
+                + "; ".join(titles.get(e, e[:10]) for e in explanation["evidence_ids"])
+            )
         else:
             run = st.session_state.get("forecast_explanation_run") or {}
             beat = (
@@ -625,7 +642,12 @@ def _prepare_forecast(vault, prediction, scenarios):
         try:
             if horizon is None:
                 raise ValueError("A supported researched horizon is required")
-            forecast = create_forecast(prediction, horizon, sessions=sessions)
+            forecast = create_forecast(
+                prediction,
+                horizon,
+                sessions=sessions,
+                tree=st.session_state.get("forecast_tree"),
+            )  # P8: keep the ToT verdict
             if forecast.target is None:
                 raise ValueError(
                     "Official sequence does not include the target session"

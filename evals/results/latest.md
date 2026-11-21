@@ -1,10 +1,10 @@
-# Eval results (2026-11-21T18:30:41+00:00)
+# Eval results (2026-11-21T18:42:13+00:00)
 
 | Metric | Target | Measured | Result |
 |---|---|---|---|
 | Parallel overlap (fan-out: 1 expense + 3 forecasters + market) | overlap = yes | true | PASS |
-| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.41 | PASS |
-| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.675 | info |
+| Latency ratio vs B2 sequential, fan-out (5 steps) | <= 0.60 | 0.401 | PASS |
+| Latency ratio vs B2, golden cross task (3 steps, critical path 2/3) | info | 0.668 | info |
 | Cross-domain task success, coordinated | >= 90% | 100% | PASS |
 | Cross-domain task success, B1 baseline | <= 40% | 0% | PASS |
 | Single-domain success coordinated vs B1 (no regression) | coord >= B1 | 100% vs 100% | PASS |
@@ -26,6 +26,9 @@
 | Gmail/brokerage wired into the coordinator (B4) | 100% | 7/7 | PASS |
 | ToT thesis selection, labeled synthetic cases (vs linear / critic-vote baselines) | >= both baselines | 8/8 vs 6/8 / 7/8 | PASS |
 | ToT bounded search: max nodes / LLM critic reviews (one per non-converged case) | <= 9 / <= cases | 7 / 3 of 8 | PASS |
+| ToT held-out accuracy (seeds 200-299; tuned on 0-99) vs linear / critic-vote | >= both baselines | 0.76 vs 0.59 / 0.70 (abstain 0.02) | PASS |
+| ToT held-out Brier, dev-calibrated (k 7/2/5) | < both baselines | 0.414 vs 0.488 / 0.430 | PASS |
+| ToT held-out Brier, raw normalised scores (uncalibrated; 100-199 burned) | info | 0.473 vs 0.495 / 0.378 | info |
 | Core Memory: unauthorized commits | 0 | 0 / 114 attempts | PASS |
 | Core Memory: pending survives restart | yes | true | PASS |
 | Minimal disclosure: canary/PII in bus, log, egress; forced leaks passed | 0 | 0 (190 msgs, 190 log, 40 egress, 180 forced) | PASS |
