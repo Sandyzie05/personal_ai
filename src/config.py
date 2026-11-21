@@ -208,7 +208,7 @@ FORECAST_STEP_TIMEOUT_SECONDS = (
     FORECAST_RESEARCH_DEADLINE_SECONDS + FORECAST_SCENARIO_DEADLINE_SECONDS + 5
 )
 
-# Tree-of-Thought thesis search (docs/reasoning_design.md). Scores are uncalibrated heuristics in [0, 1].
+# Tree-of-Thought thesis search (docs/forecaster.md Part 2). Scores are uncalibrated heuristics in [0, 1].
 TOT_MAX_BRANCHES = 6  # depth-1 candidate theses
 TOT_BEAM_WIDTH = (
     3  # survivors expanded at depth 2 (one slot reserved for an opposing scenario)

@@ -1,10 +1,8 @@
-# Agent Platform: executable plan, design and status
+# Agent Platform: rules, architecture, contracts and measured results
 
-**Audience: a coding agent (or human) picking this up with no prior context.** Read §0 first, then the section for your
-task. Everything here is verified against the code on branch `feat/agent-platform` (uncommitted at time of writing).
-Companion docs (index: `docs/README.md`): `docs/architecture.md` (overview), `AGENTS.md` (repo rules), `docs/security_design.md` (threat model + changelog),
-`docs/multi_agent_design.md` (agent runtime/MCP reference), `docs/forecasting_system.md` (forecaster), `docs/user_testing_guide.md` (manual test plan),
-`docs/capstone_feedback_response.md` (feedback traceability), **`docs/rag_design.md` (RAG diagnosis + design + executable plan R0-R11: chunking fix, hybrid retrieval, grounding checks, bill ingestion via Gmail/portal agents)**. Miro diagram: https://miro.com/app/board/uXjVEVwdVZo=/
+**Audience: a coding agent (or human) with no prior context.** This file is the reference (what exists and the rules it obeys).
+What is left to build, card by card: **[roadmap.md](roadmap.md)**. Overview and diagrams: [architecture.md](architecture.md).
+Index: [README.md](README.md).
 
 ## 0. How to work on this (read this first)
 
@@ -12,10 +10,10 @@ Companion docs (index: `docs/README.md`): `docs/architecture.md` (overview), `AG
 2. Setup/run: `make install`; tests `make test`; evals `make eval` (must print `Overall: PASS`); app `make run`.
    Tests that need a venv: `PYTHONPATH=. venv/bin/pytest tests -q`. Baseline: **all green** (the 3 former `test_chroma_store.py` failures were fixed by R0/B10). Anything failing is yours.
 3. Definition of done for any change: code + tests; `make test` and `make eval` green; no new `pass`/stub bodies;
-   §6 status and `docs/security_design.md` changelog updated in the same change; no real personal data in tests/fixtures
+   [roadmap.md](roadmap.md) §1 status and `docs/security_design.md` changelog updated in the same change; no real personal data in tests/fixtures
    (synthetic only); never print `env`, `.env` or vault contents.
 4. Never weaken an invariant in §2 to make a test pass. If one seems wrong, stop and ask the user.
-5. Do not commit or push unless the user asks. Work on `feat/agent-platform`.
+5. Do not commit or push unless the user asks. Branch from `main` per roadmap card; never commit to `main`.
 
 ## 1. Goal and scope
 
@@ -27,7 +25,7 @@ deterministically, escalates uncertainty to the user, and never lets untrusted c
 In scope: records Q&A, bill/cash-flow analysis, evidence-based forecast research, daily briefs, read-only Gmail digest,
 scheduled runs. **Out of scope (refused in code):** trading, payments, shell commands, medical diagnosis, revealing secrets.
 
-stock_predictor (`/Users/sandgupt/RandomIdeasWithAI/stock_predictor`, FastAPI) is fully absorbed as pure services; it is not
+stock_predictor (sibling repo `../stock_predictor`, FastAPI) is fully absorbed as pure services; it is not
 a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 
 ## 2. Security invariants (each has enforcing code and tests)
@@ -89,7 +87,7 @@ retrieval loops inside the retriever.
 | `.../service.py` | UI wiring | `build_coordinator(vault, get_records, scenario_factory, extra_workers)`, `run_query` (applies policy), `propose_from_report` |
 | `src/agents/{runtime,mcp,store,skills}.py` | v1 agent loop, MCP, vault records | see `multi_agent_design.md` |
 | `src/forecaster/*.py` | Public-data research | `research`, `scenarios`, `outcomes`, `technical`, `recommend`, `screens`, `news`, `report`, `health`, `providers` |
-| `src/forecaster/tot.py` | Tree-of-Thought thesis search (Week 4) | `search(snapshot, critique) -> ThoughtTree`; `Thought`, `Node`; design + rationale in [reasoning_design.md](reasoning_design.md) |
+| `src/forecaster/tot.py` | Tree-of-Thought thesis search (Week 4) | `search(snapshot, critique) -> ThoughtTree`; `Thought`, `Node`; design + rationale in [forecaster.md](forecaster.md) Part 2 |
 | `src/ai_engine/engine.py` | Client factory | `build_chat_client`, `build_embed_client`, `client_kwargs_from_config`, `EngineDisabledError` |
 | `src/ai_engine/omlx_client.py` | oMLX client | OpenAI-shape chat/embeddings, tool-call mapping (`_to_openai_messages`, `_from_openai_message`) |
 | `src/interface/` | UI | `main.py` (Coordinator in chat selector via `_respond_coordinated`), `forecast.py` + `forecast_tabs.py`, `agents.py` (Core Memory tab) |
@@ -165,87 +163,23 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | ToT thesis selection vs linear / critic-vote baselines (8 labeled synthetic cases) | ≥ both, 100% | 8/8 vs 6/8 / 7/8 (2026-11-02) | ablation of the search policy, not market accuracy |
 | ToT bounded search: max nodes / critic reviews | ≤ 9 / ≤ 1 per case | 7 / 3 of 8 (5 converged with 0 LLM calls) | |
 
+**How success is scored.** A golden task passes only if *every* expected claim is present with the expected value (±0.01) or the
+expected status (`evals/golden.py::score`); partial credit does not exist. The 30 tasks are hand-built synthetic cases: 10 cross-domain
+(records + market), 20 single-domain. Fault, conflict, injection, disclosure and refusal rows are separate suites with their own
+pass rules (`evals/run.py::evaluate`). Planned rows (stress set, evidence relevance, escalation precision/recall, composed leakage,
+memory recall, stability, held-out ToT) are specified in [roadmap.md](roadmap.md).
+
 Answer to "benefit of coordination vs running each repo alone": cross-domain tasks (records + market) are unanswerable by B1
 (0%) and about 2.4x faster than sequential B2 on the fan-out workload, without regressing single-domain tasks.
 
-## 6. Status and task cards
+## 6. Status
 
-Legend: DONE (code + tests + eval), PARTIAL, OPEN. A card is complete only when its **Accept** command passes. Test counts: 752 pass, 0 failures (2026-11-02); `make eval` and `make eval-rag` PASS (offline, synthetic; **nothing verified on live oMLX**); `make eval` all hard rows PASS.
-
-| Phase | Status | Accept |
-|---|---|---|
-| 0 Baseline | DONE (407 pass at start; 635 pass, 0 failures now) | `make test` |
-| 1 oMLX-only | DONE; **not verified on a live oMLX server** | `pytest tests/test_engine_factory.py tests/test_omlx_tools.py tests/test_omlx_client.py` |
-| 2 Port stock_predictor | DONE (price-only proxies; no fundamentals/volume; "period high/low" not all-time; news issues reuse `yahoo-chart` SourceId) | `pytest tests/test_forecaster_*.py` |
-| 3 UI merge | DONE | `pytest tests/test_forecast_tabs.py tests/test_agents_page_smoke.py` |
-| 4 Agent infra | DONE | `pytest tests/test_orchestration.py` |
-| 5 Agent configs/skills/policy | DONE | `pytest tests/test_orchestration_service.py tests/test_orchestration_ingest.py` |
-| 6 Untrusted ingestion | PARTIAL (B2-B4, R7-R9 done; real provider recipes + live portal/Gmail runs are the user's): Gmail read-only + portal interface + scheduler done; **no live portal fetcher**, no scheduled-run UI, Gmail/brokerage workers not yet wired into the coordinator (B2-B4) | `pytest tests/test_orchestration_ingest.py` |
-| 7 Evaluation | DONE (refusal included) | `make eval` → `Overall: PASS` |
-| 8 Docs + diagram | DONE (this doc, security log, feedback response, Miro) | review |
-| 9 Independent audit + fixes | DONE (§6.2) | `pytest tests/test_audit_regressions.py` |
-| 10 Merge PR #17 hardening (2026-11-02) | DONE: this branch forked before `main`'s 9d955f9, so it lacked atomic/flocked auth writes, `tests/conftest.py` isolation (temp HOME, no sockets/DNS) and the auth/vault-lock/RAG-privacy/ingestion regressions. Merged; one fail-closed rebuild path; source-identity chunk ids | `make test` (748 pass) |
-| 11 Week 4 Tree-of-Thought forecaster | DONE offline; **not run on live oMLX** | `pytest tests/test_forecaster_tot.py tests/test_orchestration_workers.py` + `make eval` ToT rows |
-
-### 6.1 Backlog (ordered; each is a self-contained card)
-
-Each card: **goal / files / accept**. Pick from the top; do not start a card whose accept command you cannot run.
-
-| # | Card | Files | Accept | State |
-|---|---|---|---|---|
-| B1 | **Live oMLX verification.** Start oMLX, run `make run`, Rebuild RAG Index, one Coordinator turn, one tool-calling agent turn. Fix what breaks: streaming tool-call deltas are not converted (`omlx_client._stream_chat_response`); `response_format` uses `{"type":"json_schema","schema":...}` but the OpenAI shape is `{"type":"json_schema","json_schema":{"name","schema"}}`; orphan tool messages get minted ids. | `ai_engine/omlx_client.py`, `tests/test_omlx_*` | manual run recorded in §6.2 + unit tests for each fix | PARTIAL 2026-10-25: all 3 code fixes + unit tests DONE; **live oMLX run still to do (user)** |
-| B2 | **Live portal fetcher** (superseded by `rag_design.md` cards R7-R10: framework, constraints, per-provider recipes) implementing `ingest.PortalFetcher` (browser/code automation using credentials from the encrypted vault, one provider first). Output must go through `ingest_statements` (quarantine). No credentials in code/logs; allowlisted hosts only. | new `orchestration/portal_*.py`, tests with recorded HTML fixtures | `pytest tests/test_orchestration_ingest.py` + a fixture-based fetcher test + `make eval` | PARTIAL: framework + Playwright runner + mock-portal tests DONE (rag_design R9); no real provider recipe (R10), live run is the user's |
-| B3 | **Scheduled-run UI + trigger.** Agents → "Scheduled" tab (add/remove job); call `schedule.run_due` on app open; results land as proposals/notifications. Cross-process safety (file lock) because `schedule` currently locks only within one process. | `interface/agents.py`, `schedule.py` | AppTest + `pytest tests/test_orchestration_ingest.py` | DONE 2026-10-25 (Scheduled tab, run on app open, flock) |
-| B4 | **Wire Gmail + brokerage workers into `service.build_coordinator`** (email worker via `ReadOnlyMcp`; brokerage holdings via read-only MCP → `HoldingsSummary` bus edge, which is currently unused). Extend `plan_for` ("my emails", "my holdings"). | `service.py`, `workers.py`, `ingest.py` | tests + eval case + `make eval` | DONE 2026-10-25 (email+brokerage workers, HoldingsSummary edge; not run against a real Gmail/broker MCP) |
-| B5 | **Cancellation for hung workers.** Timed-out steps stop being waited on but their thread keeps running (read-only workers only, by design). Add cooperative cancel tokens for long provider calls; keep workers read-only/idempotent. Note `max_retries=1` also retries non-idempotent bus sends (market worker re-sends the same delivered message): dedupe by payload hash. | `coordinator.py`, `workers.py`, `bus.py` | `pytest tests/test_orchestration.py` | DONE 2026-10-25 |
-| B6 | **Real-model injection eval.** Run the 38-payload corpus against the actual local model as extractor (opt-in `make eval-live`); detector currently flags 34/38 (paraphrases are caught only by the schema, by design). Track pass rate, never loosen schema. | `evals/` | `make eval-live` report | DONE (harness; `make eval-live` not run: needs live oMLX) |
-| B7 | **Make "UI-only approval" structural.** `memory.approve` is gated by `approved_by_user=True`, a convention. Introduce an approval token minted only by the Streamlit button handler (session-bound, single-use). | `memory.py`, `interface/agents.py` | tests: approve without token fails | DONE 2026-10-25 (single-use session+item-bound token) |
-| B8 | **Selectable specialists + optional LLM planner** behind the same `Plan` validation (`validate_plan` stays the gate). | `workers.py`, `main.py` | tests + eval parity | DONE 2026-10-25 (LLM planner off by default) |
-| B9 | **LLM Verifier agent** (template exists; runtime grounding check is deterministic in `escalations_for`). | `templates.py`, `workers.py` | eval: verifier catches seeded unsupported claim | DONE 2026-10-25 (deterministic verifier + eval; LLM may only add escalations) |
-| B10 | **Fix the 3 pre-existing failures** (done as part of `rag_design.md` card R0) in `tests/test_chroma_store.py` (patch target `chromadb`, chunk-size asserts 2047>2000, 104>100). | `tests/test_chroma_store.py` or `chroma_store.py` | `make test` fully green | DONE 2026-10-25 (with R0) |
-| B11 | **Fundamentals/volume for forecaster** (price-only proxies today; `PriceBar` has no high/low/volume; "period high/low" not all-time) and a separate `SourceId` for news. | `forecaster/models.py`, `providers.py` | `pytest tests/test_forecaster_*` | DONE 2026-10-25 (high/low/volume, ATR, `yahoo-news` SourceId) |
-| B13 | **RAG quality (P0): chunk-per-line bug** (today's document path is Naive RAG; target is Advanced RAG, decision D8). `chroma_store.add_documents` emits one chunk per line; the structure-aware `chunk_text` is never called. Executable plan R0-R6 in `docs/rag_design.md` (R0 first, then the eval harness R1 before any tuning). | `ai_engine/chroma_store.py`, `evals/rag/` | `docs/rag_design.md` §8 R0/R1 accept | DONE 2026-10-25 (R0-R6; `make eval-rag`: recall@5 0.445→1.0, ctx precision 0.11→0.93; hashed stand-in embedder, `min_relevance`/`k` not re-tuned on the real model) |
-| B14 | **RAG freshness + bill ingestion** (manifest, expected-bills ledger, incremental indexing, Gmail attachments, browser portal recipes, security S-R1..S-R8). Plan R7-R11 in `docs/rag_design.md`. | `data_ingestion/` | `docs/rag_design.md` §8 R7-R10 accept | PARTIAL: R7-R9 DONE (code + tests); R10 real recipes + Gmail attachments vs real MCP are user-supervised; Sync panel on Upload page |
-| B15 | **Expense worker accuracy (found while writing the user testing guide).** `expense_worker` sums *every* record's total per calendar quarter: it mixes categories (mobile + utilities) and does not warn when a quarter is partial (e.g. only June in Q2). Filter by category from the question, require all three months (or flag the quarter as partial/uncertain), exclude superseded/duplicate documents. | `orchestration/workers.py`, tests, eval fault case | tests + `make eval` | DONE 2026-10-25 (records lacking `period_start` now read as partial) |
-| B16 | **Frame the user testing results into evals.** Every Fail found with `docs/user_testing_guide.md` becomes a golden/eval case. | `evals/` | `make eval` | DONE 2026-10-25 (`evals/userguide.py`, 12 cases; add one per manual Fail) |
-| B17 | **News into ToT safely.** Headlines are untrusted, so `research.py`'s news term is always 0 today. Feed news only as quarantined, templated sentiment counts per topic (no text), as a `news` driver | `forecaster/research.py`, `tot.py`, `orchestration/quarantine.py` | tests + injection eval row unchanged at 0 | OPEN |
-| B18 | **Port gaps from stock_predictor** (see forecasting_system.md "Known limits"): `technical_score` should use ATR/volume; fundamentals provider for valuation; optional 63-session horizon | `forecaster/recommend.py`, `providers.py`, `models.py` | `pytest tests/test_forecaster_*` | OPEN |
-| B19 | **ToT live check + persistence + memory profile.** Pick a profile from `ai_engine.md` "Memory budget" and record peak memory and memory pressure for chat, a three-ticker Coordinator run and a specialist run. Live oMLX run of one converged and one depth-2 ticker; save selected/runner-up node ids with forecasts so outcomes can compare ToT vs heuristic; optional LLM thought proposer behind `Thought` validation | `tot.py`, `outcomes.py`, `interface/forecast.py` | manual run recorded + tests | OPEN |
-| B12 | **Commit/PR hygiene:** branch `feat/agent-platform` is uncommitted; split into reviewable commits when the user asks. | git | user decision | OPEN |
-
-### 6.2 Independent audit (2026-10-25) and resolution
-
-A fresh-context reviewer audited the new code (24 findings: 2 HIGH, 10 MEDIUM, 12 LOW, plus weaknesses in the eval itself). Every fix has a
-regression test (`tests/test_audit_regressions.py`, `tests/test_orchestration.py`) and the evals were hardened where they were circular.
-
-| ID | Finding | Resolution |
-|---|---|---|
-| H1 | `core_memory`, `core_memory_pending`, `agent_schedule` were not internal vault keys, so **unapproved proposals were embedded into the RAG index** and listed as documents | added to `INTERNAL_VAULT_KEYS`; eval row "keys exposed to RAG" |
-| H2 | Free text from email/portal (`topic`, `provider`) reached `Finding.summary`, chat history and later prompts; denylist evaded by Unicode tag chars, soft hyphen, newline splits, paraphrase | `topic` is a closed enum; `sender_domain`/`provider` tightened; summaries are templated; sanitizer strips tag block/soft hyphen/invisible operators + NFKC; injection check normalises whitespace; eval row "quarantine text reaching a summary" |
-| M1 | Step timeouts not per-step; timed-out step later flipped to `ok`; hung threads starved the pool | per-future deadlines, results returned by value (immutable after timeout), fresh pool per wave |
-| M2 | Naive `as_of` crashed the run after the work was done; UI caught only `ValueError` | `AwareDatetime` validated; UI catches `Exception` with a safe message |
-| M3 | `merge` ignored `uncertain` findings; `1` vs `"1"` spurious conflict; NaN | compare all valued non-unavailable findings; numeric normalisation; non-finite rejected |
-| M4 | Unknown `trust` values approved without acknowledgement | `propose` validates; `approve` fails closed on any non-`trusted` value (UI-only approval is still a convention: B7) |
-| M5 | Pending queue unbounded/duplicated; non-atomic writes | dedupe + cap 50 + process-wide lock (cross-process lock: B3) |
-| M6 | Markdown/link/image injection via claim keys and summaries; memory tab used `st.markdown` | labels sanitised, `render_report` escapes everything, memory tab uses `st.text` |
-| M7 | `HoldingsSummary.symbols` free text; dashed cards, obfuscated emails, large floats passed the bus; canaries unused in production | ticker-shaped symbols, digit-separator normalisation, "at/dot" emails, amount bounds, canaries seeded from the user's account identifiers/providers |
-| M8 | Ollama gate bypassed by spelling (`"Ollama"`, `"bogus"`) | normalise + allowlist `{omlx, ollama}` |
-| M9 | oMLX client accepted any host (RAG context + bearer token), followed redirects/proxies with the token | loopback-only unless `PERSONAL_AI_ALLOW_REMOTE_OMLX=true`; no redirects/proxies whenever a key is sent |
-| M10 | Vault (sqlite, single-threaded) used from worker threads | records snapshotted on the calling thread; bus audit + injection flags written on the calling thread; Gmail/portal workers never touch the vault |
-| L1 | failing `recheck` crashed the run | caught; conflict stays reported |
-| L2 | retries re-send non-idempotent bus messages | documented; B5 |
-| L3 | `MAX_WAVES=5` vs 8-step chains | documented limit (steps beyond wave 5 end `skipped: round budget`) |
-| L4 | `requires_confirmation` unused in production | taint is enforced at the Core Memory gate (`propose_from_report` passes `trust`); no write tools exist; revisit if one is added (B7) |
-| L5 | any ALL-CAPS word became a ticker (egress + wrong symbol) | `$TICK`, bundled universe, or introduced-like-a-ticker only |
-| L6 | refusal gaps ("dump", "close my position", "email my vault key") | rules extended + tests; still a first gate |
-| L7 | news parser crashed on non-dict items | skipped; provider catches `AttributeError` |
-| L8 | no PII scan on the public news query | `providers.news` refuses queries containing emails, long digit runs or SSN shapes |
-| L9 | `get_agent` returned shared mutable template | deep copy; `None` guarded |
-| L10 | oMLX adapter edge cases | empty `choices` handled; rest in B1 |
-| L11 | failed re-embed left an empty index silently | explicit error telling the user to rebuild |
-| L12 | scheduler unlocked/unwired | in-process lock; wiring is B3 |
-| Eval | circular detector/disclosure checks; fakes could not expose M1-M3 | +7 evasion payloads (38 total), summary-templating and RAG-exposure rows, timeout-immutability and naive-datetime tests |
-
+Open work lives in [roadmap.md](roadmap.md) (status table §1, cards §4). History of what was built and why: `CHANGELOG.md`.
+Completed phases (all accepted by `make test` + `make eval`; nothing verified on live oMLX yet): 0 baseline, 1 oMLX-only engine,
+2 stock_predictor port, 3 UI merge, 4 agent infra, 5 agent configs/skills/policy, 6 untrusted ingestion (fixtures), 7 evaluation,
+8 docs, 9 independent audit (now in `security_design.md` "Independent audit"), 10 PR #17 hardening merge, 11 Week 4 ToT.
+Former backlog cards B1-B19 and RAG cards R0-R11 are DONE except those carried into the roadmap (B1/B6/B19 → P9, B17/B18/R10 →
+roadmap §6). Test count at last full run: 752 pass, 0 fail (2026-11-02).
 
 ## 7. Runbook
 
@@ -270,7 +204,7 @@ regression test (`tests/test_audit_regressions.py`, `tests/test_orchestration.py
 - D5 Scheduler runs on app open (no daemon); a cron/launchd caller can invoke `schedule.run_due` headlessly.
 - D6 Ollama kept but disabled (one flag) rather than deleted, to avoid a risky removal across ~20 files.
 - D8 RAG architecture: **Advanced RAG inside the document retriever** (query analysis to filters, hybrid retrieval, rerank, context assembly, numeric grounding check); **Modular behaviour only at system level** (routing between structured records / semantic search / public evidence, Coordinator orchestration, deterministic fusion, approval-gated memory). No free-running retrieve-reflect loops (latency, injection surface, hard to evaluate); at most one bounded re-retrieve when the grounding check fails. See `docs/rag_design.md` §8.1.
-- D9 Tree of Thought only in the forecaster (beam width 3, depth 2, scenario-diverse beam, deterministic thought generator, LLM specialists as a lazy shared critic). Records, planning and RAG stay linear by design. See [reasoning_design.md](reasoning_design.md).
+- D9 Tree of Thought only in the forecaster (beam width 3, depth 2, scenario-diverse beam, deterministic thought generator, LLM specialists as a lazy shared critic). Records, planning and RAG stay linear by design. See [forecaster.md](forecaster.md) Part 2.
 - D10 CrewAI/LangChain/MCP are mapped to ToT roles, not imported: no second orchestration framework, all inference stays on the loopback client, invariants stay in this repo's code.
 - D11 Step budgets come from code: forecaster steps get `FORECAST_STEP_TIMEOUT_SECONDS` (research + specialist deadlines + 5 s); the LLM planner cannot set `timeout_s`.
 - D12 Hardware budget (one 128 GB laptop): all agents share one local server. Memory scales with resident models and with in-flight requests, not with the number of agents, so concurrency is capped app-wide (`PERSONAL_AI_INFERENCE_CONCURRENCY=2`) and background roles can use a smaller `PERSONAL_AI_OMLX_WORKER_MODEL`. Speed comes from smaller worker models, not more parallelism.
@@ -278,4 +212,4 @@ regression test (`tests/test_audit_regressions.py`, `tests/test_orchestration.py
 
 ## 9. Feedback traceability
 
-See `docs/capstone_feedback_response.md` (Week 1 + Week 2 table mapping each point to code and evals).
+Every roadmap card names the weekly feedback it answers ([roadmap.md](roadmap.md) §4).

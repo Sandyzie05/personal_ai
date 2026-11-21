@@ -21,7 +21,7 @@ For the agent-specific rules and their tests see [platform_plan.md](platform_pla
 [RAG / ChromaDB](#rag--chromadb-accepted-residual-risk) · [Multi-session chat](#multi-session-chat-and-dashboard-2026-08-25) ·
 [Multi-agent and MCP](#multi-agent-and-mcp-integration-2026-10-13) · [Forecast integration](#requested-ticker-forecast-integration-2026-10-18) ·
 [Agent platform + audit](#agent-platform-coordinator-quarantine-scoped-bus-core-memory-gate-2026-10-25) ·
-[Planned ingestion hardening](#planned-bill-ingestion-and-rag-hardening-design-only-2026-10-25) · [Model configuration](#model-configuration) ·
+[Audit](#independent-audit-2026-10-25-and-resolution) · [Ingestion hardening](#bill-ingestion-and-rag-hardening-2026-10-25) · [Planned controls](#planned-controls-2026-11-20) · [Model configuration](#model-configuration) ·
 [Known limitation](#known-limitation-no-migration-path-across-a-vault-key-change)
 
 ## Threat model
@@ -341,16 +341,55 @@ Code: `src/agents/orchestration/`. Tests: `tests/test_orchestration*.py` (+ `mak
   coordinator timeouts were not per-step and results could mutate after a timeout (per-future deadlines, immutable results);
   conflicts between `ok` and `uncertain` findings were dropped; bus gaps (dashed cards, obfuscated emails, free-text symbols,
   absurd amounts, no production canaries); Ollama gate bypass by spelling; oMLX host unvalidated (now loopback-only; token never
-  via redirect/proxy); vault used from worker threads (snapshots + calling-thread audit). Details and the open items: `docs/platform_plan.md` §6.1-6.2.
+  via redirect/proxy); vault used from worker threads (snapshots + calling-thread audit). Details: "Independent audit" below; open items: `docs/roadmap.md`.
 - **Residual risks:** the regex PII scan is heuristic (schemas are the primary control); the quarantine model is itself an LLM
   (schema validation, not model obedience, is the guarantee); portal fetching of real sites is not implemented (interface +
   fixtures only); embedding model change requires a Chroma re-index (Chat -> Advanced -> Rebuild RAG Index now truly re-embeds).
 
-## Planned: bill ingestion and RAG hardening (design only, 2026-10-25)
+## Independent audit (2026-10-25) and resolution
 
-Not implemented. Requirements S-R1..S-R8 in `docs/rag_design.md` §6 (untrusted PDFs, Gmail read-only attachments, browser-agent
-constraints, no plaintext copies, ids-only retrieval logs, bounded idempotent ingestion). Any new index structure (BM25/FTS,
-manifest, expected-bills ledger) must land in the encrypted vault or be recorded here as plaintext-at-rest before merge.
+A fresh-context reviewer audited the new code (24 findings: 2 HIGH, 10 MEDIUM, 12 LOW, plus weaknesses in the eval itself). Every fix has a
+regression test (`tests/test_audit_regressions.py`, `tests/test_orchestration.py`) and the evals were hardened where they were circular.
+
+| ID | Finding | Resolution |
+|---|---|---|
+| H1 | `core_memory`, `core_memory_pending`, `agent_schedule` were not internal vault keys, so **unapproved proposals were embedded into the RAG index** and listed as documents | added to `INTERNAL_VAULT_KEYS`; eval row "keys exposed to RAG" |
+| H2 | Free text from email/portal (`topic`, `provider`) reached `Finding.summary`, chat history and later prompts; denylist evaded by Unicode tag chars, soft hyphen, newline splits, paraphrase | `topic` is a closed enum; `sender_domain`/`provider` tightened; summaries are templated; sanitizer strips tag block/soft hyphen/invisible operators + NFKC; injection check normalises whitespace; eval row "quarantine text reaching a summary" |
+| M1 | Step timeouts not per-step; timed-out step later flipped to `ok`; hung threads starved the pool | per-future deadlines, results returned by value (immutable after timeout), fresh pool per wave |
+| M2 | Naive `as_of` crashed the run after the work was done; UI caught only `ValueError` | `AwareDatetime` validated; UI catches `Exception` with a safe message |
+| M3 | `merge` ignored `uncertain` findings; `1` vs `"1"` spurious conflict; NaN | compare all valued non-unavailable findings; numeric normalisation; non-finite rejected |
+| M4 | Unknown `trust` values approved without acknowledgement | `propose` validates; `approve` fails closed on any non-`trusted` value (UI-only approval made structural by B7: single-use token) |
+| M5 | Pending queue unbounded/duplicated; non-atomic writes | dedupe + cap 50 + process-wide lock (cross-process lock: B3) |
+| M6 | Markdown/link/image injection via claim keys and summaries; memory tab used `st.markdown` | labels sanitised, `render_report` escapes everything, memory tab uses `st.text` |
+| M7 | `HoldingsSummary.symbols` free text; dashed cards, obfuscated emails, large floats passed the bus; canaries unused in production | ticker-shaped symbols, digit-separator normalisation, "at/dot" emails, amount bounds, canaries seeded from the user's account identifiers/providers |
+| M8 | Ollama gate bypassed by spelling (`"Ollama"`, `"bogus"`) | normalise + allowlist `{omlx, ollama}` |
+| M9 | oMLX client accepted any host (RAG context + bearer token), followed redirects/proxies with the token | loopback-only unless `PERSONAL_AI_ALLOW_REMOTE_OMLX=true`; no redirects/proxies whenever a key is sent |
+| M10 | Vault (sqlite, single-threaded) used from worker threads | records snapshotted on the calling thread; bus audit + injection flags written on the calling thread; Gmail/portal workers never touch the vault |
+| L1 | failing `recheck` crashed the run | caught; conflict stays reported |
+| L2 | retries re-send non-idempotent bus messages | documented; B5 |
+| L3 | `MAX_WAVES=5` vs 8-step chains | documented limit (steps beyond wave 5 end `skipped: round budget`) |
+| L4 | `requires_confirmation` unused in production | taint is enforced at the Core Memory gate (`propose_from_report` passes `trust`); no write tools exist; revisit if one is added (B7) |
+| L5 | any ALL-CAPS word became a ticker (egress + wrong symbol) | `$TICK`, bundled universe, or introduced-like-a-ticker only |
+| L6 | refusal gaps ("dump", "close my position", "email my vault key") | rules extended + tests; still a first gate |
+| L7 | news parser crashed on non-dict items | skipped; provider catches `AttributeError` |
+| L8 | no PII scan on the public news query | `providers.news` refuses queries containing emails, long digit runs or SSN shapes |
+| L9 | `get_agent` returned shared mutable template | deep copy; `None` guarded |
+| L10 | oMLX adapter edge cases | empty `choices` handled; rest in B1 |
+| L11 | failed re-embed left an empty index silently | explicit error telling the user to rebuild |
+| L12 | scheduler unlocked/unwired | in-process lock; wiring is B3 |
+| Eval | circular detector/disclosure checks; fakes could not expose M1-M3 | +7 evasion payloads (38 total), summary-templating and RAG-exposure rows, timeout-immutability and naive-datetime tests |
+
+## Bill ingestion and RAG hardening (2026-10-25)
+
+Implemented offline (`rag_design.md` R4, R7-R9): requirements S-R1..S-R8 in `docs/rag_design.md` §6. Hostile/malformed PDFs are
+rejected before parsing (eval 0/10 accepted); the BM25 index is memory-only, rebuilt from the live index each session (S-R3);
+the manifest and expected-bills ledger are vault keys; portal runs log no credentials and block off-allowlist redirects (eval 0/0).
+Not exercised: live Gmail MCP, real provider portals (R10), headed 2FA flow.
+
+## Planned controls (2026-11-20)
+
+Specified in `docs/roadmap.md`, not implemented: composed (multi-hop / shared-memory) leakage eval (P4), Core Memory read path with a
+no-bus-edge rule, proposed invariant S17 (P5), verifier relevance check (P2), reviewer decision log without values (P6).
 
 ## Model configuration
 

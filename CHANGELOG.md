@@ -4,6 +4,21 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-20 - docs: consolidate docs, add executable roadmap (Week 6 feedback)
+
+- New `docs/roadmap.md`: the single place for remaining work. Capability status table (implemented vs planned vs user-run), order,
+  conventions and cards P1-P11, each with why (weekly feedback), current state, build steps, files, accept and don'ts. Covers Week 6
+  feedback (repeat-run stability P7, composed / shared-memory leakage P4) and open Week 1-5 commitments (Core Memory recall P5,
+  stress set P1, verifier relevance P2, clarifying questions P3, escalation metrics + review log P6, held-out ToT + Brier P8).
+- Merged `forecasting_system.md` + `reasoning_design.md` into `docs/forecaster.md` (Part 1 system, Part 2 ToT).
+- Removed `docs/capstone_feedback_response.md` (traceability now per roadmap card).
+- `platform_plan.md` is now the reference (rules, contracts, metrics, "how success is scored"); its backlog/status moved to the
+  roadmap and the 2026-10-25 audit table moved to `security_design.md`. `rag_design.md` §8 compressed to a card-status table.
+- `architecture.md` rewritten with Mermaid component and user-flow diagrams and a framework-mapping table. README, AGENTS.md
+  and source-comment doc references updated. No code behaviour changed.
+- New `docs/state_report.md`: redacted, paste-only state report from the model laptop (template, commands, never-include list,
+  PII self-check). Removed absolute home paths from public docs.
+
 ## (pending) - 2026-11-02 - feat: Week 4 Tree-of-Thought forecaster; merge PR #17 hardening
 
 - Merge: `feat/agent-platform` forked before `main`'s 9d955f9 and lacked atomic/flocked auth writes, offline test isolation and the auth/vault-lock/RAG-privacy/ingestion regressions. Merged back. Wrapping format is unchanged (existing auth files still unlock). One fail-closed RAG rebuild path; source-identity chunk ids.

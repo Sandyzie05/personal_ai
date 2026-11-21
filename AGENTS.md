@@ -39,7 +39,10 @@ re-derive that context by re-reading every file - it's already written down.
    Dashboard/Files-page groupings. Don't hand-roll a separate
    classifier/extractor path for a new category.
 
-## Agent platform (read `docs/platform_plan.md` first - it is the executable plan)
+## Agent platform (read `docs/platform_plan.md` for the rules and `docs/roadmap.md` for the work)
+
+Remaining work is planned only in `docs/roadmap.md`: pick the next card in its §2 order and follow its Accept line.
+When a card is done, update the progress diagram (`docs/roadmap.md` §0) **and** the Miro "0 Progress journey" frame in the same change.
 
 Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforced in code AND tested):
 
@@ -52,9 +55,9 @@ Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforce
 - Gmail/brokerage MCP access is read-only (`ingest.ReadOnlyMcp`); do not add write tools to agent templates.
 - Ollama is disabled by default; build LLM clients through `engine.build_chat_client`.
 - After any change here run `make test` AND `make eval` (must print `Overall: PASS`); update
-  `docs/platform_plan.md` §Status and `docs/security_design.md` changelog in the same change.
+  `docs/roadmap.md` §1 status, `docs/platform_plan.md` §5 metrics and `docs/security_design.md` in the same change.
 
-## Reasoning changes (read `docs/reasoning_design.md` first)
+## Reasoning changes (read `docs/forecaster.md` Part 2 first)
 
 - Tree of Thought lives only in the forecaster (`src/forecaster/tot.py`); records, planning and RAG stay linear on purpose.
 - Thresholds/budgets are `TOT_*` in `src/config.py`. Never tune them to make one eval case pass; `make eval` gates ToT >= both baselines.
@@ -64,8 +67,8 @@ Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforce
 
 - Architecture decision (platform_plan D8): Advanced RAG inside the retriever, Modular only at coordinator level; no free-running
   retrieve/reflect loops (one bounded re-retrieve on a failed grounding check at most).
-- Known P0: `chroma_store.add_documents` chunks per line; fix via card R0 and measure with the retrieval eval (card R1) **before** tuning
-  thresholds, `k`, chunk size or models. Never loosen `min_relevance` or the grounding check to make an answer appear.
+- Measure with `make eval-rag` **before and after** tuning thresholds, `k`, chunk size or models (real-embedder tuning is roadmap P10).
+  Never loosen `min_relevance` or the grounding check to make an answer appear.
 - Downloaded/attached files are untrusted (magic bytes, size/page caps, no JS/embedded-file PDFs, hash-named, encrypted before parsing);
   browser agents never give credentials/one-time codes to an LLM and never pay or change settings (see `rag_design.md` §5-§6).
 

@@ -1,4 +1,4 @@
-"""Regression tests for the independent security/bug audit (docs/platform_plan.md §6.1)."""
+"""Regression tests for the independent security/bug audit (docs/security_design.md "Independent audit")."""
 
 import pytest
 

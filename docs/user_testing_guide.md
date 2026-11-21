@@ -11,7 +11,7 @@ so you record what actually happens instead of assuming. Use the results table a
 1. **Use a throwaway vault** so test data never touches your real one:
    ```bash
    export HOME=/tmp/pa_test_home && mkdir -p $HOME
-   cd /Users/sandgupt/RandomIdeasWithAI/personal_ai
+   cd ~/RandomIdeasWithAI/personal_ai   # your clone
    ```
 2. **Generate the synthetic bills** (9 PDFs, fictional providers):
    ```bash
@@ -267,4 +267,4 @@ For any Fail or Partial, capture: the exact question, the answer, the time, whet
 Do **not** paste real personal data. The most valuable findings are: wrong or invented numbers, missing "can't find" answers, anything the hostile PDF or chat injection changed,
 anything saved to Core Memory without your click, and any confident forecast language.
 
-Developer follow-ups from this guide map to [rag_design.md](rag_design.md) (A8, A9) and [platform_plan.md](platform_plan.md) §6.1.
+Developer follow-ups from this guide map to [rag_design.md](rag_design.md) (A8, A9) and [roadmap.md](roadmap.md).

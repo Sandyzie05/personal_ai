@@ -1,4 +1,4 @@
-"""ToT thesis-selection eval (docs/reasoning_design.md §7). Synthetic snapshots; labels are the designer's
+"""ToT thesis-selection eval (docs/forecaster.md Part 2 §7). Synthetic snapshots; labels are the designer's
 stated correct reading of each evidence+critic configuration, so this is a regression/ablation check of the
 search policy, not market accuracy. Baselines: B-linear commits to the best depth-1 thesis (chain-of-thought
 style, no critics); B-vote takes the critics' majority scenario (no heuristic evidence)."""

@@ -1,4 +1,4 @@
-"""Evaluation harness for docs/platform_plan.md §4. Offline, deterministic (except wall-clock
+"""Evaluation harness for docs/platform_plan.md §5. Offline, deterministic (except wall-clock
 latency), synthetic data only.  `make eval`  ->  evals/results/latest.{md,json}; non-zero exit on
 any hard-target failure."""
 

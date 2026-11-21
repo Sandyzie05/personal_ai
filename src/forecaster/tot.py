@@ -1,4 +1,4 @@
-"""Tree-of-Thought thesis search over one frozen EvidenceSnapshot (design: docs/reasoning_design.md).
+"""Tree-of-Thought thesis search over one frozen EvidenceSnapshot (design: docs/forecaster.md Part 2).
 
 Roles: generator = deterministic thesis seeding from evidence families; evaluator = rubric scoring
 plus the specialist swarm as critic; controller = beam search with a diversity slot; state = the

@@ -71,7 +71,7 @@ All figures above are estimates. Measure on the target laptop (below) before rel
 - `PERSONAL_AI_OMLX_WORKER_MODEL` moves background roles to a smaller model. This costs extra weights but makes
   each call several times faster, which matters because a cap of 2 runs the four specialists in two waves
   inside the 60 s specialist deadline.
-- The Tree-of-Thought forecaster ([reasoning_design.md](reasoning_design.md)) makes no LLM calls when its first,
+- The Tree-of-Thought forecaster ([forecaster.md](forecaster.md) Part 2) makes no LLM calls when its first,
   rule-based round is decisive. Otherwise it makes one shared critic round of at most 4 calls per ticker.
 
 **Suggested profiles.** These are starting points, not measurements.
@@ -92,7 +92,7 @@ for speed instead.
 3. Record the peak memory for each run.
 
 A profile is acceptable when memory pressure stays out of red and swap does not grow. Record the result in
-[platform_plan.md](platform_plan.md) backlog B19.
+[roadmap.md](roadmap.md) P9.
 
 ## Using it
 
@@ -131,7 +131,7 @@ document; if embedding fails midway you get an explicit error and must run it ag
 
 The agent runtime speaks Ollama-shaped messages. `OmlxClient` converts to/from the OpenAI shape (ids minted and matched to tool results,
 JSON-string arguments parsed to dicts). If your model has no tool support set `PERSONAL_AI_OMLX_TOOLS=false`; agents then run without tools.
-Not yet verified against a live server: streaming tool-call deltas and the `response_format` JSON-schema shape (backlog B1 in [platform_plan.md](platform_plan.md)).
+Not yet verified against a live server: streaming tool-call deltas and the `response_format` JSON-schema shape (code fixed; live check is [roadmap.md](roadmap.md) P9).
 
 `make demo` is a live auth/vault/model smoke flow, not an offline test.
 Run `make check-context` after chat-path/model changes; an unavailable

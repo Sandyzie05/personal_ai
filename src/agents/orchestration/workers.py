@@ -170,7 +170,7 @@ def expense_worker(get_records: Callable[[], Sequence[Dict[str, Any]]]) -> Worke
 
 def forecaster_worker(research, swarm=None) -> Worker:
     """ResearchPredictionService -> heuristic outlooks, then a Tree-of-Thought thesis search that calls the
-    specialist swarm only when depth 1 is not decisive (docs/reasoning_design.md)."""
+    specialist swarm only when depth 1 is not decisive (docs/forecaster.md Part 2)."""
     from src.forecaster.tot import search
 
     def run(step: PlanStep, inputs) -> List[Finding]:

@@ -14,7 +14,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 from .schemas import Finding, Plan, PlanStep
 
 Worker = Callable[[PlanStep, Dict[str, Tuple[Finding, ...]]], Sequence[Finding]]
-MAX_WAVES = 5  # bounded orchestration rounds (docs/forecasting_system.md)
+MAX_WAVES = 5  # bounded orchestration rounds (docs/platform_plan.md §3.2)
 
 
 _TLS = threading.local()
