@@ -40,19 +40,62 @@ def _fetch(vault, provider: str, on_indexed: Callable[[str, Any], None]) -> None
 
 
 def _gmail_server(vault):
+    """"api" when the direct read-only Gmail API is connected (works for personal accounts), else a Gmail MCP server
+    id (Google's hosted one needs a Workspace Developer Preview project), else None."""
     from src.agents.orchestration.service import GMAIL_PATTERN, find_server
+    from src.data_ingestion import gmail_api
 
-    return find_server(vault, GMAIL_PATTERN)
+    return "api" if gmail_api.connected(vault) else find_server(vault, GMAIL_PATTERN)
+
+
+def _gmail_connection(vault) -> None:
+    """Direct Gmail API connection: the user's own OAuth client, fixed gmail.readonly scope. One form, one Save."""
+    from src.agents.mcp import VaultTokenStorage
+    from src.agents.orchestration.service import GMAIL_PATTERN, find_server
+    from src.data_ingestion import gmail_api
+
+    cid = gmail_api.client_id(vault)
+    state = "connected (read-only)" if gmail_api.connected(vault) else "client saved, not signed in" if cid else "not set up"
+    with st.expander(f":material/key: Gmail connection: {state}", expanded=not gmail_api.connected(vault)):
+        st.caption(
+            "Reads Gmail through Google's standard Gmail API with read-only access (gmail.readonly), using your own "
+            "OAuth client (Cloud Console; Gmail API enabled). A Web application client needs "
+            "http://localhost:<PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT>/callback as an authorized redirect URI."
+        )
+        mcp_server = find_server(vault, GMAIL_PATTERN)
+        reuse = VaultTokenStorage(vault, mcp_server).preregistered_client_id() if mcp_server else None
+        if not cid and reuse and st.button("Use the OAuth client saved for the Gmail MCP server", key="gm_api_reuse"):
+            info = VaultTokenStorage(vault, mcp_server)._load().get("client_info") or {}
+            gmail_api.save_client(vault, info.get("client_id", ""), info.get("client_secret") or "")
+            st.rerun()
+        with st.form("gm_api_client", border=False):
+            new_id = st.text_input("Client ID", placeholder=(cid[:12] + "…") if cid else "1234-abc.apps.googleusercontent.com")
+            secret = st.text_input("Client secret", type="password")
+            if st.form_submit_button("Save client") and new_id.strip():
+                gmail_api.save_client(vault, new_id, secret)
+                st.rerun()
+        a, b = st.columns(2)
+        if a.button("Connect Gmail", icon=":material/login:", disabled=not cid, key="gm_api_connect",
+                    help="Opens Google sign-in; grants read-only Gmail access."):
+            try:
+                with st.spinner("Waiting for Google sign-in in your browser..."):
+                    gmail_api.connect(vault)
+                st.session_state.pop("gmail_needs_auth", None)
+                st.success("Gmail connected (read-only).")
+            except Exception as e:
+                st.error(_error_text(e))
+        if gmail_api.connected(vault) and b.button("Disconnect", key="gm_api_disconnect"):
+            gmail_api.disconnect(vault)
+            st.rerun()
 
 
 def _error_text(e: Exception) -> str:
     """McpError messages are code-built (type + JSON-RPC code); anything else shows its type only, because tool error
     text comes from the server and is untrusted."""
-    from src.agents.mcp import McpError
+    from src.agents.mcp import McpError, _error_kind
+    from src.data_ingestion.gmail_api import GmailAuthError
 
-    from src.agents.mcp import _error_kind
-
-    if isinstance(e, McpError):
+    if isinstance(e, (McpError, GmailAuthError)):
         return str(e)[:200]
     if isinstance(e, ConnectionError):  # tool returned an error: closed category only
         return f"Gmail tool error: {_error_kind(str(e))}"
@@ -60,22 +103,24 @@ def _error_text(e: Exception) -> str:
 
 
 def _gmail_sync(vault, server, on_indexed, client, only: Optional[str] = None) -> None:
-    from src.agents.mcp import McpError, McpManager
+    from src.agents.mcp import McpManager
     from src.agents.orchestration.ingest import ReadOnlyMcp
     from src.data_ingestion import gmail_bills
+    from src.data_ingestion.gmail_api import GmailApi
 
     if client is None:
         st.error("No local model available for the quarantine extractor.")
         return
     with st.status(f"Reading {only or 'bill'} emails (read-only)...") as status:
         try:
-            rep = gmail_bills.sync(vault, ReadOnlyMcp(McpManager(vault), server), client, on_indexed, only=only)
+            ro = GmailApi(vault) if server == "api" else ReadOnlyMcp(McpManager(vault), server)
+            rep = gmail_bills.sync(vault, ro, client, on_indexed, only=only)
             status.update(label=rep.summary(), state="complete" if not (rep.failed or rep.needs_you) else "error")
             return
         except Exception as e:
             status.update(label="Gmail sync failed. Nothing was stored.", state="error")
             st.text(_error_text(e))  # inert text, never markdown
-            needs_auth = isinstance(e, McpError) and e.needs_auth
+            needs_auth = bool(getattr(e, "needs_auth", False))
     if needs_auth:
         st.session_state["gmail_needs_auth"] = True
 
@@ -84,6 +129,9 @@ def _reconnect(vault, server) -> None:
     from src.agents.mcp import McpManager
 
     if not st.session_state.get("gmail_needs_auth"):
+        return
+    if server == "api":
+        st.warning("Gmail sign-in expired or was revoked: press Connect Gmail above.")
         return
     st.warning("Gmail authorization expired or is missing.")
     if st.button("Reconnect Gmail", icon=":material/key:", key="gm_reauth",
@@ -170,9 +218,10 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
         "goes through the quarantine extractor, which returns just the total, due date and period. The email itself is "
         "never stored or indexed."
     )
+    _gmail_connection(vault)
     server = _gmail_server(vault)
     if not server:
-        st.caption('Gmail is not connected: add an MCP server named "Gmail" in Agents → MCP Servers and authorize it.')
+        st.caption("Gmail is not connected yet: save your OAuth client and press Connect Gmail above.")
         return
     _reconnect(vault, server)
     for row in gmail_bills.senders(vault):

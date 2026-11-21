@@ -53,6 +53,8 @@ Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforce
   New data flow = new schema + test. Never widen a schema to "make it work".
 - Core Memory: agents `propose`; only the Core Memory UI tab calls `memory.approve`. No agent-facing commit path.
 - Out-of-scope asks (trade, pay, shell, diagnose, reveal secrets) are refused by `policy.screen` before planning.
+- Gmail is read through `data_ingestion/gmail_api.py` (two fixed GETs, constant `gmail.readonly`; Google's hosted Gmail
+  MCP needs a Developer Preview project). Never add write operations or a configurable scope there.
 - Gmail/brokerage MCP access is read-only (`ingest.ReadOnlyMcp`); do not add write tools to agent templates. Gmail bill sync
   (`data_ingestion/gmail_bills.py`, R11): sender allowlist in code, body only to `quarantine.extract_facts`, never stored.
 - Agent MCP tools are ticked per agent and per tool (`agent["mcp_tools"]`, deny by default, S26); never expose a whole

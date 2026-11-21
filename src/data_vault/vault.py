@@ -152,6 +152,7 @@ INTERNAL_VAULT_KEYS = {
     "dashboard_config",
     "agents_index",
     "mcp_servers",
+    "gmail_api_oauth",
     "agent_activity_log",
     "agent_overrides",  # user tweaks to built-in agents (Agents tab)
     # Core Memory (pending proposals are UNAPPROVED, possibly untrusted-derived: must never be
