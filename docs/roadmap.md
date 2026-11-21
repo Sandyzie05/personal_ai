@@ -146,9 +146,9 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-**Track F first (user decision 2026-11-21):** `F1 → F2 → F3 → F4 → F5 → F6 → F7 → F8 → F9 → F10`, then
-**Now:** F1 live check (user) → F7 remainder → `P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) then `P9, P10` (user runs live) then `P11` (final packaging).
-F2-F3 are the agent-slot foundation; F4-F9 rebuild one Forecast section each on top of it.
+Track F (user decision 2026-11-21) is merged except the F1 live check and the F7 news analyst. **Remaining order:**
+F1 live check (user) → F7 remainder → `P1 → P2 → P3 → P12 → P5 → P4 → P6 → P7 → P8` (code, offline, agent-doable) →
+`P9, P10` (user runs live) → `P11` (final packaging).
 P1 comes first because P2, P3 and P6 add their cases to it. P5 comes before P4 so the leakage eval also covers memory reads.
 
 ## 3. Conventions for every card
