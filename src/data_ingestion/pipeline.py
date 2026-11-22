@@ -36,6 +36,7 @@ class IngestReport:
     superseded: List[str] = field(default_factory=list)
     failed: List[str] = field(default_factory=list)  # reasons only, never content
     needs_you: List[str] = field(default_factory=list)
+    checked: str = ""  # code-built counts of what was looked at (helps explain "0 new")
 
     def summary(self) -> str:
         parts = [
@@ -53,7 +54,7 @@ class IngestReport:
             parts.append(
                 f"{len(self.needs_you)} need you ({'; '.join(self.needs_you)})"
             )
-        return ", ".join(parts)
+        return ", ".join(parts) + (f" ({self.checked})" if self.checked else "")
 
 
 def _manifest(vault) -> Dict[str, Dict[str, Any]]:

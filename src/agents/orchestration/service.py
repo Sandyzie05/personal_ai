@@ -3,7 +3,7 @@
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from src.agents import store
-from src.config import FORECAST_STEP_TIMEOUT_SECONDS, PERSONAL_AI_LLM_PLANNER
+from src.config import EMAIL_DIGEST_STEP_TIMEOUT_SECONDS, FORECAST_STEP_TIMEOUT_SECONDS, PERSONAL_AI_LLM_PLANNER
 
 from . import memory, schedule
 from .bus import MessageBus
@@ -134,7 +134,7 @@ def build_coordinator(
         prefetch["brokerage"] = holdings_fetcher(ReadOnlyMcp(mcp, broker))
         workers["brokerage"] = brokerage_worker(cached("brokerage"))
     coordinator = Coordinator(
-        workers, deadline_s=FORECAST_STEP_TIMEOUT_SECONDS + 30
+        workers, deadline_s=max(FORECAST_STEP_TIMEOUT_SECONDS, EMAIL_DIGEST_STEP_TIMEOUT_SECONDS) + 30
     )  # forecaster + one dependent wave
     coordinator.bus, coordinator.audit_vault = bus, vault
     coordinator.prefetch, coordinator.fetched = prefetch, fetched
@@ -152,7 +152,8 @@ SPECIALISTS = (
 )  # selectable in chat as builtin-<role>
 
 
-_EMAIL_ONLY = Plan(steps=(PlanStep(id="email", agent="email", goal="Read-only digest of recent email"),))
+_EMAIL_ONLY = Plan(steps=(PlanStep(id="email", agent="email", goal="Read-only digest of recent email",
+                                    timeout_s=EMAIL_DIGEST_STEP_TIMEOUT_SECONDS),))
 
 
 def _restrict(plan: Plan, role: str) -> Plan:

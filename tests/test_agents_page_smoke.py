@@ -290,3 +290,43 @@ def test_edit_agent_picks_individual_tools_per_server(app, monkeypatch):
     trader = next(a for a in store.list_agents(vault) if a["name"] == "Trader")
     assert sorted(next(iter(trader["mcp_tools"].values()))) == ["get_quotes", "place_order"]
     assert trader["require_tool_confirmation"] is True, "a write tool forces the approval gate"
+
+
+def _stored_messages(home, dek):
+    from src.interface import chat_sessions
+
+    vault = DataVault(vault_path=str(home / ".personal_ai_vault"), encryption_key=dek)
+    sid = chat_sessions.list_sessions(vault)[0]["id"]
+    return [(m["role"], m["content"]) for m in (vault.retrieve_data(chat_sessions.history_key_for(sid)) or {}).get("messages", [])]
+
+
+def test_question_is_saved_before_the_agent_runs(app, monkeypatch):
+    """Live bug: pressing Enter sometimes 'did nothing' - the message was saved only after a 30 s+ agent run, so a
+    rerun mid-run (which abandons the run) dropped it. The agent must start with the question already stored."""
+    from src.agents.orchestration import service
+
+    app, home, dek = app
+    at_start = []
+
+    def build(*a, **k):
+        at_start.extend(_stored_messages(home, dek))
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(service, "build_coordinator", build)
+    app.session_state["active_agent_id"] = "builtin-coordinator"
+    app.run()
+    app.chat_input[0].set_value("what is new?").run()
+    assert at_start == [("user", "what is new?")]
+
+
+def test_agent_turn_stores_each_message_once(app, monkeypatch):
+    from src.agents.orchestration import service
+
+    monkeypatch.setattr(service, "build_coordinator", lambda *a, **k: object())
+    monkeypatch.setattr(service, "run_query", lambda *a, **k: (_ for _ in ()).throw(ValueError("Nothing to do.")))
+    app, home, dek = app
+    app.session_state["active_agent_id"] = "builtin-email"
+    app.run()
+    app.chat_input[0].set_value("whats new in my inbox?").run()
+    assert not app.exception
+    assert _stored_messages(home, dek) == [("user", "whats new in my inbox?"), ("assistant", "Nothing to do.")]

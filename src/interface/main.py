@@ -607,7 +607,12 @@ class PersonalAIInterface:
                 mcp=self._agent_runtime().mcp,
                 quarantine_client=worker_client(self.chat_engine.ollama_client),
             )
-            with st.status("Coordinator delegating to specialists...", expanded=True):
+            label = (
+                "Coordinator delegating to specialists..."
+                if agent.get("id") == "builtin-coordinator"
+                else f"{agent.get('name', 'Agent')} is working..."
+            )
+            with st.status(label, expanded=True):
                 report = service.run_query(
                     coordinator,
                     query,
@@ -626,6 +631,17 @@ class PersonalAIInterface:
             else:
                 service.propose_from_report(self.vault, report)
                 answer = render_report(report)
+                if agent.get("role") == "email":
+                    answer = (
+                        "**Email digest** (newest threads from the last 2 days, read-only; each email passed through "
+                        "the quarantine extractor, so only its typed facts are shown)\n\n"
+                        + (
+                            ""
+                            if report.claims or report.escalations
+                            else "No new email found.\n\n"
+                        )
+                        + answer
+                    )
                 answer += (
                     "\n\n_Parallel specialists: "
                     + ("overlapped" if report.parallel_overlap else "single step")
@@ -650,7 +666,6 @@ class PersonalAIInterface:
             )
         with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
             st.markdown(answer)
-        self.chat_history.add_message("user", user_query)
         self.chat_history.add_message("assistant", answer, [])
         chat_sessions.touch_session(
             self.vault,
@@ -672,7 +687,7 @@ class PersonalAIInterface:
             return
         run_id = last["run_id"]
         with st.container(border=True):
-            st.markdown("**Review the coordinator's flags**")
+            st.markdown("**Review the flags from this run**")
             for i, e in enumerate(last["escalations"]):
                 kind, key = e["kind"], e["claim_key"]
                 st.text(
@@ -751,7 +766,6 @@ class PersonalAIInterface:
             result = runtime.start_run(active_id, agent, user_query, history)
 
         if result.status == "awaiting_confirmation":
-            self.chat_history.add_message("user", user_query)
             chat_sessions.touch_session(
                 self.vault,
                 active_id,
@@ -765,7 +779,6 @@ class PersonalAIInterface:
             st.markdown(result.answer)
             render_sources(result.sources)
 
-        self.chat_history.add_message("user", user_query)
         self.chat_history.add_message("assistant", result.answer, result.sources)
         chat_sessions.touch_session(
             self.vault,
@@ -782,18 +795,37 @@ class PersonalAIInterface:
         from src.interface.forecast import _scenario_factory
 
         try:
-            factory = _scenario_factory(self.vault)  # loopback-only endpoint, or ValueError
+            factory = _scenario_factory(
+                self.vault
+            )  # loopback-only endpoint, or ValueError
         except Exception:
             factory = None
         skills = _skills_text(agent.get("skills"))
-        agent = {**agent, "instructions": (skills + "\n\n" if skills else "") + str(agent.get("instructions") or "")}
-        with st.status("Reading your Robinhood positions (read-only)...", expanded=False):
-            answer = portfolio_chat.respond(self.vault, self._agent_runtime().mcp, factory, agent, user_query, history)
+        agent = {
+            **agent,
+            "instructions": (skills + "\n\n" if skills else "")
+            + str(agent.get("instructions") or ""),
+        }
+        with st.status(
+            "Reading your Robinhood positions (read-only)...", expanded=False
+        ):
+            answer = portfolio_chat.respond(
+                self.vault,
+                self._agent_runtime().mcp,
+                factory,
+                agent,
+                user_query,
+                history,
+            )
         with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
             st.markdown(answer)
-        self.chat_history.add_message("user", user_query)
         self.chat_history.add_message("assistant", answer, [])
-        chat_sessions.touch_session(self.vault, active_id, title=user_query.strip()[:40], agent_id=agent.get("id"))
+        chat_sessions.touch_session(
+            self.vault,
+            active_id,
+            title=user_query.strip()[:40],
+            agent_id=agent.get("id"),
+        )
         st.rerun()
 
     def _render_confirmation_card(self, active_id: str, agent: Dict[str, Any]) -> None:
@@ -1158,7 +1190,11 @@ class PersonalAIInterface:
                 f"{active_agent.get('icon', '')} **{active_agent['name']}** runs inside a workflow, not free chat: "
                 f"{active_agent.get('runs_in') or 'see the Agents page'}. It only reads code-built inputs there "
                 "(that is what keeps it scoped). Tweak it in Agents → "
-                + ("Forecast workflow." if active_agent.get("group") == "Forecast" else "Platform.")
+                + (
+                    "Forecast workflow."
+                    if active_agent.get("group") == "Forecast"
+                    else "Platform."
+                )
             )
         user_input = st.chat_input(
             "Ask a question about your data...",
@@ -1167,6 +1203,12 @@ class PersonalAIInterface:
         if user_input:
             with st.chat_message("user", avatar=USER_AVATAR):
                 st.markdown(user_input)
+            # Saved BEFORE the (possibly 30 s+) agent run: a rerun mid-run (Enter again, a click) abandons the run,
+            # and the question used to vanish with it.
+            self.chat_history.add_message("user", user_input)
+            chat_sessions.touch_session(
+                self.vault, active_id, title=user_input.strip()[:40]
+            )
 
             if active_agent is None or (
                 active_agent.get("id") == agent_store.GENERAL_AGENT_ID
@@ -1178,7 +1220,7 @@ class PersonalAIInterface:
                     )
                     render_sources(sources)
 
-                self.chat_history.add_exchange(user_input, response_text, sources)
+                self.chat_history.add_message("assistant", response_text, sources)
                 chat_sessions.touch_session(
                     self.vault, active_id, title=user_input.strip()[:40]
                 )
@@ -1200,8 +1242,12 @@ class PersonalAIInterface:
         )
         from src.ai_engine.engine import worker_client
 
-        client = worker_client(self.chat_engine.ollama_client) if self.chat_engine else None
-        sync_panel.render(self.vault, self._on_document_uploaded, quarantine_client=client)
+        client = (
+            worker_client(self.chat_engine.ollama_client) if self.chat_engine else None
+        )
+        sync_panel.render(
+            self.vault, self._on_document_uploaded, quarantine_client=client
+        )
 
     def _on_document_uploaded(self, storage_key: str, data: Dict[str, Any]) -> None:
         """Index a newly-uploaded document into RAG so it's searchable immediately.
