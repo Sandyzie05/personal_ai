@@ -4,6 +4,13 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - fix: Activity table Arrow crash; configurable observability ports
+
+- Agents → Activity: `model calls` mixed ints and "" across entry kinds → Arrow serialization error. `activity_rows`
+  gives each column one type; entries without an agent name show their kind (bus, rag_turn, …).
+- `make obs-up` failed when port 4318 was already taken (live: a local Jaeger). Host ports are now `OBS_OTLP_PORT` /
+  `OBS_GRAFANA_PORT` (defaults 4318/3000), `obs-up` checks the port first and says what to do, `run-obs` exports to the same port.
+
 ## (pending) - 2026-11-22 - feat(S0): email-text bills are notices, not documents; Track M plan
 
 - Gmail Sync stores a manifest-only notice per bill (provider, period, emailed total/due); no `gmail-*.txt` documents, nothing

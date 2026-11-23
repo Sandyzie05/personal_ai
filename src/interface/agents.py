@@ -839,22 +839,30 @@ def _render_activity_tab(vault: Any) -> None:
             "arguments, model, outcome and duration (newest first)."
         )
         return
-    rows = [
+    st.dataframe(activity_rows(entries), hide_index=True)
+
+
+def activity_rows(entries) -> list:
+    """One type per column: entries of different kinds carry different fields (live: `model_calls` int vs "" broke
+    Arrow serialization)."""
+    def s(v) -> str:
+        return "" if v is None else str(v)
+
+    return [
         {
-            "time": str(e.get("ts", ""))[:19],
-            "agent": e.get("agent_name", ""),
-            "server": e.get("server", ""),
-            "tool": e.get("tool", ""),
-            "args": e.get("args_digest", ""),
+            "time": s(e.get("ts"))[:19],
+            "agent": s(e.get("agent_name") or e.get("kind")),
+            "server": s(e.get("server")),
+            "tool": s(e.get("tool")),
+            "args": s(e.get("args_digest")),
             "ok": "yes" if e.get("ok") else "no",
-            "ms": e.get("duration_ms", 0),
-            "model": e.get("model", ""),
-            "model calls": e.get("model_calls", ""),
-            "error": e.get("error") or "",
+            "ms": int(e.get("duration_ms") or 0),
+            "model": s(e.get("model")),
+            "model calls": s(e.get("model_calls")),
+            "error": s(e.get("error")),
         }
         for e in entries
     ]
-    st.dataframe(rows, hide_index=True)
 
 
 # -- page --------------------------------------------------------------------------

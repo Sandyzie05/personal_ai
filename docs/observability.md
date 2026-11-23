@@ -10,6 +10,11 @@ make run-obs      # the app with PERSONAL_AI_OTEL_ENABLED=true
 make obs-down     # stops the stack and deletes all telemetry (no volume)
 ```
 
+Port taken (e.g. a local Jaeger already listens on 4318; `make obs-up` checks and stops)? Either stop it, or pick other
+host ports: `OBS_OTLP_PORT=14318 OBS_GRAFANA_PORT=3001 make obs-up run-obs` (`run-obs` exports to the same port). An
+existing Jaeger also works as a traces-only target: `PERSONAL_AI_OTEL_ENABLED=true make run` (metrics/logs then fail
+quietly; dashboards need the LGTM stack).
+
 Settings (`src/config.py`): `PERSONAL_AI_OTEL_ENABLED` (default false), `PERSONAL_AI_OTEL_ENDPOINT` (default
 `http://127.0.0.1:4318`; a non-loopback endpoint is refused at start-up).
 

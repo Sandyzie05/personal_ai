@@ -60,12 +60,18 @@ eval-stability:
 	PYTHONPATH=. $(PYTHON) -m evals.stability --runs $(RUNS) $(if $(LIVE),--live,)
 
 # Track O: local OpenTelemetry stack (Grafana otel-lgtm, loopback ports only; data deleted by obs-down)
+# Ports default to 3000/4318; if taken (e.g. a local Jaeger on 4318): OBS_OTLP_PORT=14318 make obs-up run-obs
+OBS_GRAFANA_PORT ?= 3000
+OBS_OTLP_PORT ?= 4318
+export OBS_GRAFANA_PORT OBS_OTLP_PORT
+
 obs-up:
+	@lsof -nP -iTCP:$(OBS_OTLP_PORT) -sTCP:LISTEN >/dev/null 2>&1 && { echo "Port $(OBS_OTLP_PORT) is in use (see: lsof -i :$(OBS_OTLP_PORT)). Stop that process or pick a free port, e.g. OBS_OTLP_PORT=14318 make obs-up run-obs"; exit 1; } || true
 	docker compose -f observability/docker-compose.yml up -d
-	@echo "Grafana: http://127.0.0.1:3000 (folder personal_ai). Now run: make run-obs"
+	@echo "Grafana: http://127.0.0.1:$(OBS_GRAFANA_PORT) (folder personal_ai). Now run: OBS_OTLP_PORT=$(OBS_OTLP_PORT) make run-obs"
 
 obs-down:
 	docker compose -f observability/docker-compose.yml down
 
 run-obs:
-	PERSONAL_AI_OTEL_ENABLED=true PYTHONPATH=. $(STREAMLIT) run src/interface/main.py
+	PERSONAL_AI_OTEL_ENABLED=true PERSONAL_AI_OTEL_ENDPOINT=http://127.0.0.1:$(OBS_OTLP_PORT) PYTHONPATH=. $(STREAMLIT) run src/interface/main.py

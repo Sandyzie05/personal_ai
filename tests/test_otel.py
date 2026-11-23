@@ -192,7 +192,7 @@ def test_stack_binds_loopback_only_and_dashboards_are_valid():
     root = pathlib.Path(__file__).resolve().parents[1] / "observability"
     compose = (root / "docker-compose.yml").read_text()
     ports = re.findall(r'^\s*-\s*"([^"]+)"', compose, re.M)
-    assert ports and all(p.startswith("127.0.0.1:") for p in ports if ":" in p and "/" not in p)
+    assert ports and all(p.startswith("127.0.0.1:") for p in ports)
     assert "volumes:" in compose and "lgtm" in compose and "0.0.0.0" not in compose
     boards = sorted(root.glob("dashboards/*.json"))
     assert [b.stem for b in boards] == ["agent-runs", "guardrails", "models", "sync"]
@@ -200,3 +200,15 @@ def test_stack_binds_loopback_only_and_dashboards_are_valid():
         d = json.loads(b.read_text())
         assert d["uid"].startswith("pai-") and d["panels"]
         assert all(t["expr"] for p in d["panels"] for t in p["targets"])
+
+
+def test_activity_table_has_one_type_per_column():
+    import pyarrow as pa
+
+    from src.interface.agents import activity_rows
+
+    rows = activity_rows([{"kind": "bus", "outcome": "delivered"},
+                          {"agent_name": "Gmail bill sync", "model_calls": 6, "duration_ms": 7000, "ok": True},
+                          {"kind": "rag_turn", "model_calls": None, "duration_ms": None}])
+    pa.Table.from_pylist(rows)  # live crash: "Expected bytes, got a 'int' object" on 'model calls'
+    assert rows[1]["model calls"] == "6" and rows[0]["agent"] == "bus" and rows[2]["ms"] == 0
