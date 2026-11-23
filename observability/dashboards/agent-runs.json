@@ -10,7 +10,7 @@
  "panels": [
   {
    "type": "stat",
-   "title": "Runs (24h)",
+   "title": "Runs",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -24,7 +24,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(personal_ai_runs_total[24h]))",
+     "expr": "sum(max_over_time(personal_ai_runs_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -34,7 +34,7 @@
   },
   {
    "type": "stat",
-   "title": "Failed/timeout steps (24h)",
+   "title": "Failed/timeout steps",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -48,7 +48,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(personal_ai_steps_total{status!=\"ok\"}[24h]))",
+     "expr": "sum(max_over_time(personal_ai_steps_total{status!=\"ok\"}[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"

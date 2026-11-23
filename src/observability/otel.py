@@ -9,6 +9,7 @@ Telemetry is stored in plain text by the local collector, so the controls are he
 
 import re
 import threading
+import uuid
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
 
@@ -180,7 +181,8 @@ def init(
             SimpleSpanProcessor,
         )
 
-        res = Resource.create({"service.name": "personal_ai"})
+        # One instance id per app process: each restart is its own series, so dashboards can sum per-process maxima.
+        res = Resource.create({"service.name": "personal_ai", "service.instance.id": uuid.uuid4().hex[:12]})
         tp = TracerProvider(resource=res)
         tp.add_span_processor(
             (SimpleSpanProcessor if explicit else BatchSpanProcessor)(span_exporter)
