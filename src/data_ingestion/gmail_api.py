@@ -175,7 +175,7 @@ class GmailApi:
         tool = "get_thread" if path.startswith("threads/") else "search_threads"
         otel.count("personal_ai.tool.calls", tool=tool, server="gmail_api")
         try:
-            with otel.span("tool.call", tool=tool, server="gmail_api") as sp, self._open(req, timeout=TIMEOUT_S) as r:
+            with otel.span(f"tool {tool}", tool=tool, server="gmail_api") as sp, self._open(req, timeout=TIMEOUT_S) as r:
                 sp.set(**{"http.status": getattr(r, "status", 200)})
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:

@@ -1,16 +1,11 @@
 {
  "uid": "pai-guardrails",
  "title": "personal_ai \u00b7 Guardrails",
- "schemaVersion": 39,
- "time": {
-  "from": "now-24h",
-  "to": "now"
- },
- "refresh": "30s",
  "panels": [
   {
    "type": "stat",
    "title": "Refusals",
+   "description": "Requests refused before planning by policy.screen (trade, pay, shell, diagnose, reveal secrets).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -24,17 +19,18 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(max_over_time(personal_ai_refusals_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "expr": "sum(max_over_time(personal_ai_refusals_total[$__range])) or vector(0)"
     }
    ]
   },
   {
    "type": "stat",
    "title": "Injection flags",
+   "description": "Untrusted text (email, portal, news) that matched the injection detector. The text never reaches a prompt or answer either way; see the rule in the logs below. 'send_or_forward' also matches ordinary marketing ('email us at').",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -48,17 +44,18 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(max_over_time(personal_ai_injection_flags_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "expr": "sum(max_over_time(personal_ai_injection_flags_total[$__range])) or vector(0)"
     }
    ]
   },
   {
    "type": "stat",
    "title": "Bus rejections",
+   "description": "Inter-agent messages blocked by a strict per-edge schema.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -72,17 +69,18 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(max_over_time(personal_ai_bus_messages_total{outcome!=\"delivered\"}[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "expr": "sum(max_over_time(personal_ai_bus_messages_total{outcome!=\"delivered\"}[$__range])) or vector(0)"
     }
    ]
   },
   {
    "type": "stat",
    "title": "Ungrounded RAG turns",
+   "description": "Document answers whose claims failed the grounding check.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -96,17 +94,18 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(max_over_time(personal_ai_rag_turns_total{grounded=\"false\"}[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "expr": "sum(max_over_time(personal_ai_rag_turns_total{grounded=\"false\"}[$__range])) or vector(0)"
     }
    ]
   },
   {
    "type": "stat",
    "title": "Escalations",
+   "description": "Answers that needed you: conflict, stale, ungrounded, clarify, missing statement, ...",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -120,17 +119,18 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(max_over_time(personal_ai_escalations_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "expr": "sum(max_over_time(personal_ai_escalations_total[$__range])) or vector(0)"
     }
    ]
   },
   {
    "type": "stat",
    "title": "Reviewer decisions",
+   "description": "Your accept / correct / dismiss clicks on escalations.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -144,17 +144,18 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(max_over_time(personal_ai_reviews_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "expr": "sum(max_over_time(personal_ai_reviews_total[$__range])) or vector(0)"
     }
    ]
   },
   {
    "type": "timeseries",
-   "title": "Escalations by kind (total)",
+   "title": "Injection flags by rule and source (total)",
+   "description": "Which detector rule matched and where the text came from (gmail, portal, news).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -168,18 +169,19 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (escalation_kind) (personal_ai_escalations_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "sum by (rule, source_kind, schema) (personal_ai_injection_flags_total)",
+     "legendFormat": "{{rule}} \u00b7 {{source_kind}} \u00b7 {{schema}}"
     }
    ]
   },
   {
    "type": "timeseries",
-   "title": "Refusals by kind (total)",
+   "title": "Escalations by kind (total)",
+   "description": "Why answers were escalated.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -193,18 +195,19 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (refusal) (personal_ai_refusals_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "sum by (escalation_kind) (personal_ai_escalations_total)",
+     "legendFormat": "{{escalation_kind}}"
     }
    ]
   },
   {
    "type": "logs",
-   "title": "Guardrail events (Activity log mirror)",
+   "title": "Guardrail events",
+   "description": "Warnings only: refusals, injection flags (with rule and source), rejected bus messages, failed runs. Expand a line for its trace id.",
    "datasource": {
     "type": "loki",
     "uid": "loki"
@@ -215,18 +218,29 @@
     "x": 0,
     "y": 12
    },
+   "options": {
+    "showTime": true,
+    "wrapLogMessage": true,
+    "enableLogDetails": true
+   },
    "targets": [
     {
      "refId": "A",
-     "expr": "{service_name=\"personal_ai\"} | kind=~\"refused|injection_flagged|bus|review\"",
      "datasource": {
       "type": "loki",
       "uid": "loki"
-     }
+     },
+     "expr": "{service_name=\"personal_ai\"} | severity_text=\"WARN\""
     }
    ]
   }
  ],
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "refresh": "30s",
  "tags": [
   "personal_ai"
  ]

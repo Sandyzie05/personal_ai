@@ -529,7 +529,14 @@ exceptions as type names; private providers and no auto-instrumentation. Activit
 through the same filter (e.g. Gmail sync `args_digest`, which can hold a provider name, is dropped). Chat refusals are now
 logged (`kind: refused`, refusal kind only) and agent-turn entries carry escalation kinds. Eval row "Telemetry leakage" (hard)
 scans all exported telemetry for canaries: 0. Residual risk: timings and agent/model ids reveal usage patterns to anyone
-with local access to the container; Grafana anonymous access is Viewer-only on loopback.
+with local access to the container; Grafana anonymous access is Viewer on loopback with Explore enabled
+(`GF_USERS_VIEWERS_CAN_EDIT`, needed for trace links; provisioned dashboards cannot be overwritten).
+
+Update (#54): LLM-call spans add temperature, max tokens, message *count*, response-format type, tool *names* offered and
+returned, token counts, finish reason; injection flags record the matched rule name and source kind (`gmail`, `portal`,
+`news`), never the text; span names are code-built (`chat <agent>`, `step <agent>`, `tool <name>`, `chat <model>`).
+Leakage eval re-run: 0 canaries in 295 spans / 182 logs. Email Digest refuses off-topic asks before any mail is read
+(less mail read for questions it cannot answer).
 
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)
 

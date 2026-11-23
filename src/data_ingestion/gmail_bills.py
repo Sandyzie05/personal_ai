@@ -210,7 +210,7 @@ def sync(vault, ro, client, on_indexed=None, today: Optional[date] = None, only:
 
     from src.observability import otel
 
-    with otel.span("sync.gmail", model=str(getattr(client, "model", "") or "")) as sp:
+    with otel.span("sync gmail", model=str(getattr(client, "model", "") or "")) as sp:
         r = _sync(vault, ro, client, on_indexed, today, only, progress)
         c = Counter(o["outcome"].split(" ")[0] for o in r.outcomes)
         sp.set(new=len(r.new), duplicates=r.duplicates, notices=c.get("no", 0), not_bill=c.get("not", 0),

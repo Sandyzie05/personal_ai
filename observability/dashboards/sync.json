@@ -1,16 +1,11 @@
 {
  "uid": "pai-sync",
  "title": "personal_ai \u00b7 Sync and tools",
- "schemaVersion": 39,
- "time": {
-  "from": "now-24h",
-  "to": "now"
- },
- "refresh": "30s",
  "panels": [
   {
    "type": "timeseries",
    "title": "Read-only tool calls (total)",
+   "description": "Gmail API / MCP reads by tool and server (search_threads, get_thread, ...).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -24,18 +19,19 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (tool, server) (personal_ai_tool_calls_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "sum by (tool, server) (personal_ai_tool_calls_total)",
+     "legendFormat": "{{tool}} \u00b7 {{server}}"
     }
    ]
   },
   {
    "type": "timeseries",
    "title": "Activity entries by kind (total)",
+   "description": "Everything written to the encrypted Activity log, by kind.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -49,42 +45,19 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (kind) (personal_ai_activity_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
-    }
-   ]
-  },
-  {
-   "type": "logs",
-   "title": "Sync and tool activity",
-   "datasource": {
-    "type": "loki",
-    "uid": "loki"
-   },
-   "gridPos": {
-    "h": 10,
-    "w": 24,
-    "x": 0,
-    "y": 8
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "expr": "{service_name=\"personal_ai\"} | kind=~\"tool_call|event|scheduled_run\"",
-     "datasource": {
-      "type": "loki",
-      "uid": "loki"
-     }
+     "expr": "sum by (kind) (personal_ai_activity_total)",
+     "legendFormat": "{{kind}}"
     }
    ]
   },
   {
    "type": "table",
    "title": "Sync traces",
+   "description": "Each Gmail sync: open it to see every thread read, each quarantine extraction and the outcome counts (new, duplicates, notices, not a bill, model calls).",
    "datasource": {
     "type": "tempo",
     "uid": "tempo"
@@ -93,7 +66,7 @@
     "h": 9,
     "w": 24,
     "x": 0,
-    "y": 18
+    "y": 8
    },
    "targets": [
     {
@@ -103,13 +76,49 @@
       "uid": "tempo"
      },
      "queryType": "traceql",
-     "query": "{resource.service.name=\"personal_ai\" && name=\"sync.gmail\"}",
-     "limit": 20,
+     "query": "{resource.service.name=\"personal_ai\" && name=\"sync gmail\"}",
+     "limit": 25,
      "tableType": "traces"
+    }
+   ]
+  },
+  {
+   "type": "logs",
+   "title": "Sync, tool and agent-run log",
+   "description": "Activity log mirror (INFO and WARN): tool calls, syncs, slot runs, scheduled runs.",
+   "datasource": {
+    "type": "loki",
+    "uid": "loki"
+   },
+   "gridPos": {
+    "h": 10,
+    "w": 24,
+    "x": 0,
+    "y": 17
+   },
+   "options": {
+    "showTime": true,
+    "wrapLogMessage": true,
+    "enableLogDetails": true
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "loki",
+      "uid": "loki"
+     },
+     "expr": "{service_name=\"personal_ai\"} | kind=~\"tool_call|slot_run|scheduled_run|event\""
     }
    ]
   }
  ],
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "refresh": "30s",
  "tags": [
   "personal_ai"
  ]

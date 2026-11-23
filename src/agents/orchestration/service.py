@@ -1,5 +1,6 @@
 """Wires the real services into a Coordinator for the chat/UI layer."""
 
+import re
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from src.agents import store
@@ -182,7 +183,8 @@ def run_query(
     from src.observability import otel
 
     vault = getattr(coordinator, "audit_vault", None)
-    with otel.span("agent.run", only=only, planner="llm" if planner_client is not None and PERSONAL_AI_LLM_PLANNER
+    who = only or "coordinator"
+    with otel.span(f"chat {who}", agent=who, planner="llm" if planner_client is not None and PERSONAL_AI_LLM_PLANNER
                    else "rules") as sp:
         try:
             report = _run_query(coordinator, query, only, planner_client)
@@ -193,10 +195,9 @@ def run_query(
             raise
         kinds = [e.kind for e in report.escalations]
         sp.set(steps=len(report.steps), claims=len(report.claims), conflicts=len(report.conflicts),
-               escalations=len(kinds), overlap=report.parallel_overlap,
-               agents=",".join(sorted({r.agent for r in report.steps})))
-        otel.count("personal_ai.runs", only=only)
-        otel.observe("personal_ai.run.duration", report.wall_s * 1000, only=only)
+               escalations=len(kinds), escalation_kinds=",".join(kinds) or None, overlap=report.parallel_overlap,
+               plan=",".join(f"{r.agent}:{r.status}" for r in report.steps) or None,
+               agents=",".join(sorted({r.agent for r in report.steps})) or None)
         for r in report.steps:
             otel.count("personal_ai.steps", agent=r.agent, status=r.status)
         for k in kinds:
@@ -205,10 +206,23 @@ def run_query(
         return report
 
 
+_EMAIL_WORDS = re.compile(r"\b(e-?mails?|mail|inbox|received|receive|sent|message|newsletter|digest|"
+                          r"from\s+\S+|bills?|statements?|anything new|unread)\b", re.I)
+_NOT_EMAIL = re.compile(r"\b(robinhood|brokerage|portfolio|holdings?|positions?|shares?|stocks?|tickers?|forecast\w*|"
+                        r"trade|trading|buy|sell|price|account (details|balance|number)|balance)\b", re.I)
+_EMAIL_SCOPE = ("The Email Digest agent only reads your email (read-only) and summarises it. For Robinhood or "
+                "account questions use the Robinhood Portfolio agent; for stocks use Forecast. Ask me about your "
+                "email, for example \"did my gas bill arrive this month?\"")
+
+
 def _run_query(coordinator: Coordinator, query: str, only: Optional[str], planner_client: Any) -> RunReport:
     refusal = screen(query)
     if refusal:
         raise RequestRefused(refusal.kind)
+    if only == "email" and _NOT_EMAIL.search(query) and not _EMAIL_WORDS.search(query):
+        # Scope check before any mail is read: an off-topic ask must not be answered with an inbox summary.
+        return RunReport(steps=[], claims={}, conflicts=[], wall_s=0.0, sum_step_s=0.0, parallel_overlap=False,
+                         escalations=[Escalation("out_of_scope", _EMAIL_SCOPE)])
     records = getattr(coordinator, "records", None) or []
     # P5 recall on the calling thread, before the clarify check: an approved fact can answer (or inform) a question
     # that is ambiguous for the record workers.

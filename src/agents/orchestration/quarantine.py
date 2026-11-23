@@ -35,8 +35,24 @@ def sanitize_text(text: str, max_chars: int = 6000) -> str:
     return re.sub(r"[ \t]{2,}", " ", _INVISIBLE.sub("", text))[:max_chars]
 
 
+_RULES = (  # names for the audit log: which part of INJECTION matched (the detector itself is unchanged)
+    ("override", re.compile(r"ignore (all |any )?(the )?(previous|prior|above|earlier)|disregard (the |all )?(above|"
+                            r"previous|prior|earlier)|forget (all |everything|your)|you are now|new instructions", re.I)),
+    ("role_tag", re.compile(r"system prompt|developer message|</?\s*(system|assistant|tool)\b|begin (system|instructions)",
+                            re.I)),
+    ("secret_or_exfiltration", re.compile(r"exfiltrate|reveal .{0,30}(password|key|secret)", re.I)),
+    ("send_or_forward", re.compile(r"(send|forward|email|post|upload) .{0,60}\b(to|at)\b", re.I)),
+)
+
+
 def looks_like_injection(text: str) -> bool:
     return bool(INJECTION.search(re.sub(r"\s+", " ", text)))  # newline/tab splits must not evade
+
+
+def injection_rule(text: str) -> str:
+    """Which detector rule matched ("" if none). `send_or_forward` also matches ordinary marketing ("email us at")."""
+    t = re.sub(r"\s+", " ", text)
+    return next((name for name, rx in _RULES if rx.search(t)), "flagged" if looks_like_injection(t) else "")
 
 
 @dataclass(frozen=True)
@@ -52,9 +68,16 @@ def extract_facts(raw: str, source: str, schema: Type[BaseModel], client: Any,
     """`extra_instructions` (the user's agent tweak, trusted) is appended AFTER the fixed SYSTEM, never replacing it."""
     from src.observability import otel
 
-    with otel.span("quarantine.extract", schema=schema.__name__, model=str(getattr(client, "model", "") or "")) as sp:
+    kind = re.sub(r"[^a-z_]", "", source.split(":")[0].lower())[:20]  # gmail / portal / news, never the id
+    with otel.span(f"quarantine {schema.__name__}", schema=schema.__name__, source_kind=kind, chars=len(raw or ""),
+                   model=str(getattr(client, "model", "") or "")) as sp:
         ex = _extract(raw, source, schema, client, max_chars, extra_instructions)
-        sp.set(flagged=ex.flagged, extract_error=ex.error or None, ok=ex.facts is not None)
+        rule = injection_rule(sanitize_text(raw, max_chars)) if ex.flagged else ""
+        sp.set(flagged=ex.flagged, rule=rule or None, extract_error=ex.error or None, ok=ex.facts is not None)
+        if ex.flagged:  # counted here (the one place every flag passes); the text itself is never exported
+            otel.count("personal_ai.injection_flags", schema=schema.__name__, source_kind=kind, rule=rule)
+            otel.event("injection_flagged", schema=schema.__name__, source_kind=kind, rule=rule,
+                       action="free_text_dropped_closed_fields_kept")
         return ex
 
 

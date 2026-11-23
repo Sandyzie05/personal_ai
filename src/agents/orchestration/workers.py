@@ -774,6 +774,9 @@ _DIGEST_ICON = {"bill": "🧾", "statement": "📄", "receipt": "🧾", "alert":
 def render_email_digest(report) -> str:
     """Email Digest answer as a table. Every cell comes from the code-templated Finding summary (closed enums,
     validated domain/date) or the typed amount; markdown-escaped anyway."""
+    off = next((e for e in report.escalations if e.kind == "out_of_scope"), None)
+    if off is not None:
+        return _md(off.detail)
     rows, skipped = [], 0
     scope = _md(getattr(report, "email_scope", "") or "in the last 2 days")  # code-built label (validated domains, dates)
     for f in report.claims.values():

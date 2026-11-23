@@ -1,16 +1,11 @@
 {
  "uid": "pai-agent-runs",
  "title": "personal_ai \u00b7 Agent runs",
- "schemaVersion": 39,
- "time": {
-  "from": "now-24h",
-  "to": "now"
- },
- "refresh": "30s",
  "panels": [
   {
    "type": "stat",
-   "title": "Runs",
+   "title": "Runs (all jobs)",
+   "description": "Top-level jobs in the time range: chat turns, Gmail syncs, Forecast/Trader agent runs, agent tool loops. Counted when their root trace ends.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -24,17 +19,18 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(max_over_time(personal_ai_runs_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "expr": "sum(max_over_time(personal_ai_runs_total[$__range])) or vector(0)"
     }
    ]
   },
   {
    "type": "stat",
-   "title": "Failed/timeout steps",
+   "title": "Chat turns",
+   "description": "Coordinated chat questions (any chat agent that goes through the coordinator).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -48,17 +44,118 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(max_over_time(personal_ai_steps_total{status!=\"ok\"}[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
-     }
+     },
+     "expr": "sum(max_over_time(personal_ai_runs_total{run=\"chat\"}[$__range])) or vector(0)"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Syncs",
+   "description": "Gmail bill sync runs (Upload \u2192 Sync).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 8,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(max_over_time(personal_ai_runs_total{run=\"sync\"}[$__range])) or vector(0)"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Forecast runs",
+   "description": "Forecast page AI actions: AI review, explainers, news analyst, portfolio fit.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 12,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(max_over_time(personal_ai_runs_total{run=\"forecast\"}[$__range])) or vector(0)"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Trader agent calls",
+   "description": "Trader paper-agent decisions (one per signal sent to the model).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 16,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(max_over_time(personal_ai_runs_total{run=\"trader\"}[$__range])) or vector(0)"
+    }
+   ]
+  },
+  {
+   "type": "stat",
+   "title": "Failed / timed-out steps",
+   "description": "Coordinator steps that did not finish ok (failed, timeout or skipped because a dependency failed).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 20,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(max_over_time(personal_ai_steps_total{status!=\"ok\"}[$__range])) or vector(0)"
     }
    ]
   },
   {
    "type": "timeseries",
-   "title": "Steps by agent and status (total)",
+   "title": "Runs by job (total)",
+   "description": "Running total of top-level jobs since the app started, split by job.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -72,18 +169,19 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (agent, status) (personal_ai_steps_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "sum by (run) (personal_ai_runs_total)",
+     "legendFormat": "{{run}}"
     }
    ]
   },
   {
    "type": "timeseries",
-   "title": "Run latency p50/p95 (ms)",
+   "title": "Run latency p95 by job",
+   "description": "95th percentile wall time of a top-level job.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -97,12 +195,12 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.95, sum by (le) (rate(personal_ai_run_duration_milliseconds_bucket[$__rate_interval])))",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "histogram_quantile(0.95, sum by (le, run) (rate(personal_ai_run_duration_milliseconds_bucket[$__rate_interval])))",
+     "legendFormat": "{{run}}"
     }
    ],
    "fieldConfig": {
@@ -114,26 +212,53 @@
   },
   {
    "type": "timeseries",
-   "title": "Step latency p95 by agent (ms)",
+   "title": "Coordinator steps by agent and status (total)",
+   "description": "Each specialist step the coordinator ran (email, expense, market, forecaster, ...) and how it ended.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
    },
    "gridPos": {
     "h": 8,
-    "w": 24,
+    "w": 12,
     "x": 0,
     "y": 12
    },
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.95, sum by (le, agent) (rate(personal_ai_step_duration_milliseconds_bucket[$__rate_interval])))",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "sum by (agent, status) (personal_ai_steps_total)",
+     "legendFormat": "{{agent}} {{status}}"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Step latency p95 by agent",
+   "description": "95th percentile duration of one specialist step.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 12
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "histogram_quantile(0.95, sum by (le, agent) (rate(personal_ai_step_duration_milliseconds_bucket[$__rate_interval])))",
+     "legendFormat": "{{agent}}"
     }
    ],
    "fieldConfig": {
@@ -145,7 +270,8 @@
   },
   {
    "type": "table",
-   "title": "Recent traces (click a trace id to open the span tree)",
+   "title": "Recent traces",
+   "description": "Newest traces first. Click a Trace ID to open the waterfall (span tree with timings) in Explore. Span names say what ran: 'chat <agent>', 'wave N', 'step <agent>', 'chat <model>' (an LLM call: tools offered/called, tokens, params), 'tool <name>', 'quarantine <schema>', 'sync gmail', 'forecast ...', 'trader ...', 'agent turn'.",
    "datasource": {
     "type": "tempo",
     "uid": "tempo"
@@ -165,12 +291,18 @@
      },
      "queryType": "traceql",
      "query": "{resource.service.name=\"personal_ai\"}",
-     "limit": 20,
+     "limit": 25,
      "tableType": "traces"
     }
    ]
   }
  ],
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "refresh": "30s",
  "tags": [
   "personal_ai"
  ]

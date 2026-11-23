@@ -1,5 +1,6 @@
 """Explicit public-data research and opt-in encrypted forecast tracking."""
 
+from src.observability import otel
 import asyncio
 import re
 import hashlib
@@ -382,67 +383,68 @@ def _ai_review(vault, prediction, tabs):
         from src.forecaster.scenarios import ScenarioSwarmService
         from src.forecaster.tot import search
 
-        try:
-            factory = _scenario_factory(vault)
-            with st.spinner("Critic agents reviewing the public evidence…"):
-                report = asyncio.run(
-                    ScenarioSwarmService(
-                        client_factory=factory, agents=critic_agents(vault)
-                    ).analyze(prediction.snapshot)
+        with otel.span("forecast ai_review"):  # one trace: critics -> ToT search -> explainer
+            try:
+                factory = _scenario_factory(vault)
+                with st.spinner("Critic agents reviewing the public evidence…"):
+                    report = asyncio.run(
+                        ScenarioSwarmService(
+                            client_factory=factory, agents=critic_agents(vault)
+                        ).analyze(prediction.snapshot)
+                    )
+                for result in report.specialists:
+                    log_run(
+                        vault,
+                        CRITIC_SLOTS[result.role],
+                        result.agent_id,
+                        result.status,
+                        result.latency_ms,
+                        result.invalid_reason,
+                    )
+                tree = search(prediction.snapshot, lambda: report)
+                explanation, status, reason, started = (
+                    None,
+                    "skipped",
+                    None,
+                    datetime.now(timezone.utc),
                 )
-            for result in report.specialists:
+                if tree.selected_id:
+                    with st.spinner("Explainer agent writing the verdict…"):
+                        explanation, status, reason = explain_thesis(
+                            factory(remaining_seconds=60),
+                            agent_for(vault, "forecast.thesis_explainer"),
+                            prediction.snapshot,
+                            tree,
+                        )
+                ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
                 log_run(
                     vault,
-                    CRITIC_SLOTS[result.role],
-                    result.agent_id,
-                    result.status,
-                    result.latency_ms,
-                    result.invalid_reason,
+                    "forecast.thesis_explainer",
+                    "builtin-thesis-explainer",
+                    status,
+                    ms,
+                    reason,
                 )
-            tree = search(prediction.snapshot, lambda: report)
-            explanation, status, reason, started = (
-                None,
-                "skipped",
-                None,
-                datetime.now(timezone.utc),
-            )
-            if tree.selected_id:
-                with st.spinner("Explainer agent writing the verdict…"):
-                    explanation, status, reason = explain_thesis(
-                        factory(remaining_seconds=60),
-                        agent_for(vault, "forecast.thesis_explainer"),
-                        prediction.snapshot,
-                        tree,
-                    )
-            ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
-            log_run(
-                vault,
-                "forecast.thesis_explainer",
-                "builtin-thesis-explainer",
-                status,
-                ms,
-                reason,
-            )
-            st.session_state["forecast_scenarios"] = report.to_api()
-            st.session_state["forecast_tree"] = (
-                tree.to_api()
-                if hasattr(tree, "to_api")
-                else tree.model_dump(mode="json")
-            )
-            st.session_state["forecast_explanation"] = (
-                explanation.model_dump() if explanation else None
-            )
-            st.session_state["forecast_explanation_run"] = {
-                "status": status,
-                "invalid_reason": reason,
-                "latency_ms": ms,
-            }
-            st.session_state["forecast_prepared"] = None
-            st.rerun()
-        except Exception:
-            st.error(
-                "AI review unavailable (is the local model server running?). Research is unchanged; nothing saved."
-            )
+                st.session_state["forecast_scenarios"] = report.to_api()
+                st.session_state["forecast_tree"] = (
+                    tree.to_api()
+                    if hasattr(tree, "to_api")
+                    else tree.model_dump(mode="json")
+                )
+                st.session_state["forecast_explanation"] = (
+                    explanation.model_dump() if explanation else None
+                )
+                st.session_state["forecast_explanation_run"] = {
+                    "status": status,
+                    "invalid_reason": reason,
+                    "latency_ms": ms,
+                }
+                st.session_state["forecast_prepared"] = None
+                st.rerun()
+            except Exception:
+                st.error(
+                    "AI review unavailable (is the local model server running?). Research is unchanged; nothing saved."
+                )
     if not report_raw:
         st.caption(
             "Not run yet. Takes up to "
