@@ -7,73 +7,57 @@ do them in order, one card per branch/PR, and a card is done only when its **Acc
 Course commitments come from the weekly checkpoints and instructor feedback (Weeks 1-6, kept outside the repo in `.idea/`).
 Each card names the feedback it answers (`W5` = Week 5 feedback).
 
-## 00. Start here (handoff for the next session, updated 2026-11-21 evening)
+## 00. Start here (handoff for the next session, updated 2026-11-22)
 
-**State.** Everything agent-doable is built and tested offline. Merged to `main`: Track F, P1-P8, P12, Track R + offline P11
-(PR #30); Track T Trader plan view (PR #31) and AI paper agents (PR #32); Robinhood Portfolio chat agent, Robinhood live-schema
-fit, Trader forward-record fix, Expected bills list (PR #33); R11 Gmail bill sync from email text, Expected bills form fix,
-internal-key fix for `trader_paper_v1` (PR #34); this handoff (PR #35); per-agent tool scopes (S26), every agent listed in
-Chat, per-provider Sync buttons, Gmail needs-auth/schema fixes (branch `fix/upload-sync-chat-agents-tool-scopes`). On `main`: `make test` 922 pass, `make eval` Overall PASS (53 rows); `make eval-rag` and `make eval-stability RUNS=10` last passed before Track T
-(re-run them in the next session). Two laptops: this one has no models; the app runs with real data and local models (oMLX)
-on the other, where the user tests and pastes results back.
+**State.** Everything in §1 marked DONE is built and tested offline. Since the last handoff (PRs #36-#46): per-agent tool
+scopes (S26) and every agent listed in Chat (#36); Gmail OAuth fixes for the MCP SDK (#37-#41, #44: issuer slash, own OAuth
+client, read-only scope pin, stored expiry + token endpoint, path-aware metadata lookup, no refresh retry storm);
+**read-only Gmail via the standard Gmail API** because Google's hosted Gmail MCP needs a Workspace Developer Preview project
+that personal accounts cannot join (#42, `data_ingestion/gmail_api.py`); chat question saved before the agent runs, Email
+Digest step budget (#43); agent model drives extraction (small 4B model), sync progress, Activity log for syncs and agent
+turns (#45); bills dated by email when no period is stated, *Re-read*, Email Digest as a table (#46). `make test` 950 pass,
+`make eval` Overall PASS. Two laptops: this one has no models; the app runs with real data and oMLX on the other, where the
+user tests and pastes results back.
 
 **What exists now (where to look).**
 
-| Area | Entry point | Doc |
+| Area | Entry point | Code / doc |
 |---|---|---|
-| Forecast research + 4 critics + ToT | Forecast → Research | `forecaster.md` |
-| Trader plan (ORB entry, stop/target, sizing, risk, seeded odds) | Forecast → Trader → Plan | `trader.md` |
-| Trader AI paper agents (ORB, breakout, bounce + reviewer), paper ledger 1 year, scoreboard | Forecast → Trader → Paper agents | `trader.md` "Paper agents", S24 |
-| Robinhood research data, Portfolio fit, earnings calendar | Forecast → Research / Events | Track R below, S20 |
-| Robinhood Portfolio chat agent | Chat → *System · Robinhood Portfolio* | Track R card R9, S25 |
-| Gmail bills from email text (sender allowlist) | Upload → Sync → *Bills from Gmail* | `rag_design.md` R11 |
-| Expected bills (overdue ledger) + per-provider *Sync* | Upload → Sync → *Expected bills* | `rag_design.md` R7 |
-| Per-agent tool picker (deny by default) | Agents → Edit → *Tools from <server>* | `security_design.md` S26 |
+| Gmail connection (Gmail API, read-only, own OAuth client) | Upload → Sync → *Gmail connection* | `data_ingestion/gmail_api.py`, `security_design.md` |
+| Gmail bills from email text, *Sync* / *Re-read* per sender | Upload → Sync → *Bills from Gmail* | `gmail_bills.py`, `rag_design.md` R11 |
+| Expected bills (overdue ledger) | Upload → Sync → *Expected bills* | `pipeline.expectations/overdue` (R7) |
+| Email Digest chat agent (table answer) | Chat → *System · Email Digest* | `ingest.gmail_fetcher`, `workers.render_email_digest` |
+| Activity log (tool calls, syncs, agent turns) | Agents → Activity | `store.log_activity` |
+| Per-agent tool picker (deny by default), MCP *Test read access* | Agents → Edit / MCP Servers | S26, `mcp.McpManager.probe` |
+| Forecast research + critics + ToT; Trader plan + paper agents; Robinhood | Forecast page | `forecaster.md`, `trader.md`, Track R |
 
-**Waiting on the user (model laptop), in this order.** Each line says what to paste back.
-1. `git pull`, `venv/bin/pip install -U -r requirements.txt`, `venv/bin/pip check`, restart `make run`.
-   Upload → *Rebuild RAG index* once (drops a Trader-ledger entry that could have been indexed before the PR #34 fix).
-2. **Gmail bills (R11).** Google's hosted Gmail MCP needs a Developer Preview project (not for personal accounts), so
-   use Upload → Sync → *Gmail connection*: reuse/paste the OAuth client, *Connect Gmail*. (Old MCP route: Agents → MCP Servers → Gmail → *Test read access* (signs in, lists tools, one read-only
-   search). Paste the line it prints (tool counts + "Read call … worked" or the error). Gmail is connected (Google's Gmail MCP, 23 tools, OAuth worked without the user's own client id).
-   Upload → Sync → *Bills from Gmail*: add Rocky Mountain Power / electricity / real sender domain, the gas provider, and
-   T-Mobile / mobile → the row's *Sync* (or *Sync all Gmail senders*). Paste: the status line (N new / duplicates / failed)
-   and, on failure, the grey error line under it (code-built: type + JSON-RPC code, or "requires authorization" → press
-   *Reconnect Gmail*). Custom agents bound to a server must have their tools re-ticked (Agents → Edit; deny by default now). Unverified: the Google
-   server's response field names (`threads`, `messages`, `sender`, `plaintextBody`) — if 0 new, fix the tolerant parsers in
-   `gmail_bills.py` from one real response shape (field names only, never content) and add a fixture.
-3. **Expected bills.** Add 3 providers; confirm each row shows on time / overdue / no bill yet.
-4. **Robinhood earnings calendar.** Forecast → Events → *Load earnings calendar*. Paste the message if it still fails (now
-   shows the real error type / JSON-RPC code or the missing argument name).
-5. **Portfolio chat.** Chat → Robinhood Portfolio → "How concentrated is my portfolio?". Paste: worked / error type.
-6. **Trader paper agents.** Forecast → Trader → Paper agents → `SPY, AAPL` → *Run backtest (past year)*. Paste the green
-   line (signals, new AI decisions, invalid replies) and the leaderboard agent-vs-baseline rows; then *Review agents*.
-7. **AI review critics.** Forecast → AAPL → *Research ticker* → *Run AI review*; paste a state report (prompt below).
+**Live status (user, 2026-11-22).** Gmail connected through the Gmail API (read-only); Email Digest answers in ~4 s with the
+4B model; Gmail bill sync reads Rocky Mountain Power and Enbridge. Open problems reported by the user, now **Track S**:
+1. This month's bills from both providers are not found although the emails exist (S1 decides why).
+2. Unclear what Sync covers (it reads the sender's newest 15 emails from the last 13 months, each once).
+3. "New provider (as in the bill) + Cadence" (Expected bills) vs "Provider / Category / Sender domain" (Gmail senders) are two
+   forms for one concept (S2 merges them).
+4. Email-text bills do not bring the bill PDF into RAG; Sync and PDF ingestion are separate (S4).
 
-**Next card for the agent, decided by those reports:**
+**Next card for the agent: S1, then S2 → S3 → S4 → S5 → S6** (cards in §4 Track S). Before S1, ask the user to merge #46 (and
+the docs PR) and to press *Re-read* on both providers once, then paste the status line.
 
-| Report says | Do |
-|---|---|
-| Gmail sync 0 new / parse error | Adapt `gmail_bills._items/_pick` to the real field names; fixture + test; never store bodies |
-| Gmail OK, a provider still overdue | Check the provider name matches the sender row exactly; else portal recipe (R10, supervised `playwright codegen`) |
-| Earnings calendar names a missing argument | Add it in `robinhood.earnings_calendar` (+ `_ARG` validator) and a fixture |
-| Paper agents: invalid replies > 20% | Raise the agent's max tokens (≤ `TRADER_AGENT_MAX_TOKENS` 300) or check `format=` on oMLX; never loosen `TraderDecision` |
-| Paper agents run fine | Optional next: scheduler job for a daily forward session (`schedule.py`, no orders), then P9/P10/P11 |
-| Critics: ≥ 3/4 `completed` | Fine; `timeout` 2+: check the 4B is used (agent chip) / `PERSONAL_AI_FORECAST_SPECIALIST_CALL_SECONDS`; `truncated`: raise max tokens ≤ 700; `not_json`/`schema`: check `format=` on oMLX; `unknown_evidence`: list evidence ids in the user message |
-| oMLX `no (...)` | Fix connectivity first (`state_report.md` §2) |
-
-**Then:** P9 live run, P10 RAG calibration (USER), P11 final submission numbers. Planned but needing user sign-off first:
-T9 broker orders (Alpaca paper or real).
+**Waiting on the user (model laptop).**
+1. Merge open PRs, `git pull`, `PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT=8765 make run` (a Web-type OAuth client needs that port).
+2. Upload → Sync → each Gmail sender → *Re-read*; paste the status line (it has thread/message/not-a-bill/model-call counts).
+3. Still open from before: Robinhood earnings calendar, Portfolio chat, Trader paper-agent backtest, AI review critics
+   (see `state_report.md`); P9/P10 live runs; P11 final numbers. T9 broker orders needs user sign-off.
 
 **Opencode prompt for the model laptop** (the user pastes it after each testing session; output is pasted back here, never
-committed): run `make state-report` per `docs/state_report.md`; ask the user once for the user-testing rows, live timings
-(including the AI review critic table), UI document counts, errors (type + file:line); fill only the placeholders; re-read
-against §1 of that doc; print one markdown block.
+committed): run `make state-report` per `docs/state_report.md`; ask the user once for the user-testing rows, live timings,
+UI document counts, errors (type + file:line); fill only the placeholders; print one markdown block.
 
-**How work is done here (learned this session).** One branch + PR per card unless the user asks to batch. If a PR conflicts,
-merge `main` into the branch (force-push is blocked by a local hook; never rebase a pushed branch). After each card: update §0
-diagram, §1 status, the Miro frames named in §0, `CHANGELOG.md`, and `security_design.md` when security behaviour changed.
-The repo is **public**: no personal paths, names, amounts or vault data in docs, tests or fixtures.
+**How work is done here.** One branch + PR per card unless the user asks to batch; stack on an open PR only when it touches
+the same code, and say so in the PR body. If a PR conflicts, merge `main` into the branch (force-push is blocked by a local
+hook; never rebase a pushed branch). After each card: update §0 diagram, §1 status, the Miro frames named in §0,
+`CHANGELOG.md`, and `security_design.md` when security behaviour changed. GitHub ops: `GH_TOKEN="$(gh auth token --user
+Sandyzie05)" gh ...` (the active `gh` account is a different one). The repo is **public**: no personal paths, names, amounts,
+sender addresses or vault data in docs, tests or fixtures.
 
 ## 0. Where we are (progress journey)
 
@@ -85,6 +69,7 @@ flowchart LR
   D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
   P8 --> R[Track R: Robinhood research R0-R10 + Portfolio chat] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
   R --> RP[R9 Portfolio chat + R10 schema fit] --> GB[R11 Gmail bill text, PR 34] --> LC[Live checks: Gmail, calendar, Portfolio chat, paper agents] --> P11
+  GB --> GX[Gmail fixes + Gmail API read-only, PRs 36-46] --> S1[S1 why bills are missed] --> S2[S2 one Bill providers list] --> S3[S3 Upload page IA] --> S4[S4 bill PDFs from Gmail into RAG] --> S5[S5 sync window + schedule] --> S6[S6 run observability]
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
@@ -97,6 +82,9 @@ flowchart LR
   class T0,T1,T2,T3,T4,T5,RP,GB done
   class LC user
   class T9 todo
+  class GX done
+  class S1 now
+  class S2,S3,S4,S5,S6 todo
   class P9,P10,RL user
 ```
 
@@ -141,7 +129,8 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | ToT held-out evaluation + calibration (Brier) | DONE (Brier win needs dev calibration) | P8: held-out acc 0.76 vs 0.59/0.70; Brier 0.414 vs 0.488/0.430 (raw: vote better) |
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
-| Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE vs fixtures; live = USER | `rag_design.md` R11, eval row 0 in 4 |
+| Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API, misses no-amount notices | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
+| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | PLANNED | Track S1-S6 |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
 | Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
@@ -187,6 +176,8 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 | W6 feedback | No unintended flow between agents or into shared memory | DONE: 0 (incl. a real leak fixed: dependency inputs) | P4, S18 |
 
 ## 2. Order
+
+**Next (2026-11-22): Track S, S1 → S6** (bills sync clarity and PDF ingestion; user-reported). Then the items below.
 
 All agent-doable cards are done (2026-11-21, PRs #30-#35). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
 Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live),
@@ -445,6 +436,69 @@ separate decision).
 **Live check (USER).** Yahoo daily + 5-minute fetch verified on the real network 2026-11-21 (SPY: 251 daily bars, 60 days of 5m,
 71 signals, baseline only). Still USER: a paper-agent backtest with the local model (invalid-reply rate, minutes per run); optional
 Robinhood intraday interval.
+
+### Track S. Bill sync: clarity, one provider model, PDFs into RAG (user-reported 2026-11-22)
+
+Context: Gmail is read through `data_ingestion/gmail_api.py` (two fixed GETs, constant `gmail.readonly`); bill facts come
+from email text via `gmail_bills.sync` → quarantine `BillEmailFacts` → templated record. Expected bills (`pipeline.expectations`)
+and Gmail senders (`gmail_bills.senders`) are separate lists today. Rules that stay: sender allowlist checked in code before a
+body is read; bodies only to `quarantine.extract_facts`; nothing but templated facts and validated files stored; no write
+operations, no configurable scope; progress/Activity text is code-built.
+
+#### S1. Why this month's bill was missed (diagnose first)
+Hypotheses, in order of likelihood:
+(a) "Your bill is ready" emails often carry **no amount**; `sync` skips `total_due is None` as "not a bill" and caches it
+    forever (`status: skipped`), so it is never re-read;
+(b) the current-month email is from another sender domain or subdomain (payment processor, `paperless.`, `csapps.`) than the
+    allowlisted row;
+(c) it was cached before PR #46 as a "duplicate" of a today-dated bill (Re-read clears that);
+(d) the email is older than the newest 15 threads (unlikely for this month).
+Do: a per-run **outcome list** under the Sync status, one row per message seen, code-built only: sent date, matched sender
+row, outcome (`saved period …` / `already saved` / `no amount stated` / `not a bill` / `other sender` / `unreadable`). Split
+today's "not a bill" into `no amount stated` vs `not a bill`; store `no_amount` messages as **"bill notice"** (provider +
+sent date, no total) so Expected bills counts them as arrived and S4 can fetch the PDF; do not cache `skipped` forever
+(re-check on *Re-read* and when the extractor model changes). Show "newest email from <domain>: <date>" per provider.
+*Accept:* fixture with a no-amount bill notice, another-subdomain sender, an old duplicate → each gets the right outcome;
+`overdue()` treats a bill notice as arrived; test that no subject/body text reaches the outcome list.
+
+#### S2. One "Bill providers" list (replaces Expected bills + Gmail senders)
+Today: *Expected bills* (provider + cadence; drives overdue warnings) and *Bills from Gmail* (provider + category + sender
+domain; drives fetching; adding one auto-adds an expectation). Users see two forms for one thing.
+Do: one vault record `bill_providers` (internal key) with rows `{provider, category, cadence, gmail_domains[],
+portal_recipe?, created_at}`; one-time migration from `bill_expectations` + `gmail_bill_senders` (keep reading the old keys
+until migrated). One table: provider · category · cadence · sources (chips: Gmail domains, portal, upload) · last bill period ·
+next expected · status (on time / due soon / overdue / no bill yet) · last synced. Row actions: *Sync*, *Re-read*, *Edit*
+(dialog: all fields incl. several sender domains), *Remove*. One *Add provider* dialog; *Sync all*. Domain validation warns
+on a TLD typo (no email ever seen from it after a sync).
+*Accept:* migration test (both old keys → one list, no duplicates, cadence kept); AppTest: add/edit/remove in one form;
+`overdue()`, Dashboard grouping, chat `missing_statement` escalation read the new list.
+
+#### S3. Upload page information architecture
+Do: three tabs on Upload: **Upload files** (picker + per-file progress), **Bill providers** (S2 table), **Connections** (Gmail
+connection status chip + Connect/Disconnect, portal recipes, *Rebuild RAG index* under Advanced). One-line explanation at the
+top of each tab ("Sync reads the newest 15 emails from each provider's sender domain in the last 13 months, once each").
+No nested expanders (AGENTS.md UI rules). *Accept:* AppTest renders each tab without exceptions; copy reviewed by the user.
+
+#### S4. Bill PDFs from Gmail into the ingestion/RAG pipeline
+Do: add a third fixed read to `GmailApi`: `get_attachment` → `GET users/me/messages/{id}/attachments/{attId}` (covered by
+`gmail.readonly`; ids pattern-checked). For an allowlisted bill email with a PDF attachment: size cap before download →
+`data_ingestion.files` validation (magic bytes, page caps, no JS/embedded files; hash-named; encrypted before parsing;
+`rag_design.md` §5) → existing category classifier/extractor → vault document + RAG index via the normal upload path.
+Reuse `gmail_attachments.py` (R8) where it fits. Dedupe by provider + period: the PDF record supersedes the email-text record
+for the same period (`pipeline` superseded logic), one bill per period. Emails with a "view your bill online" link only stay
+text-only (portal R10 is the path there; never follow links from email).
+*Accept:* fixtures: PDF attachment → indexed document with extraction; JS PDF / oversized / non-PDF rejected (fails closed);
+email-text + PDF same period → one record; eval row "Gmail attachment validation" hard; `security_design.md` entry.
+
+#### S5. Sync window, last-synced and schedule
+Do: per-provider `last_synced_at` and `newest_seen_at`; Sync reads only mail newer than `newest_seen_at - 7d` (with a "full
+13-month re-scan" option); a daily scheduled sync job in `schedule.py` (no browser; Gmail API refresh token only; off by
+default; Activity entry per run). *Accept:* query uses the window; scheduler job test with a fake Gmail; disabled by default.
+
+#### S6. Run observability
+Do: a small "running now" indicator (sidebar) for long jobs (sync, agent turns): job, model, elapsed; Activity tab gets a
+per-run detail row (outcome counts from S1, model calls, duration) and a filter by kind. *Accept:* AppTest shows the
+indicator during a fake long run; Activity filter works; entries stay code-built.
 
 ### Track P. Capstone feedback cards
 

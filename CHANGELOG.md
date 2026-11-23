@@ -4,6 +4,12 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - docs: Track S plan (bill sync clarity, one provider list, Gmail PDFs into RAG); handoff
+
+- `docs/roadmap.md`: §00 rewritten for a new session (PRs #36-#46, live status, next card S1); Track S cards S1-S6 with
+  hypotheses for missed current-month bills, merged Bill providers model, Upload IA, Gmail PDF attachments through the
+  file validation + RAG path, sync window/schedule, run observability; §0 diagram, §1, §2 updated. `rag_design.md` R11 note.
+
 ## (pending) - 2026-11-22 - fix: Gmail bills dated by email; Re-read; Email Digest as a table
 
 - Bills whose email states no period fell back to TODAY, so 14 of 15 live RMP bills were "duplicates" of one bill dated
