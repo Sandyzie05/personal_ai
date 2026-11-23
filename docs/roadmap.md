@@ -154,7 +154,10 @@ All evaluation data is synthetic or public. No real-market skill is claimed.
 | W3 retrieval (RAG) | Advanced RAG in retriever: chunk headers, month filter, hybrid search, grounding check, one re-retrieve | `make eval-rag` (offline embedder) | P10 real-embedder tuning; S0 keeps email text out of RAG |
 | W4 Tree of Thought | Beam ToT in forecaster only, closed thoughts + evidence ids, code then specialist critics | held-out Brier beats linear/vote (P8) | P9 live run |
 | W5 multi-agent | Parallel specialists, per-edge strict bus schemas, verifier, dependency inputs | overlap yes, latency 0.41× B2, cross-domain 100% | – |
-| W6 safety + human intervention | Quarantine extractor, read-only Gmail/broker, approval gate, escalations, reviewer log, stability runs | injection 0/38, escalation P/R 100%, 10×8 stability | – |
+| W6 guardrails | Static: `policy.screen` refusals, read-only Gmail/broker, `extra="forbid"` bus schemas, approval-only Core Memory. Input: tool-less quarantine extractor. Runtime: step timeouts, 1 retry, deadline, staleness, ToT 9-node cap. Output: evidence or explicit status; verifier relevance | refusals 24/24 (0/12 false), injection 0/38, grounded 126/126, relevance 7/7 | – |
+| W6 logging | Encrypted Activity log (no plaintext log files, by design): every bus message incl. rejections, MCP tool calls, agent turns (steps, status, ms, model), RAG turns (evidence ids, scores, grounded), syncs, scheduled runs, slot runs, injection flags, reviewer accept/correct/dismiss | `store.log_activity`, `log_review`, `slots.log_run` | interactive refusals and escalation kinds not logged (S6) |
+| W6 observability | Agents → Activity table; per-run step status + timing in `RunReport`; eval reports `evals/results/` | P6 escalation P/R 100%, P7 10×8 stable | no guardrail-trip summary, no kind filter, no running-now indicator (S6) |
+| W6 human intervention | Risk-tiered routing (proceed / caveat / ask / escalate), one-question clarify, reviewer accept/correct/dismiss, overrides → test cases | escalation P/R 100% | – |
 | Final | Implemented-vs-planned table, framework mapping, synthetic-data statement | §1, `architecture.md` §5 | P9/P10 live numbers, P11 packaging |
 
 ### 1.1 Weekly commitment audit (2026-11-20)
@@ -532,10 +535,17 @@ Do: per-provider `last_synced_at` and `newest_seen_at`; Sync reads only mail new
 13-month re-scan" option); a daily scheduled sync job in `schedule.py` (no browser; Gmail API refresh token only; off by
 default; Activity entry per run). *Accept:* query uses the window; scheduler job test with a fake Gmail; disabled by default.
 
-#### S6. Run observability
-Do: a small "running now" indicator (sidebar) for long jobs (sync, agent turns): job, model, elapsed; Activity tab gets a
-per-run detail row (outcome counts from S1, model calls, duration) and a filter by kind. *Accept:* AppTest shows the
-indicator during a fake long run; Activity filter works; entries stay code-built.
+#### S6. Run observability + guardrail telemetry (W6 logging/observability gaps, found 2026-11-22)
+Built already: encrypted Activity log of bus messages (incl. rejections), tool calls, agent/RAG turns, syncs, scheduled runs,
+slot runs, injection flags, reviewer decisions. Gaps: interactive `policy.screen` refusals are not logged (only scheduled
+ones); agent-turn entries omit escalation kinds; no summary of guardrail trips; no filter; no "running now" view.
+Do: (1) log `{"kind": "refused", "refusal": <kind>}` for chat refusals and add `escalations: [kinds]` to agent-turn entries
+(code-built, no question text); (2) Activity tab: **Guardrails** summary for 7/30 days (refusals, injection flags, bus
+rejections, step timeouts/failures, ungrounded/abstained RAG turns, escalations by kind, reviewer accept/correct/dismiss),
+filter by kind, per-run detail row (S1 outcome counts, model calls, duration); (3) sidebar "running now" indicator for long
+jobs (sync, agent turns): job, model, elapsed. *Accept:* refusal and escalation entries logged with no question text (test);
+summary counts from a seeded log match; AppTest: filter works and indicator shows during a fake long run; entries stay
+code-built.
 
 ### Track P. Capstone feedback cards
 
