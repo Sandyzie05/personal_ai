@@ -13,6 +13,7 @@ from src.agents.orchestration.schemas import NewsFacts
 from src.config import FORECAST_SPECIALIST_CALL_SECONDS
 
 from .models import Contract
+from src.observability import otel
 
 Sentiment = Literal["positive", "neutral", "negative"]
 
@@ -33,6 +34,7 @@ class NewsAnalysis(Contract):
     skipped: int = Field(default=0, description="not attempted: time budget ran out")
 
 
+@otel.traced("forecast.news_analyst")
 def analyze(
     stories,
     client_factory: Callable[..., Any],

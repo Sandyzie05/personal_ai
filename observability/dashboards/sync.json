@@ -10,7 +10,7 @@
  "panels": [
   {
    "type": "timeseries",
-   "title": "Read-only tool calls",
+   "title": "Read-only tool calls (total)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -24,7 +24,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (tool, server) (increase(personal_ai_tool_calls_total[$__rate_interval]))",
+     "expr": "sum by (tool, server) (personal_ai_tool_calls_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -35,7 +35,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Activity entries by kind",
+   "title": "Activity entries by kind (total)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -49,7 +49,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (kind) (increase(personal_ai_activity_total[$__rate_interval]))",
+     "expr": "sum by (kind) (personal_ai_activity_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -79,6 +79,33 @@
       "type": "loki",
       "uid": "loki"
      }
+    }
+   ]
+  },
+  {
+   "type": "table",
+   "title": "Sync traces",
+   "datasource": {
+    "type": "tempo",
+    "uid": "tempo"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 18
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "tempo"
+     },
+     "queryType": "traceql",
+     "query": "{resource.service.name=\"personal_ai\" && name=\"sync.gmail\"}",
+     "limit": 20,
+     "tableType": "traces"
     }
    ]
   }

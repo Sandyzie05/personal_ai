@@ -58,7 +58,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Steps by agent and status",
+   "title": "Steps by agent and status (total)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -72,7 +72,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (agent, status) (increase(personal_ai_steps_total[$__rate_interval]))",
+     "expr": "sum by (agent, status) (personal_ai_steps_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -142,6 +142,33 @@
     },
     "overrides": []
    }
+  },
+  {
+   "type": "table",
+   "title": "Recent traces (click a trace id to open the span tree)",
+   "datasource": {
+    "type": "tempo",
+    "uid": "tempo"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 20
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "tempo"
+     },
+     "queryType": "traceql",
+     "query": "{resource.service.name=\"personal_ai\"}",
+     "limit": 20,
+     "tableType": "traces"
+    }
+   ]
   }
  ],
  "tags": [

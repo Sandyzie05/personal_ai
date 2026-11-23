@@ -21,6 +21,7 @@ from pydantic import Field, ValidationError
 from ..config import CHARS_PER_TOKEN_ESTIMATE, DEFAULT_CONTEXT_WINDOW_TOKENS
 from .models import Contract, EvidenceSnapshot, Score
 from .providers import ForecastSettings
+from src.observability import otel
 
 Role = Literal["macro", "valuation", "event", "downside"]
 ROLES = ("macro", "valuation", "event", "downside")
@@ -134,6 +135,7 @@ class ScenarioSwarmService:
         if self._timeout_keyword is None:
             raise ValueError("specialist factory must accept a remaining_seconds or timeout_seconds budget")
 
+    @otel.traced("forecast.critics")
     async def analyze(self, snapshot: EvidenceSnapshot) -> ScenarioReport:
         snapshot = EvidenceSnapshot.model_validate(snapshot)
         packet = {

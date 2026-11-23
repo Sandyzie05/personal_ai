@@ -27,6 +27,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from pydantic import Field
 
 from src.agents.orchestration.ingest import ReadOnlyMcp
+from src.observability import otel
 
 from .models import (
     Contract,
@@ -1037,6 +1038,7 @@ class PortfolioNote(Contract):
     summary: str = Field(min_length=1, max_length=400)
 
 
+@otel.traced("forecast.portfolio_fit")
 def explain_fit(client: Any, agent: Dict[str, Any], fit: PortfolioFit):
     """Local, tool-less explanation of the fit figures (R-D1: the local model may see them; R-S6: it has no tools and
     its output only goes to st.text). Returns (note | None, status, invalid_reason)."""

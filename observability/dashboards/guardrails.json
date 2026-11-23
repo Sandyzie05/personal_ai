@@ -154,7 +154,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Escalations by kind",
+   "title": "Escalations by kind (total)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -168,7 +168,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (escalation_kind) (increase(personal_ai_escalations_total[$__rate_interval]))",
+     "expr": "sum by (escalation_kind) (personal_ai_escalations_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -179,7 +179,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Refusals by kind",
+   "title": "Refusals by kind (total)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -193,7 +193,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (refusal) (increase(personal_ai_refusals_total[$__rate_interval]))",
+     "expr": "sum by (refusal) (personal_ai_refusals_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"

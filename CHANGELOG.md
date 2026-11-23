@@ -4,6 +4,15 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - fix: observability covers Sync and Forecast; log levels and readable bodies; trace tables
+
+- User testing: only chat showed up. Sync and Forecast data was exported but the timeseries used `increase()` over a
+  short window, which drops a series' first sample (one Sync = nothing). Counter panels now show running totals.
+- Forecast/Trader entry points get root spans (`@otel.traced`: critics, thesis/watchlist explainers, news analyst,
+  portfolio fit, paper agent); slot runs counted (`personal_ai.slot.runs`) and their fields allowlisted.
+- Logs had level "unknown" and body "activity refused": now INFO/WARN and a body built from the cleaned fields.
+- Dashboards gained Tempo trace tables (Recent traces, Forecast and Trader traces, Sync traces). Verified live.
+
 ## (pending) - 2026-11-22 - fix: Grafana stat panels empty for a fresh app process; Grafana port check
 
 - Verified the stack live (Docker): folder + 4 dashboards provision, metric names match, traces in Tempo, logs in Loki.
