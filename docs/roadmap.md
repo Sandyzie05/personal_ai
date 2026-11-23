@@ -44,9 +44,10 @@ month" → 2 bills since the 1st, 1.7 s). Open problems, all in **Track S**:
 4. Two forms for one provider concept (S2); what Sync covers is unclear (S3 copy); Sync is manual only (S5 schedule).
 
 **Track O done offline (#50):** `docs/observability.md`; user validates with `make obs-up` + `make run-obs`.
-**Next card for the agent: S0, then S7 → S2 → S3 → S4 → S5 → S6** (S6 keeps only the in-app
-Activity summary/filter/running-now; its logging gaps move to O3) (cards in §4 Track S). S1 done (#48). Digest
-question scope done (#49).
+**S0 done (#50):** Gmail Sync stores manifest-only bill notices (emailed total/due), no `.txt` documents; old
+`gmail_bill_*` documents migrate out of Files/RAG when Upload → Sync opens.
+**Next card for the agent: M1 (Track M, central Core Memory profile), then M2 → M5, S7, S3 → S6** (S2 "one Bill providers
+list" is absorbed by M4: the profile's `providers` section is that list). Template: `docs/core_memory_template.md`.
 
 **Waiting on the user (model laptop).**
 1. Merge open PRs, `git pull`, `PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT=8765 make run` (a Web-type OAuth client needs that port).
@@ -76,6 +77,7 @@ flowchart LR
   P8 --> R[Track R: Robinhood research R0-R10 + Portfolio chat] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
   R --> RP[R9 Portfolio chat + R10 schema fit] --> GB[R11 Gmail bill text, PR 34] --> LC[Live checks: Gmail, calendar, Portfolio chat, paper agents] --> P11
   GB --> GX[Gmail fixes + Gmail API read-only, PRs 36-46] --> S1[S1 why bills are missed, PR 48] --> DQ[Digest question scope, PR 49] --> S0[S0 email text = signal, not a document] --> S7[S7 digest and Sync agree] --> S2[S2 one Bill providers list] --> S3[S3 Upload page IA] --> S4[S4 bill PDFs from Gmail into RAG] --> S5[S5 sync window + schedule] --> S6[S6 run observability]
+  S0 --> M1[M1 Core profile schema] --> M2[M2 human-only editor + template import] --> M3[M3 scoped read path] --> M4[M4 provider resolution + preferences] --> M5[M5 profile disclosure evals]
   S0 --> O1[O1 OTel core] --> O2[O2 traces end to end] --> O3[O3 metrics + logs] --> O4[O4 local LGTM stack + dashboards] --> O5[O5 telemetry leakage eval]
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
@@ -91,8 +93,10 @@ flowchart LR
   class T9 todo
   class GX done
   class S1,DQ done
-  class S0 now
+  class S0 done
   class O1,O2,O3,O4,O5 done
+  class M1 now
+  class M2,M3,M4,M5 todo
   class S7,S2,S3,S4,S5,S6 todo
   class P9,P10,RL user
 ```
@@ -140,7 +144,8 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API (#48 fixed no-amount notices); stores email text as documents → S0 | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
 | End-to-end observability: OpenTelemetry traces, metrics, logs; local Grafana LGTM; 4 dashboards; telemetry leakage eval | DONE offline 2026-11-22; live: USER (`make obs-up`) | Track O, `observability.md` |
-| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE (#48), digest question scope DONE (#49); S0 (email text not a document), S7 (digest = Sync facts), S2-S6 PLANNED | Track S |
+| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE (#48), digest scope DONE (#49), S0 DONE (#50: email text = notice, not a document); S7, S3-S6 PLANNED; S2 → M4 | Track S |
+| Central Core Memory profile (human-only edits, scoped per agent, provider resolution) | PLANNED | Track M, `core_memory_template.md` |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
 | Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
@@ -486,7 +491,7 @@ sent date, no total) so Expected bills counts them as arrived and S4 can fetch t
 *Accept:* fixture with a no-amount bill notice, another-subdomain sender, an old duplicate → each gets the right outcome;
 `overdue()` treats a bill notice as arrived; test that no subject/body text reaches the outcome list.
 
-#### S0. Email text is a signal, never a document (user decision 2026-11-22) — do first
+#### S0. Email text is a signal, never a document (user decision 2026-11-22) — DONE 2026-11-22 (PR #50; live check: USER)
 Today `gmail_bills.sync` stores each email-text bill as a vault document `gmail_bill_*` (templated `.txt`), so it shows in
 Files, feeds Dashboard totals and is indexed into RAG next to real PDFs. Decision: documents = official bill PDFs only (upload,
 Gmail attachment S4, portal R10). Do: Sync writes manifest-only entries `status: "notice"` with `{provider, category, sent,
@@ -601,6 +606,55 @@ counters in Prometheus, logs in Loki (user runs live; offline test validates com
 Eval row: run golden + injection sets with an in-memory exporter; 0 fixture secrets (bodies, questions, amounts, account ids,
 provider names) in any exported attribute, event or log (hard gate). Docs: `security_design.md` (telemetry is plaintext in the
 container volume: allowlist + loopback + retention are the controls), `platform_plan.md` §5 metric, `architecture.md` diagram.
+
+### Track M. Central Core Memory profile (user request 2026-11-22)
+
+Goal: one **lean, human-authored profile** about the user that every agent can use to tailor answers (preferences, which
+provider "my gas bill" means, household, goals), replacing free-form key/value facts as the primary memory. Template:
+`docs/core_memory_template.md`. Today (P5): agents `propose` free-text facts, the user approves, only the expense step
+recalls them by word overlap. Rules that stay: no agent-facing write path; never on a bus edge (S18); local model only.
+
+| Decision | Choice | Why |
+|---|---|---|
+| Who writes | Only the user, in the Core Memory tab (form or template import). Agent proposals become optional *suggestions* (off by default, still user-approved) | user requirement; keeps S10 approval invariant |
+| Shape | Typed sections (`about`, `household`, `providers`, `accounts`, `preferences`, `finance`, `health`, `do_not`), `extra="forbid"`, 200-char fields | lean, validated, no free text blobs in prompts |
+| Who reads | Per-agent section scope (`agent["memory_sections"]`, deny by default, like S26 tools); a templated "About you" block in that agent's system prompt | least disclosure: Trader never sees health, Email Digest sees providers only |
+| Where it never goes | public research egress, bus edges, RAG index, telemetry, quarantine prompts | S18, S27, egress rules |
+| Providers | `providers` section **is** the Bill providers list (absorbs S2): Gmail sync allowlist, cadence/overdue, digest scope | one source of truth |
+
+#### M1. Profile schema + store
+`src/agents/orchestration/profile.py`: pydantic `CoreProfile` (sections above), vault key `core_profile` (add to
+`INTERNAL_VAULT_KEYS`), `load(vault)`, `save(vault, profile, *, token, session_id)` with the single-use UI token used by
+`memory.approve`. Validators reject account/card numbers, SSN-like strings, emails other than in `sender_domains`, street
+addresses, URLs. Migration: approved P5 facts → `notes` list (read-only until edited). *Accept:* schema tests (extra field,
+too long, card number rejected); `save` without a token raises; no module under `src/agents/` except the UI handler
+imports `save` (AST test).
+
+#### M2. Human-only editor + template import
+Core Memory tab: one form per section, prefilled, one Save (AGENTS.md UI rules); *Import template* text area → parse YAML →
+preview diff → Save; *Export template* (download, local only). Suggestions list (from agent proposals, if enabled) with
+Accept/Dismiss. *Accept:* AppTest: import the template, edit a provider, save, reload shows it; invalid import shows errors
+and saves nothing.
+
+#### M3. Scoped read path for every agent
+`profile.context_for(agent)` → templated lines from the sections in `agent["memory_sections"]` only (built-ins get defaults:
+Email Digest → providers, accounts, preferences; Expense → providers, accounts, household, finance.budget_targets,
+preferences; Forecast/Trader → finance.risk_tolerance, investing_horizon, watchlist, preferences; Portfolio → finance,
+preferences). Injected by `runtime` / coordinator workers on the loopback client only; `memory.recall` stays for notes.
+Agents → Edit gets a section picker. *Accept:* each built-in sees only its sections (test); public provider requests carry
+no profile text (egress test); bus payloads unchanged.
+
+#### M4. Use it: provider resolution + preferences
+`providers` replaces `gmail_bill_senders` + `ingest_expectations` (migration; S2's single table renders this section);
+`digest_scope` and `named_account` resolve "my gas/electric bill", nicknames and household members through the profile;
+answer style/number format applied by templated renderers; `do_not` lines appended to agent system prompts.
+*Accept:* "did my gas bill come?" → provider from the profile; migration test (both old keys → providers, no duplicates);
+overdue/Dashboard/missing_statement read the profile.
+
+#### M5. Profile disclosure + augmentation evals
+Eval rows: profile canaries in public egress, bus, RAG, telemetry, activity log = 0 (hard); scope matrix (agent × section)
+= 100%; augmentation golden set (provider/nickname/household questions answered with the right record) ≥ 90%.
+Docs: `security_design.md`, `platform_plan.md` invariant S28 + §5, `architecture.md`, `multi_agent_design.md`.
 
 ### Track P. Capstone feedback cards
 

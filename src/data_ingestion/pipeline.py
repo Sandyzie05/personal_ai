@@ -246,6 +246,19 @@ def overdue(vault, today: Optional[date] = None) -> List[Dict[str, Any]]:
     return out
 
 
+def bill_status(vault, provider: str) -> Optional[Dict[str, Any]]:
+    """Newest Gmail bill notice for a provider + whether an official PDF is indexed for that month (S0)."""
+    docs = list(_manifest(vault).values())
+    notices = [d for d in docs if d.get("status") == "notice" and d.get("provider") == provider and d.get("period_end")]
+    if not notices:
+        return None
+    n = max(notices, key=lambda d: d["period_end"])
+    pdf = any(d.get("status") == "indexed" and d.get("provider") == provider
+              and (d.get("period_end") or "")[:7] == n["period_end"][:7] for d in docs)
+    return {"arrived": n.get("sent") or n["period_end"], "period_end": n["period_end"], "pdf": pdf,
+            "emailed_total": n.get("emailed_total"), "emailed_due": n.get("emailed_due")}
+
+
 def sync_status(vault) -> Dict[str, Any]:
     docs = _manifest(vault).values()
     c: Dict[str, int] = {}

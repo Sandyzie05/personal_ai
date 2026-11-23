@@ -4,6 +4,15 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - feat(S0): email-text bills are notices, not documents; Track M plan
+
+- Gmail Sync stores a manifest-only notice per bill (provider, period, emailed total/due); no `gmail-*.txt` documents, nothing
+  in Files, Dashboard or RAG. A later email with the amount upgrades a no-amount notice for the same period.
+- `gmail_bills.migrate_text_documents`: existing email-text documents → notices, removed from vault + RAG (once per session
+  on Upload → Sync, and at Sync start). Expected bills shows "email arrived · emailed $X due · PDF: indexed/missing".
+- Roadmap Track M (central Core Memory profile: human-only edits, per-agent section scope, providers section absorbs S2) and
+  `docs/core_memory_template.md`.
+
 ## (pending) - 2026-11-22 - feat(Track O): end-to-end observability with OpenTelemetry + local Grafana LGTM
 
 - `src/observability/otel.py`: off by default, loopback-only OTLP/HTTP, private providers, `ALLOWED_ATTRS` filter on every

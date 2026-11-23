@@ -511,6 +511,14 @@ category, sent date; no vault document, nothing indexed); `overdue()` counts it 
 record the extractor model id and are re-checked when that model changes. One search per sender row (each capped at 15
 threads) instead of one OR'd search. No new Gmail operation, scope or stored text.
 
+## Email-text bills are notices, not documents (S0, 2026-11-22)
+
+`gmail_bills.sync` no longer writes vault documents: an email-text bill becomes a manifest entry (`status: notice`,
+provider, category, period, sent date, `emailed_total`/`emailed_due` as typed numbers). Nothing reaches Files, Dashboard
+or the RAG index from email text; official PDFs are the only bill documents. `migrate_text_documents` converts existing
+`gmail_bill_*` documents to notices and removes them and their RAG entries (runs once per session when Upload → Sync
+opens, and at the start of each Sync). Smaller attack surface: model-extracted email facts no longer enter retrieval.
+
 ## Telemetry: OpenTelemetry to a local Grafana LGTM stack (Track O, 2026-11-22)
 
 New plaintext sink: the `grafana/otel-lgtm` container stores traces, metrics and logs unencrypted (no volume; `make
