@@ -519,6 +519,18 @@ or the RAG index from email text; official PDFs are the only bill documents. `mi
 `gmail_bill_*` documents to notices and removes them and their RAG entries (runs once per session when Upload → Sync
 opens, and at the start of each Sync). Smaller attack surface: model-extracted email facts no longer enter retrieval.
 
+## Dummy-data sandbox for reviewers (`make run-dummy`, 2026-11-23)
+
+- `dummy_data/` holds 9 synthetic PDFs (invented providers, names, accounts, amounts; "SYNTHETIC DATA" banner). They pass
+  `validate_pdf` like any upload.
+- `make run-dummy` sets `HOME` to the repo's git-ignored `.dummy_home/`. `scripts/seed_dummy_vault.py` refuses to run
+  unless `HOME` is a `.dummy_home` directory, so the real `~/.personal_ai_vault` and `~/.personal_ai_auth` are never
+  read or written (`test_seed_refuses_real_home`).
+- The sandbox key comes from `AuthManager.register/authenticate`, the single key path. Documents are stored with
+  `encrypt=True` through `FileUploadHandler`.
+- The sandbox password (`dummy-data-demo`, override with `DUMMY_PASSWORD`) is public by design. The vault holds only
+  synthetic data, so knowing the password exposes nothing real. Never point the seed script at a real vault.
+
 ## Telemetry: OpenTelemetry to a local Grafana LGTM stack (Track O, 2026-11-22)
 
 New plaintext sink: the `grafana/otel-lgtm` container stores traces, metrics and logs unencrypted (no volume; `make

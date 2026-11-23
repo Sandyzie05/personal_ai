@@ -75,6 +75,7 @@ src/
 └── config.py           # Central model/host/context-window configuration
 
 evals/                 # make eval / eval-rag / eval-live
+dummy_data/            # Synthetic sample PDFs for reviewers (make run-dummy)
 skills/                # Built-in agent skills (instructions only)
 scripts/               # Standalone tools (setup, context-overflow checker)
 docs/                  # Security design, system design notes, roadmap/history
@@ -173,6 +174,27 @@ Open http://localhost:8501. On first run you'll be asked to set a vault
 password - this both gates the UI and derives the encryption key for
 everything you store, so **there is no recovery if you forget it** (no
 backdoor, no reset flow yet). Subsequent runs prompt for that same password.
+
+### Try it with dummy data (for reviewers)
+
+`dummy_data/` holds 9 synthetic PDFs, one or two per category: electricity, gas, mobile, credit card, checking and brokerage.
+Every name, account and amount in them is invented. One command seeds a **throwaway vault** with them and starts the app:
+
+```bash
+make install
+make run-dummy      # log in with password: dummy-data-demo
+```
+
+`run-dummy` points `HOME` at `.dummy_home/` (git-ignored), so your real `~/.personal_ai_vault` is never read or written.
+It uploads each PDF through the normal upload path (encrypted, categorised, with its known structured fields) and starts
+Streamlit. Re-running skips documents that are already there. To start over, delete `.dummy_home/`.
+
+- **Files** and **Dashboard** work right away, with no model needed.
+- **Chat / RAG** needs the local oMLX server (see Requirements). The RAG index is built from the vault on the first chat
+  question, or from Chat → Advanced → **Rebuild RAG Index**.
+
+Sample questions and their expected answers: [dummy_data/README.md](dummy_data/README.md). To regenerate the PDFs after
+editing them, run `make dummy-pdfs`.
 
 Other useful entry points:
 

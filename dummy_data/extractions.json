@@ -1,0 +1,304 @@
+{
+  "electricity_summit_peak_power_2025-08.pdf": {
+    "category": "electricity",
+    "provider": "Summit Peak Power",
+    "account_identifier": "****4821",
+    "period_start": "2025-08-01",
+    "period_end": "2025-08-31",
+    "total": 84.75,
+    "line_items": [
+      {
+        "label": "Basic Charge - Single Phase",
+        "amount": 8.0
+      },
+      {
+        "label": "Energy Charge 612 kWh @ $0.1150 per kWh",
+        "amount": 70.38
+      },
+      {
+        "label": "Renewable Energy Adjustment",
+        "amount": -1.2
+      },
+      {
+        "label": "Wildfire Mitigation Balancing Account",
+        "amount": 2.15
+      },
+      {
+        "label": "State and Municipal Energy Tax",
+        "amount": 5.42
+      }
+    ]
+  },
+  "electricity_summit_peak_power_2025-09.pdf": {
+    "category": "electricity",
+    "provider": "Summit Peak Power",
+    "account_identifier": "****4821",
+    "period_start": "2025-09-01",
+    "period_end": "2025-09-30",
+    "total": 113.42,
+    "line_items": [
+      {
+        "label": "Basic Charge - Single Phase",
+        "amount": 8.0
+      },
+      {
+        "label": "Energy Charge 845 kWh @ $0.1150 per kWh",
+        "amount": 97.18
+      },
+      {
+        "label": "Renewable Energy Adjustment",
+        "amount": -1.2
+      },
+      {
+        "label": "Wildfire Mitigation Balancing Account",
+        "amount": 2.15
+      },
+      {
+        "label": "State and Municipal Energy Tax",
+        "amount": 7.29
+      }
+    ]
+  },
+  "gas_canyon_natural_gas_2025-08.pdf": {
+    "category": "gas",
+    "provider": "Canyon Natural Gas",
+    "account_identifier": "****3307",
+    "period_start": "2025-08-01",
+    "period_end": "2025-08-31",
+    "total": 32.1,
+    "line_items": [
+      {
+        "label": "Basic Service Charge",
+        "amount": 9.5
+      },
+      {
+        "label": "Natural Gas Usage 18 therms @ $0.9500 per therm",
+        "amount": 17.1
+      },
+      {
+        "label": "Delivery Charge",
+        "amount": 3.8
+      },
+      {
+        "label": "Taxes and Franchise Fees",
+        "amount": 1.7
+      }
+    ]
+  },
+  "gas_canyon_natural_gas_2025-09.pdf": {
+    "category": "gas",
+    "provider": "Canyon Natural Gas",
+    "account_identifier": "****3307",
+    "period_start": "2025-09-01",
+    "period_end": "2025-09-30",
+    "total": 50.8,
+    "line_items": [
+      {
+        "label": "Basic Service Charge",
+        "amount": 9.5
+      },
+      {
+        "label": "Natural Gas Usage 34 therms @ $0.9500 per therm",
+        "amount": 32.3
+      },
+      {
+        "label": "Delivery Charge",
+        "amount": 6.2
+      },
+      {
+        "label": "Taxes and Franchise Fees",
+        "amount": 2.8
+      }
+    ]
+  },
+  "mobile_nimbus_wireless_2025-08.pdf": {
+    "category": "mobile",
+    "provider": "Nimbus Wireless",
+    "account_identifier": "(555) 010-2233",
+    "period_start": "2025-08-01",
+    "period_end": "2025-08-31",
+    "total": 157.4,
+    "line_items": [
+      {
+        "label": "Plans - Unlimited Plan, 3 lines (monthly recurring charge)",
+        "amount": 140.0
+      },
+      {
+        "label": "Equipment - Phone installment",
+        "amount": 35.0
+      },
+      {
+        "label": "Equipment - Promotional credit",
+        "amount": -35.0
+      },
+      {
+        "label": "Services - Device protection",
+        "amount": 5.0
+      },
+      {
+        "label": "Taxes and Fees",
+        "amount": 12.4
+      }
+    ]
+  },
+  "mobile_nimbus_wireless_2025-09.pdf": {
+    "category": "mobile",
+    "provider": "Nimbus Wireless",
+    "account_identifier": "(555) 010-2233",
+    "period_start": "2025-09-01",
+    "period_end": "2025-09-30",
+    "total": 162.35,
+    "line_items": [
+      {
+        "label": "Plans - Unlimited Plan, 3 lines (monthly recurring charge)",
+        "amount": 140.0
+      },
+      {
+        "label": "Equipment - Phone installment",
+        "amount": 35.0
+      },
+      {
+        "label": "Equipment - Promotional credit",
+        "amount": -35.0
+      },
+      {
+        "label": "Services - Device protection",
+        "amount": 5.0
+      },
+      {
+        "label": "One-time charges - International roaming",
+        "amount": 4.95
+      },
+      {
+        "label": "Taxes and Fees",
+        "amount": 12.4
+      }
+    ]
+  },
+  "credit_card_harbor_bank_visa_2025-09.pdf": {
+    "category": "credit_card",
+    "provider": "Harbor Bank Visa",
+    "account_identifier": "****9012",
+    "period_start": "2025-08-26",
+    "period_end": "2025-09-25",
+    "total": 1250.12,
+    "line_items": [
+      {
+        "label": "Previous balance",
+        "amount": 912.3
+      },
+      {
+        "label": "Payment - thank you",
+        "amount": -912.3
+      },
+      {
+        "label": "Purchases: Fresh Market groceries",
+        "amount": 182.44
+      },
+      {
+        "label": "Purchases: Fuel Stop",
+        "amount": 61.2
+      },
+      {
+        "label": "Purchases: Corner Coffee",
+        "amount": 14.75
+      },
+      {
+        "label": "Purchases: Online Retailer",
+        "amount": 389.99
+      },
+      {
+        "label": "Purchases: Bistro dinner",
+        "amount": 96.4
+      },
+      {
+        "label": "Purchases: Skyway Airlines",
+        "amount": 412.8
+      },
+      {
+        "label": "Purchases: Main St Pharmacy",
+        "amount": 27.54
+      },
+      {
+        "label": "Purchases: Streaming subscription",
+        "amount": 15.99
+      },
+      {
+        "label": "Purchases: Hardware store",
+        "amount": 49.01
+      }
+    ]
+  },
+  "checking_harbor_bank_2025-09.pdf": {
+    "category": "checking",
+    "provider": "Harbor Bank",
+    "account_identifier": "****5566",
+    "period_start": "2025-09-01",
+    "period_end": "2025-09-30",
+    "total": 6279.05,
+    "line_items": [
+      {
+        "label": "Beginning balance",
+        "amount": 4215.6
+      },
+      {
+        "label": "Deposit - Payroll Sep 5",
+        "amount": 2700.0
+      },
+      {
+        "label": "Deposit - Payroll Sep 19",
+        "amount": 2700.0
+      },
+      {
+        "label": "Rent - Oak Street Apartments",
+        "amount": -1950.0
+      },
+      {
+        "label": "Harbor Bank Visa payment",
+        "amount": -912.3
+      },
+      {
+        "label": "Canyon Natural Gas autopay",
+        "amount": -32.1
+      },
+      {
+        "label": "Summit Peak Power autopay",
+        "amount": -84.75
+      },
+      {
+        "label": "Nimbus Wireless autopay",
+        "amount": -157.4
+      },
+      {
+        "label": "ATM withdrawal",
+        "amount": -200.0
+      }
+    ]
+  },
+  "brokerage_example_invest_2025-09.pdf": {
+    "category": "brokerage",
+    "provider": "Example Invest",
+    "account_identifier": "****7788",
+    "period_start": "2025-09-01",
+    "period_end": "2025-09-30",
+    "total": 25430.18,
+    "line_items": [
+      {
+        "label": "VTI - 40 shares @ $285.10",
+        "amount": 11404.0
+      },
+      {
+        "label": "AAPL - 25 shares @ $228.40",
+        "amount": 5710.0
+      },
+      {
+        "label": "MSFT - 12 shares @ $430.15",
+        "amount": 5161.8
+      },
+      {
+        "label": "Cash and sweep (includes $48.62 dividends)",
+        "amount": 3154.38
+      }
+    ]
+  }
+}

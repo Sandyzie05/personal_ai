@@ -4,6 +4,18 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-23 - feat: dummy data + `make run-dummy` for reviewers
+
+- `dummy_data/`: 9 synthetic PDFs across electricity, gas, mobile, credit card, checking and brokerage, plus
+  `extractions.json` (ground truth; line items sum to totals) and a README with sample questions and expected answers.
+  The gas pair reproduces the Week 3 retrieval case ($32.10 Aug vs $50.80 Sep).
+- `scripts/make_dummy_pdfs.py` (`make dummy-pdfs`) generates the PDFs with PyMuPDF.
+- `scripts/seed_dummy_vault.py` + `make seed-dummy` / `make run-dummy` seed a throwaway vault under `.dummy_home/` (HOME
+  swapped; refuses any other HOME) through `AuthManager` and `FileUploadHandler`, idempotently, and start the app.
+  Password `dummy-data-demo`.
+- `tests/test_dummy_data.py`: every PDF validates and classifies to its category; totals are consistent; the seed script
+  refuses a real HOME; seeding is idempotent; the Sep gas record is queryable as $50.80.
+
 ## (pending) - 2026-11-22 - fix: readable traces, LLM-call details, injection rule, runs per type; Email Digest scope
 
 - Email Digest answered "check my Robinhood account details" with an inbox summary. `run_query(only="email")` now
