@@ -38,6 +38,7 @@ class IngestReport:
     needs_you: List[str] = field(default_factory=list)
     model_calls: int = 0
     checked: str = ""  # code-built counts of what was looked at (helps explain "0 new")
+    outcomes: List[Dict[str, str]] = field(default_factory=list)  # Gmail sync: one code-built row per message
 
     def summary(self) -> str:
         parts = [
@@ -221,12 +222,12 @@ def known_providers(vault) -> List[str]:
 
 
 def overdue(vault, today: Optional[date] = None) -> List[Dict[str, Any]]:
-    """Providers whose newest indexed bill is older than cadence. No network."""
+    """Providers whose newest indexed bill (or Gmail bill notice without an amount) is older than cadence. No network."""
     today = today or date.today()
     ex = (vault.retrieve_data(EXPECT_KEY) or {}).get("providers", {})
     latest: Dict[str, date] = {}
     for rec in _manifest(vault).values():
-        if rec["status"] == "indexed" and rec.get("provider") and rec.get("period_end"):
+        if rec["status"] in ("indexed", "notice") and rec.get("provider") and rec.get("period_end"):
             d = date.fromisoformat(rec["period_end"])
             latest[rec["provider"]] = max(d, latest.get(rec["provider"], d))
     out = []

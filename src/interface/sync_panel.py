@@ -131,6 +131,9 @@ def _gmail_sync(vault, server, on_indexed, client, only: Optional[str] = None) -
             ok = not (rep.failed or rep.needs_you)
             line.text(f"Done in {time.monotonic() - t0:.0f}s · {rep.model_calls} model call(s) with {model}")
             status.update(label=rep.summary(), state="complete" if ok else "error")
+            if rep.outcomes:  # code-built rows (date, provider, validated domain, fixed outcome): no email text
+                st.dataframe(rep.outcomes, hide_index=True, column_config={
+                    "sent": "Sent", "provider": "Sender row", "domain": "From domain", "outcome": "Outcome"})
             agent_store.log_activity(vault, {**entry, "ok": ok, "duration_ms": int((time.monotonic() - t0) * 1000),
                                              "model_calls": rep.model_calls, "error": "" if ok else rep.summary()[:160]})
             return
@@ -235,9 +238,10 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
     st.caption(
         "For providers that email the amount instead of a PDF. Only senders listed here are read (read-only); each email "
         "goes through the quarantine extractor, which returns just the total, due date and period. The email itself is "
-        "never stored or indexed. **What Sync does:** searches Gmail for the sender's newest 15 emails (last 13 months), "
-        "reads each email once (already-read ones are skipped), extracts the bill facts with the local model, and saves "
-        "one bill per billing period; reminders for a bill already saved count as duplicates. Bills then appear on the "
+        "never stored or indexed. **What Sync does:** searches Gmail for each sender's newest 15 email threads (last 13 "
+        "months; older ones are not read), reads each email once (already-read ones are skipped), extracts the bill "
+        "facts with the local model, and saves one bill per billing period; a \"your bill is ready\" email without an "
+        "amount counts as the bill arriving (bill notice). The table after a Sync shows what happened to each email. Bills then appear on the "
         "Dashboard and in chat answers."
     )
     _gmail_connection(vault)
@@ -249,7 +253,8 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
     for row in gmail_bills.senders(vault):
         a, b, c, r, d = st.columns([3, 3, 1, 1, 1])
         a.text(row["provider"])
-        b.caption(f"{row['category']} · from {row['domain']}")
+        b.caption(f"{row['category']} · from {row['domain']} · newest email from {row['domain']}: "
+                  f"{row.get('newest_seen') or 'not synced yet'}")
         if c.button("Sync", key=f"gm_sync_{row['provider']}", icon=":material/sync:"):
             _gmail_sync(vault, server, on_indexed, quarantine_client, only=row["provider"])
         if r.button("Re-read", key=f"gm_reread_{row['provider']}", icon=":material/restart_alt:",

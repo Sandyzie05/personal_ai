@@ -502,6 +502,13 @@ it for Sync and the Email Digest agent:
   to `quarantine.extract_facts`; the sender allowlist is still checked in code before any body is read.
 - When connected it takes precedence over a Gmail MCP server; the MCP path stays for Workspace preview projects.
 
+**S1 (2026-11-22) sync outcome list.** `gmail_bills.sync` returns one row per message seen: send date, allowlisted
+provider, sender domain (code-parsed from the From header, `DOMAIN`-validated) and a fixed outcome string. No subject or
+body text reaches it (test). A "bill ready" email with no amount is stored as a manifest-only **bill notice** (provider,
+category, sent date; no vault document, nothing indexed); `overdue()` counts it as the bill arriving. "Not a bill" verdicts
+record the extractor model id and are re-checked when that model changes. One search per sender row (each capped at 15
+threads) instead of one OR'd search. No new Gmail operation, scope or stored text.
+
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)
 
 New chat agent `builtin-portfolio` (S25). Code reads positions through `RobinhoodClient` (exact-name account tools, S20),
