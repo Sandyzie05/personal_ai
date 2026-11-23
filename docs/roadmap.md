@@ -160,6 +160,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
 | Trader: intraday day-trade research and plan (scan, entry, stop/target, Monte Carlo odds, sizing, risk label); advice only, no orders | DONE vs fixtures; live = USER | Track T: shape 0/13, MC 4/4, risk golden 5/5; T5 paper agents: hostile 0/90, lookahead 0/68, ledger 7/7; T9 broker orders PLANNED |
 | Daily Gmail digest *sent* to a messaging app (W2 idea) | DROPPED | sending is a write; read-only invariant S6. Digest is shown in-app |
+| Reviewer dummy data (9 synthetic PDFs, 6 categories) + `make run-dummy` throwaway vault | DONE 2026-11-23 (P11 packaging) | `dummy_data/README.md`, `test_dummy_data.py` |
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
 
 All evaluation data is synthetic or public. No real-market skill is claimed.

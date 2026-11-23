@@ -1,4 +1,4 @@
-.PHONY: help setup install run demo test check-context install-skills eval eval-live eval-rag eval-stability state-report obs-up obs-down run-obs
+.PHONY: help setup install run demo test check-context install-skills eval eval-live eval-rag eval-stability state-report obs-up obs-down run-obs dummy-pdfs seed-dummy run-dummy
 
 VENV_BIN := $(shell [ -x venv/bin/python3 ] && echo venv/bin)
 PYTHON := $(if $(VENV_BIN),$(VENV_BIN)/python3,python3)
@@ -12,6 +12,8 @@ help:
 	@echo "  make run-obs        Run the app with telemetry export enabled"
 	@echo "  make install        Create ./venv and install Python dependencies into it"
 	@echo "  make run            Start the Streamlit web interface"
+	@echo "  make run-dummy      Start the app on a throwaway vault seeded with dummy_data/ PDFs (password: dummy-data-demo)"
+	@echo "  make dummy-pdfs     Regenerate the synthetic PDFs in dummy_data/"
 	@echo "  make demo           Run the CLI ai_engine demo (registers/logs in via AuthManager)"
 	@echo "  make check-context  Validate context-window/token-budget assumptions against Ollama"
 	@echo "                      Optional: FILE=path/to/text.txt  MODEL=some-model"
@@ -30,6 +32,20 @@ install:
 
 run:
 	PYTHONPATH=. $(STREAMLIT) run src/interface/main.py
+
+# Synthetic-data sandbox: HOME points at .dummy_home/ so the real ~/.personal_ai_vault is never read or written.
+# PYTHONUSERBASE keeps `pip install --user` packages importable under the swapped HOME.
+DUMMY_ENV := HOME=$(CURDIR)/.dummy_home PYTHONUSERBASE=$(shell python3 -m site --user-base 2>/dev/null) PYTHONPATH=.
+
+dummy-pdfs:
+	PYTHONPATH=. $(PYTHON) scripts/make_dummy_pdfs.py
+
+seed-dummy:
+	@mkdir -p .dummy_home
+	$(DUMMY_ENV) $(PYTHON) scripts/seed_dummy_vault.py
+
+run-dummy: seed-dummy
+	$(DUMMY_ENV) $(STREAMLIT) run src/interface/main.py
 
 demo:
 	PYTHONPATH=. $(PYTHON) examples/ai_engine_demo.py

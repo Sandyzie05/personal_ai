@@ -51,3 +51,6 @@ htmlcov/
 
 # OS artifacts
 .DS_Storetest_data/
+
+# make run-dummy sandbox vault (synthetic data only)
+.dummy_home/
