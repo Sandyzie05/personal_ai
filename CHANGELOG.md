@@ -18,6 +18,7 @@
   `source_kind`, `schema`; a WARN log says what was matched and what was done.
 - Runs counted for every root trace by `run` type (chat, sync, forecast, trader, agent); `job` label was overwritten
   by Prometheus. Every dashboard panel has a description. Verified live on otel-lgtm.
+- Docs: roadmap §00/§0/§1/Track O, platform_plan S27 + §5, security_design; Miro frames 0 and 6.
 
 ## (pending) - 2026-11-22 - fix: observability covers Sync and Forecast; log levels and readable bodies; trace tables
 

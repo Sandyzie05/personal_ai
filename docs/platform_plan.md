@@ -57,7 +57,7 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S23 | Trader Monte Carlo is seeded (deterministic), bounded by `TRADER_*` caps, labelled a simulation | `trader/timemachine.py` | `evals/trader.py` simulation row, `test_trader_engines.py` |
 | S24 | Trader paper agents: prompts are code-built relative numbers from bars up to the signal (no ticker/date/price, no lookahead); replies are closed-choice `TraderDecision` (extra fields rejected); code alone sets entry, size and risk; ledger is vault-only, never sent to a broker | `trader/agents.py`, `trader/strategies.py`, `trader/paper.py` | `test_trader_paper.py`, `evals/trader.py` agent-safety + lookahead rows |
 | S25 | Robinhood Portfolio chat: code reads holdings (account tools only) and computes figures; a tool-less model on the loopback endpoint answers; no account numbers in the prompt; `policy.screen` before any Robinhood call; activity log holds status + timing only | `agents/portfolio_chat.py`, `interface/main.py::_respond_portfolio` | `test_portfolio_chat.py`, eval S25 row |
-| S27 | Telemetry (Track O): off by default; OTLP only to a loopback endpoint; every span/metric/log attribute passes `otel.clean` (allowlisted keys, scalar id/enum-shaped values); exceptions as type names; private providers, no auto-instrumentation | `observability/otel.py` | `test_otel.py`, eval "Telemetry leakage" row |
+| S27 | Telemetry (Track O): off by default; OTLP only to a loopback endpoint; every span/metric/log attribute passes `otel.clean` (allowlisted keys, scalar id/enum-shaped values); exceptions as type names; private providers, no auto-instrumentation; LLM spans carry parameters, counts and tool *names* only (never messages) | `observability/otel.py` | `test_otel.py`, eval "Telemetry leakage" row |
 | S26 | Per-agent tool scope: an attached MCP server grants nothing; only tools ticked in `agent.mcp_tools` are exposed/called; built-ins never get write tools; a selected write tool forces confirmation; paused calls re-checked at Allow | `agents/runtime.py::_collect_tools`, `interface/agents.py::_tool_picker` | `test_agent_runtime.py::TestToolAllowlist`, `test_agents_page_smoke.py` |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
@@ -191,7 +191,7 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Missing statements reported, never invented (P12) | 100% | 3/3 | needs a ledger expectation |
 | Core Memory recall / superseded-or-forgotten returned (P5) | ≥ 9/10 / 0 | 9/9 / 0 | |
 | Composed leakage: canaries outside allowed sinks (P4) | 0 | 0 (114 runs, 969 sinks, 102 hops) | golden + stress + service chains with memory |
-| Telemetry leakage: canaries in exported spans/logs/metrics (Track O, 2026-11-22) | 0 | 0 (295 spans, 11 logs, 189 canaries) | golden + injection corpus + Gmail sync, in-memory exporters |
+| Telemetry leakage: canaries in exported spans/logs/metrics (Track O, 2026-11-22) | 0 | 0 (295 spans, 182 logs, 189 canaries) | golden + injection corpus + Gmail sync, in-memory exporters |
 | Robinhood: broker free text / account canaries / valuation golden (Track R) | 0 / 0 / 100% | 0/5 / 0 in 19 sinks × 3 / 3/3 | synthetic fixtures; no live account |
 | Robinhood Portfolio chat: account number in prompt/log, trade asks reaching Robinhood (S25) | 0 | 0 in 5 | synthetic account fixtures |
 | Gmail bill sync: off-allowlist read / body stored / hostile facts / non-read tool (R11) | 0 | 0 in 4 | synthetic Gmail fake |

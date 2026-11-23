@@ -15,8 +15,11 @@ client, read-only scope pin, stored expiry + token endpoint, path-aware metadata
 **read-only Gmail via the standard Gmail API** because Google's hosted Gmail MCP needs a Workspace Developer Preview project
 that personal accounts cannot join (#42, `data_ingestion/gmail_api.py`); chat question saved before the agent runs, Email
 Digest step budget (#43); agent model drives extraction (small 4B model), sync progress, Activity log for syncs and agent
-turns (#45); bills dated by email when no period is stated, *Re-read*, Email Digest as a table (#46). `make test` 950 pass,
-`make eval` Overall PASS. Two laptops: this one has no models; the app runs with real data and oMLX on the other, where the
+turns (#45); bills dated by email when no period is stated, *Re-read*, Email Digest as a table (#46). Then (#47-#54):
+S1 sync outcome list (#48), Email Digest follows the question (#49), Track O observability + S0 notices + Track M plan
+(#50), Activity table/port fixes (#51), dashboard stats (#52), Sync/Forecast coverage + log levels + trace tables (#53),
+readable traces + LLM-call details + injection rules + runs per type + Email Digest scope check (#54). `make test` 965
+pass, `make eval` Overall PASS. Two laptops: this one has no models; the app runs with real data and oMLX on the other, where the
 user tests and pastes results back.
 
 **What exists now (where to look).**
@@ -28,6 +31,7 @@ user tests and pastes results back.
 | Expected bills (overdue ledger) | Upload → Sync → *Expected bills* | `pipeline.expectations/overdue` (R7) |
 | Email Digest chat agent (table answer) | Chat → *System · Email Digest* | `ingest.gmail_fetcher`, `workers.render_email_digest` |
 | Activity log (tool calls, syncs, agent turns) | Agents → Activity | `store.log_activity` |
+| Observability: traces, metrics, logs, 4 dashboards (local Grafana) | `OBS_OTLP_PORT=14318 OBS_GRAFANA_PORT=3001 make obs-up run-obs` | `observability.md`, `src/observability/otel.py` |
 | Per-agent tool picker (deny by default), MCP *Test read access* | Agents → Edit / MCP Servers | S26, `mcp.McpManager.probe` |
 | Forecast research + critics + ToT; Trader plan + paper agents; Robinhood | Forecast page | `forecaster.md`, `trader.md`, Track R |
 
@@ -43,7 +47,10 @@ month" → 2 bills since the 1st, 1.7 s). Open problems, all in **Track S**:
    arrives (S4 for PDF attachments, R10 for link-only emails).
 4. Two forms for one provider concept (S2); what Sync covers is unclear (S3 copy); Sync is manual only (S5 schedule).
 
-**Track O done offline (#50):** `docs/observability.md`; user validates with `make obs-up` + `make run-obs`.
+**Track O live (user, 2026-11-22, #51-#54):** stack runs on the model laptop (ports 14318/3001: a local Jaeger holds
+4318 and a native Grafana holds 3000 there). User testing found: only chat visible, logs unreadable, trace links broken,
+no LLM details, runs counted chat only, unexplained injection flags; all fixed and verified on a local otel-lgtm (#53,
+#54). User to re-check after #54 (steps in `observability.md`). Email Digest now answers off-topic asks with its scope.
 **S0 done (#50):** Gmail Sync stores manifest-only bill notices (emailed total/due), no `.txt` documents; old
 `gmail_bill_*` documents migrate out of Files/RAG when Upload → Sync opens.
 **Next card for the agent: M1 (Track M, central Core Memory profile), then M2 → M5, S7, S3 → S6** (S2 "one Bill providers
@@ -78,7 +85,7 @@ flowchart LR
   R --> RP[R9 Portfolio chat + R10 schema fit] --> GB[R11 Gmail bill text, PR 34] --> LC[Live checks: Gmail, calendar, Portfolio chat, paper agents] --> P11
   GB --> GX[Gmail fixes + Gmail API read-only, PRs 36-46] --> S1[S1 why bills are missed, PR 48] --> DQ[Digest question scope, PR 49] --> S0[S0 email text = signal, not a document] --> S7[S7 digest and Sync agree] --> S2[S2 one Bill providers list] --> S3[S3 Upload page IA] --> S4[S4 bill PDFs from Gmail into RAG] --> S5[S5 sync window + schedule] --> S6[S6 run observability]
   S0 --> M1[M1 Core profile schema] --> M2[M2 human-only editor + template import] --> M3[M3 scoped read path] --> M4[M4 provider resolution + preferences] --> M5[M5 profile disclosure evals]
-  S0 --> O1[O1 OTel core] --> O2[O2 traces end to end] --> O3[O3 metrics + logs] --> O4[O4 local LGTM stack + dashboards] --> O5[O5 telemetry leakage eval]
+  S0 --> O1[O1 OTel core] --> O2[O2 traces end to end] --> O3[O3 metrics + logs] --> O4[O4 local LGTM stack + dashboards] --> O5[O5 telemetry leakage eval] --> OF[O fixes from user testing, PRs 51-54] --> OL[Live re-check after 54]
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
@@ -94,7 +101,8 @@ flowchart LR
   class GX done
   class S1,DQ done
   class S0 done
-  class O1,O2,O3,O4,O5 done
+  class O1,O2,O3,O4,O5,OF done
+  class OL user
   class M1 now
   class M2,M3,M4,M5 todo
   class S7,S2,S3,S4,S5,S6 todo
@@ -143,7 +151,8 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API (#48 fixed no-amount notices); stores email text as documents → S0 | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
-| End-to-end observability: OpenTelemetry traces, metrics, logs; local Grafana LGTM; 4 dashboards; telemetry leakage eval | DONE offline 2026-11-22; live: USER (`make obs-up`) | Track O, `observability.md` |
+| End-to-end observability: OpenTelemetry traces, metrics, logs; local Grafana LGTM; 4 dashboards; telemetry leakage eval | DONE; live on the model laptop (#50-#54: readable span tree, LLM-call details, injection rules, runs per type, panel descriptions); final re-check: USER | Track O, `observability.md` |
+| Email Digest scope check (off-topic asks answered with the agent's scope, no mail read) | DONE 2026-11-22 (#54) | `service._run_query`, `test_otel.py` |
 | Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE (#48), digest scope DONE (#49), S0 DONE (#50: email text = notice, not a document); S7, S3-S6 PLANNED; S2 → M4 | Track S |
 | Central Core Memory profile (human-only edits, scoped per agent, provider resolution) | PLANNED | Track M, `core_memory_template.md` |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
@@ -557,7 +566,14 @@ jobs (sync, agent turns): job, model, elapsed. *Accept:* refusal and escalation 
 summary counts from a seeded log match; AppTest: filter works and indicator shows during a fake long run; entries stay
 code-built.
 
-### Track O. End-to-end observability with OpenTelemetry — O1-O5 DONE offline 2026-11-22 (live check: USER)
+### Track O. End-to-end observability with OpenTelemetry — O1-O5 DONE 2026-11-22; user-testing fixes #51-#54 (final re-check: USER)
+
+User-testing fixes (2026-11-22): configurable host ports (`OBS_OTLP_PORT`/`OBS_GRAFANA_PORT`), stat panels on a fresh
+process, Sync/Forecast/Trader root spans, log levels + readable bodies, Tempo trace tables, readable span names (`chat
+email` → `wave 1` → `step email` → `quarantine EmailFacts` → `chat <model>`), LLM-call attributes (params, tool names
+offered/called, tokens), injection flags with `rule`/`source_kind`, runs per type (`run` label; `job` is reserved by
+Prometheus), panel descriptions, Explore enabled for the loopback viewer (trace links), Forecast AI review as one trace.
+
 
 Decision (platform_plan D14): **OpenTelemetry SDK in the app → OTLP on loopback → Grafana `otel-lgtm`** (one open-source
 container: OTel Collector + Tempo traces + Prometheus metrics + Loki logs + Grafana). Tracing a run means following one chat
