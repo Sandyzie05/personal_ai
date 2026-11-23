@@ -775,6 +775,7 @@ def render_email_digest(report) -> str:
     """Email Digest answer as a table. Every cell comes from the code-templated Finding summary (closed enums,
     validated domain/date) or the typed amount; markdown-escaped anyway."""
     rows, skipped = [], 0
+    scope = _md(getattr(report, "email_scope", "") or "in the last 2 days")  # code-built label (validated domains, dates)
     for f in report.claims.values():
         if f.agent != "email":
             continue
@@ -789,11 +790,11 @@ def render_email_digest(report) -> str:
     if failed:
         return f"I couldn't read your email this time ({_md(failed[0].status)}). Try again, or check Upload → Sync → Gmail connection."
     if not rows:
-        return "No new email in the last 2 days." + (f" ({skipped} could not be read safely and were ignored.)" if skipped else "")
+        return f"No email {scope}." + (f" ({skipped} could not be read safely and were ignored.)" if skipped else "")
     order = {"bill": 0, "statement": 1, "alert": 2, "receipt": 3, "other": 4}
     rows.sort(key=lambda r: (order[r[0]], r[1]))
     bills = sum(1 for r in rows if r[0] in ("bill", "statement"))
-    head = f"**{len(rows)} email{'s' if len(rows) != 1 else ''} in the last 2 days**" + (
+    head = f"**{len(rows)} email{'s' if len(rows) != 1 else ''} {scope}**" + (
         f" · {bills} bill{'s' if bills != 1 else ''}/statement{'s' if bills != 1 else ''}" if bills else "")
     table = ["| | From | Type | Topic | Amount | Due | Note |", "|---|---|---|---|---|---|---|"]
     table += [f"| {_DIGEST_ICON[c]} | {_md(d)} | {c} | {_md(t)} | {amount} | {due} | {note} |"

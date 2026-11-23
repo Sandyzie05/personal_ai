@@ -501,6 +501,8 @@ it for Sync and the Email Digest agent:
 - Google error bodies are never shown or kept (HTTP status only). Message bodies go only to the caller, which passes them
   to `quarantine.extract_facts`; the sender allowlist is still checked in code before any body is read.
 - When connected it takes precedence over a Gmail MCP server; the MCP path stays for Workspace preview projects.
+- Email Digest search scope (2026-11-22): `ingest.digest_scope` builds the `q` parameter from allowlisted sender domains,
+  a `DOMAIN`-shaped token and computed dates only; the chat question itself never reaches Gmail search operators.
 
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)
 
