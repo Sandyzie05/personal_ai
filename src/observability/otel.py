@@ -78,6 +78,10 @@ ALLOWED_ATTRS = frozenset(
         "agent_id",
         "latency_ms",
         "invalid_reason",
+        # readable traces (S27 still applies: ids, enums, counts and code-defined names only)
+        "role", "run", "plan", "findings", "depends_on", "escalation_kinds", "rule", "action", "chars", "rounds",
+        "tools_offered", "source_kind", "messages", "response_format", "gen_ai.request.temperature",
+        "gen_ai.request.max_tokens", "gen_ai.request.tools", "gen_ai.response.tool_calls", "error",
     }
 )
 _SAFE = re.compile(
@@ -248,8 +252,13 @@ def span(name: str, **attrs) -> Iterator[Any]:
     if tracer is None:
         yield _NoSpan()
         return
+    import time
+
+    from opentelemetry import trace
     from opentelemetry.trace import Status, StatusCode
 
+    root = not trace.get_current_span().get_span_context().is_valid
+    t0 = time.monotonic()
     with tracer.start_as_current_span(
         name,
         attributes=clean(attrs),
@@ -259,9 +268,27 @@ def span(name: str, **attrs) -> Iterator[Any]:
         try:
             yield _Span(s)
         except BaseException as e:
-            s.set_attribute("error_type", type(e).__name__)
-            s.set_status(Status(StatusCode.ERROR, type(e).__name__))
+            if type(e).__name__ not in ("RerunException", "StopException"):  # Streamlit control flow, not errors
+                s.set_attribute("error_type", type(e).__name__)
+                s.set_status(Status(StatusCode.ERROR, type(e).__name__))
             raise
+        finally:
+            if root:  # every top-level job counts as a run: chat turns, syncs, forecast and trader runs
+                run = name.split(" ")[0].split(".")[0]  # not "job": Prometheus reserves it (= service name)
+                count("personal_ai.runs", run=run)
+                observe("personal_ai.run.duration", (time.monotonic() - t0) * 1000, run=run)
+
+
+def event(name: str, **attrs) -> None:
+    """A log record on the current span (no Activity-log entry): body `name k=v ...` from cleaned attributes."""
+    logger = _state["logger"]
+    if logger is None:
+        return
+    from opentelemetry._logs import LogRecord, SeverityNumber
+
+    a = clean({**attrs, "kind": name})
+    body = " ".join([name] + [f"{k}={v}" for k, v in a.items() if k != "kind"])
+    logger.emit(LogRecord(body=body, attributes=a, severity_number=SeverityNumber.WARN, severity_text="WARN"))
 
 
 def current_context():
@@ -299,6 +326,26 @@ def observe(name: str, value: float, **attrs) -> None:
         inst.record(value, clean(attrs))
 
 
+def _agent_attrs(args, kwargs) -> Dict[str, Any]:
+    for v in list(args) + list(kwargs.values()):
+        if isinstance(v, dict) and "id" in v and ("model" in v or "role" in v or "system_prompt" in v):
+            return {"agent_id": v.get("id"), "model": v.get("model"), "role": v.get("role")}
+    return {}
+
+
+def _result_attrs(r) -> Dict[str, Any]:
+    if isinstance(r, tuple) and len(r) >= 2 and isinstance(r[1], str):
+        return {"status": r[1], "invalid_reason": r[2] if len(r) > 2 and isinstance(r[2], str) else None}
+    if isinstance(r, tuple) and len(r) == 2 and isinstance(r[1], dict):  # trader decide -> (decision, meta)
+        m = r[1]
+        return {"status": m.get("status"), "agent_id": m.get("agent_id"), "model": m.get("model_id"),
+                "latency_ms": m.get("latency_ms"), "invalid_reason": m.get("invalid_reason")}
+    specialists = getattr(r, "specialists", None)  # forecast critics report
+    if specialists is not None:
+        return {"steps": len(specialists), "agents": ",".join(f"{s.role}:{s.status}" for s in specialists)}
+    return {}
+
+
 def traced(name: str):
     """Decorator: run the (sync or async) function inside a span `name` (a root span when nothing is active)."""
     import functools
@@ -309,15 +356,19 @@ def traced(name: str):
 
             @functools.wraps(fn)
             async def aw(*a, **kw):
-                with span(name):
-                    return await fn(*a, **kw)
+                with span(name, **_agent_attrs(a, kw)) as sp:
+                    r = await fn(*a, **kw)
+                    sp.set(**_result_attrs(r))
+                    return r
 
             return aw
 
         @functools.wraps(fn)
         def w(*a, **kw):
-            with span(name):
-                return fn(*a, **kw)
+            with span(name, **_agent_attrs(a, kw)) as sp:
+                r = fn(*a, **kw)
+                sp.set(**_result_attrs(r))
+                return r
 
         return w
 
@@ -349,9 +400,7 @@ def activity(entry: Dict[str, Any]) -> None:
     count("personal_ai.activity", kind=kind)
     if kind == "slot_run":
         count("personal_ai.slot.runs", slot_id=entry.get("slot_id"), status=entry.get("status"))
-    if kind == "injection_flagged":
-        count("personal_ai.injection_flags")
-    elif kind == "bus":
+    if kind == "bus":
         count("personal_ai.bus.messages", outcome=entry.get("outcome"))
     elif kind == "rag_turn":
         count(

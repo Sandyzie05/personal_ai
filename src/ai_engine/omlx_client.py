@@ -204,15 +204,25 @@ class OmlxClient:
         otel.count("personal_ai.model.calls", model=self.model, stream=stream)
         if not stream:
             # Non-streaming response
-            with otel.span("gen_ai.chat", **{"gen_ai.system": "omlx", "gen_ai.operation.name": "chat",
-                                             "gen_ai.request.model": self.model}) as sp, self._inference_slot():
+            # Code-defined names and numbers only: tool names offered/called, params, sizes. Never message text.
+            offered = ",".join(str((t.get("function") or {}).get("name", "")) for t in tools or [])
+            rf = data.get("response_format") or {}
+            with otel.span(f"chat {self.model}", **{
+                    "gen_ai.system": "omlx", "gen_ai.operation.name": "chat", "gen_ai.request.model": self.model,
+                    "gen_ai.request.temperature": self.temperature, "gen_ai.request.max_tokens": self.max_tokens,
+                    "gen_ai.request.tools": offered or None, "tools_offered": len(tools or []),
+                    "messages": len(messages), "response_format": rf.get("type") or "text",
+                    "schema": (rf.get("json_schema") or {}).get("name")}) as sp, self._inference_slot():
                 t0 = time.monotonic()
                 response = self._make_request("POST", "/v1/chat/completions", data)
                 usage = response.get("usage") or {}
+                choice = (response.get("choices") or [{}])[0]
+                called = ",".join(str((c.get("function") or {}).get("name", ""))
+                                  for c in (choice.get("message") or {}).get("tool_calls") or [])
                 sp.set(**{"gen_ai.usage.input_tokens": usage.get("prompt_tokens"),
                           "gen_ai.usage.output_tokens": usage.get("completion_tokens"),
-                          "gen_ai.response.finish_reasons": str((response.get("choices") or [{}])[0].get(
-                              "finish_reason") or "")})
+                          "gen_ai.response.finish_reasons": str(choice.get("finish_reason") or ""),
+                          "gen_ai.response.tool_calls": called or None})
                 otel.observe("gen_ai.client.operation.duration", time.monotonic() - t0,
                              **{"gen_ai.request.model": self.model})
                 for k, v in (("input", usage.get("prompt_tokens")), ("output", usage.get("completion_tokens"))):

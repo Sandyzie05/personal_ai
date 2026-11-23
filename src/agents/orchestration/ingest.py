@@ -30,7 +30,7 @@ class ReadOnlyMcp:
         from src.observability import otel
 
         otel.count("personal_ai.tool.calls", tool=tool, server="mcp")
-        with otel.span("tool.call", tool=tool, server="mcp") as sp:
+        with otel.span(f"tool {tool}", tool=tool, server="mcp") as sp:
             result = self.mcp.call_tool(self.server_id, tool, args)
             sp.set(ok=result.ok)
         if not result.ok:

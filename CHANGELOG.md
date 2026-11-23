@@ -4,6 +4,21 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - fix: readable traces, LLM-call details, injection rule, runs per type; Email Digest scope
+
+- Email Digest answered "check my Robinhood account details" with an inbox summary. `run_query(only="email")` now
+  answers off-topic asks (brokerage, portfolio, stocks, account details, without email words) with its scope and the
+  agent to use, before any mail is read.
+- Traces were unreadable and trace links opened the home page. Span names now say what ran (`chat email`, `wave 1`,
+  `step email`, `quarantine EmailFacts`, `chat <model>`, `tool get_thread`, `sync gmail`, `forecast ai_review`,
+  `agent turn`); attributes add plan, findings, escalation kinds; LLM-call spans carry temperature, max tokens, message
+  count, response format, tool names offered/called, tokens, finish reason. The Forecast AI review is one trace.
+  Configurable agents' tool loop traced. Grafana Explore enabled for the loopback viewer (trace waterfall works).
+- Injection flags: counted in quarantine with `rule` (override / role_tag / secret_or_exfiltration / send_or_forward),
+  `source_kind`, `schema`; a WARN log says what was matched and what was done.
+- Runs counted for every root trace by `run` type (chat, sync, forecast, trader, agent); `job` label was overwritten
+  by Prometheus. Every dashboard panel has a description. Verified live on otel-lgtm.
+
 ## (pending) - 2026-11-22 - fix: observability covers Sync and Forecast; log levels and readable bodies; trace tables
 
 - User testing: only chat showed up. Sync and Forecast data was exported but the timeseries used `increase()` over a

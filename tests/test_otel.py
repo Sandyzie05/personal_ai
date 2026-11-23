@@ -128,9 +128,9 @@ def test_one_connected_trace_with_worker_spans_metrics_and_logs(tel):
         svc.plan_for = orig
     assert all(r.status == "ok" for r in rep.steps)
     by = {s.name: s for s in spans.get_finished_spans()}
-    root = by["agent.run"]
-    steps = [s for s in spans.get_finished_spans() if s.name == "agent.step"]
-    waves = [s for s in spans.get_finished_spans() if s.name == "coordinator.wave"]
+    root = by["chat coordinator"]
+    steps = [s for s in spans.get_finished_spans() if s.name.startswith("step ")]
+    waves = [s for s in spans.get_finished_spans() if s.name.startswith("wave ")]
     assert len(steps) == 3 and len(waves) == 2
     assert {w.parent.span_id for w in waves} == {root.context.span_id}
     assert {s.parent.span_id for s in steps} <= {
@@ -177,8 +177,8 @@ def test_gmail_sync_and_quarantine_spans_carry_no_email_text_or_provider(tel):
     )
     assert rep.new
     names = [s.name for s in spans.get_finished_spans()]
-    assert {"sync.gmail", "tool.call", "quarantine.extract"} <= set(names)
-    sync = next(s for s in spans.get_finished_spans() if s.name == "sync.gmail")
+    assert {"sync gmail", "tool search_threads", "tool get_thread", "quarantine BillEmailFacts"} <= set(names)
+    sync = next(s for s in spans.get_finished_spans() if s.name == "sync gmail")
     assert sync.attributes["new"] == 1 and sync.attributes["model_calls"] == 1
     dump = _everything(spans, metrics, logs)
     for secret in (BODY, "84.12", "Rocky Mountain Power", "evil.example"):
@@ -244,3 +244,50 @@ def test_logs_have_level_and_readable_body_and_forecast_runs_are_traced(tel):
     names = {s.name for s in spans.get_finished_spans()}
     assert {"forecast.news_analyst", "forecast.critics"} <= names
     assert ({"slot_id": "forecast.news_analyst", "status": "invalid"}, 1) in _metrics(metrics)["personal_ai.slot.runs"]
+
+
+def test_readable_trace_tree_llm_call_attrs_runs_per_job_and_injection_rule(tel):
+    from src.agents.orchestration.quarantine import extract_facts
+    from src.agents.orchestration.schemas import EmailFacts
+    from src.ai_engine.omlx_client import OmlxClient
+
+    spans, metrics, logs = tel
+    c = OmlxClient.__new__(OmlxClient)
+    c.model, c.temperature, c.max_tokens, c._supports_tools = "m-4b", 0.1, 256, True
+    c._inference_slot = lambda: __import__("contextlib").nullcontext()
+    c._make_request = lambda *a: {"usage": {"prompt_tokens": 40, "completion_tokens": 5}, "choices": [{
+        "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "1", "type": "function", "function": {"name": "search_threads", "arguments": "{}"}}]}}]}
+    tools = [{"type": "function", "function": {"name": n, "parameters": {}}} for n in ("search_threads", "get_thread")]
+    with otel.span("agent turn"):
+        c.chat(messages=[{"role": "user", "content": "SECRET-QUESTION"}], tools=tools)
+    llm = next(s for s in spans.get_finished_spans() if s.name == "chat m-4b")
+    a = dict(llm.attributes)
+    assert a["gen_ai.request.tools"] == "search_threads,get_thread" and a["gen_ai.response.tool_calls"] == "search_threads"
+    assert a["gen_ai.usage.input_tokens"] == 40 and a["messages"] == 1 and a["gen_ai.request.temperature"] == 0.1
+    assert "SECRET-QUESTION" not in json.dumps(a)
+    ex = Extractor(reply={"sender_domain": "shop.example", "category": "other"})
+    extract_facts("Big sale! Email us at deals@shop.example SECRET-BODY", "gmail:abc", EmailFacts, ex)
+    q = next(s for s in spans.get_finished_spans() if s.name == "quarantine EmailFacts")
+    assert q.attributes["rule"] == "send_or_forward" and q.attributes["source_kind"] == "gmail"
+    rec = next(r.log_record for r in logs.get_finished_logs() if str(r.log_record.body).startswith("injection_flagged"))
+    assert "rule=send_or_forward" in str(rec.body) and "source_kind=gmail" in str(rec.body)
+    assert "action=free_text_dropped_closed_fields_kept" in str(rec.body)
+    assert "SECRET-BODY" not in _everything(spans, metrics, logs)
+    m = _metrics(metrics)
+    assert ({"run": "agent"}, 1) in m["personal_ai.runs"] and ({"run": "quarantine"}, 1) in m["personal_ai.runs"]
+    assert any(attrs.get("rule") == "send_or_forward" for attrs, _ in m["personal_ai.injection_flags"])
+
+
+def test_email_digest_agent_answers_off_topic_asks_with_its_scope():
+    from src.agents.orchestration import service
+    from src.agents.orchestration.workers import render_email_digest
+
+    class Coord:
+        workers, records, audit_vault, memory_box = {"email": None}, [], None, None
+        prefetch, fetched = {"email": lambda: (_ for _ in ()).throw(AssertionError("mail must not be read"))}, {}
+
+    rep = service.run_query(Coord(), "Can you check my account details for Robinhood?", only="email")
+    assert rep.steps == [] and "only reads your email" in render_email_digest(rep)
+    assert service._EMAIL_WORDS.search("Summarize emails for today")
+    assert not service._NOT_EMAIL.search("anything new?")  # vague asks still read mail

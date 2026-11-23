@@ -1,16 +1,11 @@
 {
  "uid": "pai-models",
  "title": "personal_ai \u00b7 Models",
- "schemaVersion": 39,
- "time": {
-  "from": "now-24h",
-  "to": "now"
- },
- "refresh": "30s",
  "panels": [
   {
    "type": "timeseries",
-   "title": "Model calls by model (total)",
+   "title": "LLM calls by model (total)",
+   "description": "Every request to the local model server.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -24,18 +19,19 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (model) (personal_ai_model_calls_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "sum by (model) (personal_ai_model_calls_total)",
+     "legendFormat": "{{model}}"
     }
    ]
   },
   {
    "type": "timeseries",
-   "title": "Model latency p95 (s)",
+   "title": "LLM latency p95 by model",
+   "description": "95th percentile time of one non-streaming model call.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -49,12 +45,12 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(gen_ai_client_operation_duration_seconds_bucket[$__rate_interval])))",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(gen_ai_client_operation_duration_seconds_bucket[$__rate_interval])))",
+     "legendFormat": "{{gen_ai_request_model}}"
     }
    ],
    "fieldConfig": {
@@ -66,41 +62,43 @@
   },
   {
    "type": "timeseries",
-   "title": "Tokens by model and kind (total)",
+   "title": "Tokens by model (total)",
+   "description": "Prompt (input) and completion (output) tokens reported by the model server.",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
    },
    "gridPos": {
     "h": 8,
-    "w": 24,
+    "w": 12,
     "x": 0,
     "y": 8
    },
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (gen_ai_request_model, kind) (gen_ai_client_token_usage_sum)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto"
+     "expr": "sum by (gen_ai_request_model, kind) (gen_ai_client_token_usage_sum)",
+     "legendFormat": "{{gen_ai_request_model}} {{kind}}"
     }
    ]
   },
   {
    "type": "timeseries",
    "title": "Forecast/Trader agent runs by slot and status (total)",
+   "description": "Each configurable agent slot run (critics, explainers, news analyst, paper agents) and its outcome (completed, invalid, failed, ...).",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
    },
    "gridPos": {
     "h": 8,
-    "w": 24,
-    "x": 0,
-    "y": 16
+    "w": 12,
+    "x": 12,
+    "y": 8
    },
    "targets": [
     {
@@ -109,14 +107,15 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "legendFormat": "__auto",
-     "expr": "sum by (slot_id, status) (personal_ai_slot_runs_total)"
+     "expr": "sum by (slot_id, status) (personal_ai_slot_runs_total)",
+     "legendFormat": "{{slot_id}} {{status}}"
     }
    ]
   },
   {
    "type": "table",
-   "title": "Forecast and Trader traces",
+   "title": "LLM calls (traces)",
+   "description": "Traces that contain a model call. Open one: the 'chat <model>' span lists tools offered/called, tokens, temperature, max tokens and response format.",
    "datasource": {
     "type": "tempo",
     "uid": "tempo"
@@ -125,7 +124,7 @@
     "h": 9,
     "w": 24,
     "x": 0,
-    "y": 24
+    "y": 16
    },
    "targets": [
     {
@@ -135,13 +134,47 @@
       "uid": "tempo"
      },
      "queryType": "traceql",
-     "query": "{resource.service.name=\"personal_ai\" && (name=~\"forecast.*|tot.search|trader.*\")}",
-     "limit": 20,
+     "query": "{resource.service.name=\"personal_ai\" && span.gen_ai.operation.name=\"chat\"}",
+     "limit": 25,
+     "tableType": "traces"
+    }
+   ]
+  },
+  {
+   "type": "table",
+   "title": "Forecast and Trader traces",
+   "description": "Newest traces first. Click a Trace ID to open the waterfall (span tree with timings) in Explore. Span names say what ran: 'chat <agent>', 'wave N', 'step <agent>', 'chat <model>' (an LLM call: tools offered/called, tokens, params), 'tool <name>', 'quarantine <schema>', 'sync gmail', 'forecast ...', 'trader ...', 'agent turn'.",
+   "datasource": {
+    "type": "tempo",
+    "uid": "tempo"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 25
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "tempo"
+     },
+     "queryType": "traceql",
+     "query": "{resource.service.name=\"personal_ai\" && name=~\"forecast.*|trader.*|tot.*\"}",
+     "limit": 25,
      "tableType": "traces"
     }
    ]
   }
  ],
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "refresh": "30s",
  "tags": [
   "personal_ai"
  ]

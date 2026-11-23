@@ -26,20 +26,37 @@ Settings (`src/config.py`): `PERSONAL_AI_OTEL_ENABLED` (default false), `PERSONA
 
 ## What is emitted
 
-| Signal | Name | Where |
-|---|---|---|
-| Trace root | `agent.run` (steps, claims, conflicts, escalations, agents, refused/refusal) | `service.run_query` |
-| Spans | `coordinator.wave` → `agent.step` (agent, status, attempts, error type; pool threads keep the parent) | `coordinator.py` |
-| Spans | `gen_ai.chat` (GenAI semconv: model, input/output tokens, finish reason) | `OmlxClient.chat` |
-| Spans | `quarantine.extract` (schema, flagged, error), `tool.call` (tool, server, HTTP status), `sync.gmail` (counts), `tot.search` (termination, nodes, critic calls) | quarantine, `ReadOnlyMcp`, `GmailApi`, `gmail_bills`, `tot` |
-| Root spans (Forecast / Trader) | `forecast.critics`, `forecast.thesis_explainer`, `forecast.watchlist_explainer`, `forecast.news_analyst`, `forecast.portfolio_fit`, `trader.paper_agent` (model calls nest under them) | `@otel.traced` on the entry functions |
-| Metrics | `personal_ai.runs/steps/refusals/escalations/injection_flags/bus.messages/rag.turns/reviews/model.calls/tool.calls/activity`; histograms `personal_ai.run.duration`, `personal_ai.step.duration`, `gen_ai.client.operation.duration`, `gen_ai.client.token.usage` | `src/observability/otel.py` |
-| Logs | every encrypted Activity-log entry mirrored as an OTel log record (same code-built fields, cleaned); level INFO, WARN for refusals, injection flags, failed/invalid runs, rejected bus messages; body built from the cleaned fields (e.g. `refused refusal=trade`, `slot_run slot_id=forecast.news_analyst status=completed latency_ms=1200`) | `store.log_activity` |
+**Traces (Tempo).** One trace per top-level run; span names say what ran. Open any trace id (dashboard tables or
+Explore → Tempo) for the waterfall:
 
-Dashboards (Grafana folder *personal_ai*): **Agent runs** (with a *Recent traces* table: click a trace id for the span
-tree), **Guardrails**, **Models** (incl. Forecast/Trader slot runs + their traces), **Sync and tools** (incl. Sync traces)
-(`observability/dashboards/*.json`). Counter panels show running totals since the app started (a rate over a short
-window drops a series' first sample, so a single Sync or forecast run showed nothing). Traces also: Explore → Tempo.
+```
+chat email                      agent, planner, plan=email:ok, claims, escalations, escalation_kinds
+└─ wave 1                       agents in the wave
+   └─ step email                status, attempts, findings, depends_on
+      └─ quarantine EmailFacts  source_kind=gmail, chars, flagged, rule=send_or_forward, extract_error
+         └─ chat Qwen3-4B       LLM call: temperature, max_tokens, messages, response_format, tools offered /
+                                tool_calls returned (names), input/output tokens, finish reason
+sync gmail                      new, duplicates, notices, not_bill, failed, model_calls
+├─ tool search_threads          server, http.status
+└─ tool get_thread → quarantine BillEmailFacts → chat <model>
+forecast ai_review → forecast.critics (agents=bull:completed,...) → chat <model> …; forecast.thesis_explainer
+trader.paper_agent              agent_id, model, status, latency_ms, invalid_reason
+agent turn → chat <model> → tool <mcp tool>   (configurable agents' tool loop)
+```
+
+**Metrics (Prometheus).** `personal_ai_runs_total{run=chat|sync|forecast|trader|agent}` (every root trace),
+steps, refusals, escalations, injection flags `{rule, source_kind, schema}`, bus messages, RAG turns, reviews, slot runs,
+model/tool calls; latency + token histograms. (`run`, not `job`: Prometheus reserves `job` for the service name.)
+
+**Logs (Loki).** Every Activity-log entry plus `injection_flagged` events, level INFO/WARN, body built from the cleaned
+fields, e.g. `injection_flagged schema=EmailFacts source_kind=gmail rule=send_or_forward
+action=free_text_dropped_closed_fields_kept`. Rule `send_or_forward` also matches ordinary marketing ("email us at"),
+which is why the counter rises on promotional mail; the text is inert either way (closed schema).
+
+**Dashboards** (folder *personal_ai*; every panel has a description, hover the ⓘ): *Agent runs* (runs by type, steps,
+latency, Recent traces), *Guardrails* (refusals, injection flags by rule/source, escalations, WARN log), *Models* (LLM calls,
+latency, tokens, slot runs, LLM-call traces, Forecast/Trader traces), *Sync and tools* (tool calls, Sync traces, activity log).
+Explore is enabled for the local viewer (`GF_USERS_VIEWERS_CAN_EDIT`): without it trace links opened the home page.
 
 ## Privacy controls (why this is safe to store in plain text)
 

@@ -31,6 +31,7 @@ from src.agents.mcp import McpError, McpManager, McpTool, ToolResult
 from src.agents.skills import render_skills_for_prompt
 from src.ai_engine.engine import build_chat_client
 from src.ai_engine.ollama_client import OllamaClient
+from src.observability import otel
 
 DENIED_RESULT_TEXT = (
     "DENIED by user. Do not retry this action; tell the user it was not "
@@ -143,6 +144,7 @@ class AgentRuntime:
 
     # -- public API -------------------------------------------------------
 
+    @otel.traced("agent turn")
     def start_run(
         self,
         session_id: str,
@@ -193,6 +195,7 @@ class AgentRuntime:
             notices,
         )
 
+    @otel.traced("agent resume")
     def resume_run(
         self, session_id: str, agent: Dict[str, Any], decision: str
     ) -> RunResult:
@@ -477,7 +480,9 @@ class AgentRuntime:
         started = time.monotonic()
         error: Optional[str] = None
         try:
-            result = self.mcp.call_tool(server_id, name, args)
+            with otel.span(f"tool {name}", tool=name, server="mcp", agent_id=agent.get("id")) as sp:
+                result = self.mcp.call_tool(server_id, name, args)
+                sp.set(ok=result.ok)
         except McpError as exc:
             result = ToolResult(ok=False, text=f"Tool call failed: {exc}")
             error = str(exc)

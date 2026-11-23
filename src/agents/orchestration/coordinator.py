@@ -234,9 +234,10 @@ class Coordinator:
     def _attempt(self, step: PlanStep, inputs, cancel: Optional[threading.Event] = None, ctx=None):
         """Runs in a pool thread and only RETURNS a result: a thread that outlives its timeout can
         therefore never mutate a report that was already built."""
-        with otel.attached(ctx), otel.span("agent.step", agent=step.agent, step_id=step.id) as sp:
+        with otel.attached(ctx), otel.span(f"step {step.agent}", agent=step.agent, step_id=step.id,
+                                                    depends_on=",".join(step.depends_on) or None) as sp:
             r = self._attempt_inner(step, inputs, cancel)
-            sp.set(status=r[0], attempts=r[3], error_type=r[2] or None)
+            sp.set(status=r[0], attempts=r[3], error_type=r[2] or None, findings=len(r[1]))
             otel.observe("personal_ai.step.duration", (r[5] - r[4]) * 1000, agent=step.agent, status=r[0])
             return r
 
@@ -304,7 +305,8 @@ class Coordinator:
                 else:
                     ready.append(s)
             if ready:
-                with otel.span("coordinator.wave", wave=wave, steps=len(ready)):
+                with otel.span(f"wave {wave}", wave=wave, steps=len(ready),
+                                   agents=",".join(s.agent for s in ready)):
                     self._run_wave(ready, results, wave, t0)
         for s in plan.steps:
             results.setdefault(s.id, StepResult(s.id, s.agent, "skipped", error="round budget", wave=0))

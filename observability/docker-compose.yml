@@ -10,6 +10,7 @@ services:
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_USERS_VIEWERS_CAN_EDIT: "true"   # Explore (trace waterfall, log details) for the loopback-only viewer
     volumes:
       - ./dashboards:/var/lib/personal_ai_dashboards:ro
       - ./dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/personal_ai.yaml:ro
