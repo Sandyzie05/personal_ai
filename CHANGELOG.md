@@ -4,6 +4,15 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - fix: Gmail bills dated by email; Re-read; Email Digest as a table
+
+- Bills whose email states no period fell back to TODAY, so 14 of 15 live RMP bills were "duplicates" of one bill dated
+  today. Now the email's send date (Date header / internalDate) is the fallback. *Re-read* per Gmail sender clears that
+  provider's Gmail-sourced records + ledger (and their RAG entries) and syncs again; uploaded PDFs are untouched.
+- Upload → Sync explains what Sync does; "duplicate skipped" → "already saved (skipped)".
+- Chat: Email Digest answers as a table (from, type, topic, amount, due, note) with a count header; no internal
+  claim ids, evidence ids, "n/a" or financial-advice footer; clear message on timeout or empty inbox.
+
 ## (pending) - 2026-11-22 - feat: agent model drives extraction; small model for Gmail; live progress + Activity log
 
 - Coordinated agents ignored their model: every quarantine/verifier call ran on the 27B chat model (~25 s/email).

@@ -44,7 +44,7 @@ class IngestReport:
             f"{len(self.new)} new" + (f" ({', '.join(self.new)})" if self.new else "")
         ]
         if self.duplicates:
-            parts.append(f"{self.duplicates} duplicate skipped")
+            parts.append(f"{self.duplicates} already saved (skipped)")
         if self.superseded:
             parts.append(
                 f"{len(self.superseded)} corrected bill(s) superseded an older copy"

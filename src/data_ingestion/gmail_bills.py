@@ -83,6 +83,34 @@ def _match(domain: str, rows: List[dict]) -> Optional[dict]:
     )
 
 
+def _sent_date(m: dict) -> Optional[date]:
+    """Message send date from the Date header (RFC 2822) or internalDate (epoch ms); None if unparseable."""
+    from email.utils import parsedate_to_datetime
+
+    raw = _pick(m, "date", "Date", "internalDate")
+    try:
+        if isinstance(raw, (int, float)) or str(raw).isdigit():
+            return datetime.fromtimestamp(int(raw) / 1000).date()
+        return parsedate_to_datetime(str(raw)).date() if raw else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def reset(vault, provider: str, on_removed: Optional[Callable[[str], None]] = None) -> int:
+    """Forget what Gmail sync stored for one provider (records + read-once ledger) so the next Sync re-reads its
+    emails. Only gmail-sourced entries are touched; uploaded PDFs stay."""
+    docs = pipeline._manifest(vault)
+    drop = [k for k, d in docs.items() if d.get("source") == "gmail" and d.get("provider") == provider]
+    for k in drop:
+        key = docs.pop(k).get("storage_key")
+        if key:
+            vault.delete_data(key)
+            if on_removed:
+                on_removed(key)
+    pipeline._save(vault, docs)
+    return len(drop)
+
+
 def _pick(d: dict, *names):
     for n in names:
         v = d.get(n)
@@ -255,11 +283,12 @@ def sync(
                     "fetched_at": datetime.now().isoformat(),
                 }
                 continue
-            end = f.period_end or f.statement_date or (today or date.today())
+            # Most "your bill is ready" emails state no period; the email's own send date is the statement date
+            # then. (Falling back to TODAY made every bill the same period: live, 14 of 15 counted as duplicates.)
+            sent = _sent_date(m)
+            end = f.period_end or f.statement_date or sent or (today or date.today())
             if end > (today or date.today()) + timedelta(days=45):
-                end = f.statement_date or (
-                    today or date.today()
-                )  # a due date is not a period end
+                end = f.statement_date or sent or (today or date.today())  # a due date is not a period end
             dup = any(
                 d.get("status") == "indexed"
                 and d.get("provider") == entry["provider"]

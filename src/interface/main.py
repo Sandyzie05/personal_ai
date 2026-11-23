@@ -655,18 +655,14 @@ class PersonalAIInterface:
                 service.propose_from_report(self.vault, report)
                 answer = render_report(report)
                 if agent.get("role") == "email":
-                    answer = (
-                        "**Email digest** (newest threads from the last 2 days, read-only; each email passed through "
-                        "the quarantine extractor, so only its typed facts are shown)\n\n"
-                        + (
-                            ""
-                            if report.claims or report.escalations
-                            else "No new email found.\n\n"
-                        )
-                        + answer
-                    )
+                    from src.agents.orchestration.workers import render_email_digest
+
+                    answer = render_email_digest(report)
                 answer += (
-                    "\n\n_Parallel specialists: "
+                    f"\n\n_Read-only · each email passed through the quarantine extractor ({xmodel}) · "
+                    f"{report.wall_s:.1f}s_"
+                    if agent.get("role") == "email"
+                    else "\n\n_Parallel specialists: "
                     + ("overlapped" if report.parallel_overlap else "single step")
                     + f", {report.wall_s:.1f}s._"
                 )
@@ -1281,7 +1277,11 @@ class PersonalAIInterface:
         No UI feedback here - the upload page's `st.status` block already
         reports per-file progress and a final summary.
         """
-        if self.chat_engine:
+        if not self.chat_engine:
+            return
+        if data is None:  # Gmail Re-read removed the record
+            self.chat_engine.remove_document(storage_key)
+        else:
             self.chat_engine.index_document(storage_key, data)
 
     def render_config_page(self) -> None:
