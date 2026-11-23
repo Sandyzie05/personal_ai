@@ -248,7 +248,16 @@ class VaultTokenStorage:
         record["expires_at"] = (
             time.time() + tokens.expires_in if tokens.expires_in else None
         )
+        record.pop("refresh_failed", None)
         self._save(record)
+
+    def mark_refresh_failed(self) -> None:
+        record = self._load()
+        record["refresh_failed"] = True
+        self._save(record)
+
+    def refresh_failed(self) -> bool:
+        return bool(self._load().get("refresh_failed"))
 
     def expires_at(self) -> Optional[float]:
         value = self._load().get("expires_at")
@@ -302,15 +311,19 @@ class VaultTokenStorage:
 
 
 async def _discover_as_metadata(server_url: str) -> Optional[OAuthMetadata]:
-    """RFC 9728 protected-resource metadata -> first authorization server -> RFC 8414 / OIDC metadata. Unauthenticated
-    GETs of public documents; the issuer must match the advertised server (root trailing slash tolerated)."""
-    parsed = urlparse(server_url)
-    origin = f"{parsed.scheme}://{parsed.netloc}"
+    """RFC 9728 protected-resource metadata -> first authorization server -> RFC 8414 / OIDC metadata, using the SDK's
+    own URL builders (path-aware: an issuer like https://host/mcp/trading lives at
+    /.well-known/oauth-authorization-server/mcp/trading). Unauthenticated GETs of public documents; the issuer must
+    match the advertised server (root trailing slash tolerated)."""
+    from mcp.client.auth.utils import (
+        build_oauth_authorization_server_metadata_discovery_urls,
+        build_protected_resource_metadata_discovery_urls,
+    )
+
     client = create_mcp_http_client()
     try:
         prm = None
-        for url in (f"{origin}/.well-known/oauth-protected-resource{parsed.path.rstrip('/')}",
-                    f"{origin}/.well-known/oauth-protected-resource"):
+        for url in build_protected_resource_metadata_discovery_urls(None, server_url):
             r = await client.get(url)
             if r.status_code == 200:
                 prm = r.json()
@@ -319,12 +332,11 @@ async def _discover_as_metadata(server_url: str) -> Optional[OAuthMetadata]:
         if not servers:
             return None
         issuer = str(servers[0])
-        base = issuer.rstrip("/")
-        for url in (f"{base}/.well-known/oauth-authorization-server", f"{base}/.well-known/openid-configuration"):
+        for url in build_oauth_authorization_server_metadata_discovery_urls(issuer, server_url):
             r = await client.get(url)
             if r.status_code == 200:
                 meta = OAuthMetadata.model_validate(r.json())
-                return meta if _issuers_match(str(meta.issuer).rstrip("/") + "/", base + "/") else None
+                return meta if _issuers_match(str(meta.issuer), issuer) else None
         return None
     except Exception:
         return None
@@ -346,6 +358,12 @@ class _VaultOAuthProvider(OAuthClientProvider):
             self.context.client_metadata.scope = self._pinned_scope
         return await super()._perform_authorization_code_grant()
 
+    async def _handle_refresh_response(self, response) -> bool:
+        ok = await super()._handle_refresh_response(response)
+        if not ok and isinstance(self.context.storage, VaultTokenStorage):
+            self.context.storage.mark_refresh_failed()
+        return ok
+
     async def _exchange_token_authorization_code(self, auth_code: str, code_verifier: str):
         # Discovery happens only during a full sign-in; keep the AS metadata so later fresh providers refresh at the
         # real token endpoint (else the SDK guesses <mcp-server-origin>/token: 404 on Google, then a browser flow).
@@ -364,7 +382,11 @@ class _VaultOAuthProvider(OAuthClientProvider):
                 if self.context.oauth_metadata is not None:
                     storage.set_auth_metadata(self.context.oauth_metadata.model_dump(mode="json"))
         expires = storage.expires_at() if isinstance(storage, VaultTokenStorage) else None
-        if expires is not None:
+        if isinstance(storage, VaultTokenStorage) and storage.refresh_failed():
+            # A refresh already failed for this grant: do not retry it on every call (log spam, wasted round trips).
+            # The stale token is sent as is; the 401 then asks for a sign-in, which clears the flag.
+            self.context.token_expiry_time = None
+        elif expires is not None:
             self.context.token_expiry_time = expires - 60  # refresh a minute early
         elif self.context.current_tokens is not None and self.context.current_tokens.refresh_token:
             self.context.token_expiry_time = 1  # unknown age (stored before this fix): refresh first; 0 would read as "no expiry"

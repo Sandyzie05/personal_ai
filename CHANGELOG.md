@@ -4,6 +4,22 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - feat: agent model drives extraction; small model for Gmail; live progress + Activity log
+
+- Coordinated agents ignored their model: every quarantine/verifier call ran on the 27B chat model (~25 s/email).
+  `engine.extraction_client(client, model)`: the agent's model (Email Digest/Portal default `PERSONAL_AI_QUARANTINE_MODEL`
+  = worker model, else the 4B critic model), reply cap `QUARANTINE_MAX_TOKENS` (300). Bill Sync follows Email Digest's model.
+- Gmail sync: newest 15 threads, live progress (thread i/N, model, elapsed), model-call count in the summary.
+- Observability: Agents → Activity now also logs each Gmail sync and coordinated chat turn (agent, steps:status, model,
+  duration, model calls; code-built, no email text).
+
+## (pending) - 2026-11-22 - fix: Robinhood/MCP refresh 404 (path issuer); no refresh retry storm; sync domain hint
+
+- Metadata lookup is path-aware (SDK builders): Robinhood refresh now goes to api.robinhood.com/oauth2/token/.
+- A failed refresh is not retried on every call. Email digest reads 5 threads, 2,500 chars each (faster locally).
+- Gmail sync with 0 threads says to check the sender domain spelling. Forecast `forecast_section` warning fixed;
+  `use_container_width` → `width="stretch"` (deprecated in Streamlit 1.62).
+
 ## (pending) - 2026-11-21 - fix: chat message lost on rerun; Email Digest timeout; Sync "0 new" explained
 
 - Chat: the question is stored before the agent runs (was after a 30 s+ run; a rerun mid-run dropped it).

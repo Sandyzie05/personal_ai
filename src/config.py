@@ -63,6 +63,12 @@ PERSONAL_AI_OMLX_WORKER_MODEL = os.environ.get("PERSONAL_AI_OMLX_WORKER_MODEL", 
 PERSONAL_AI_FORECAST_CRITIC_MODEL = os.environ.get(
     "PERSONAL_AI_FORECAST_CRITIC_MODEL", "Qwen3-4B-Instruct-2507-MLX-8bit"
 )
+# Quarantine extraction (bill emails, email digest, portal text): many small closed-schema JSON calls. Default = the
+# worker model, else the small critic model; the 27B chat model took ~25 s per email (live) and is not needed here.
+PERSONAL_AI_QUARANTINE_MODEL = (
+    os.environ.get("PERSONAL_AI_QUARANTINE_MODEL") or PERSONAL_AI_OMLX_WORKER_MODEL or PERSONAL_AI_FORECAST_CRITIC_MODEL
+)
+QUARANTINE_MAX_TOKENS = int(os.environ.get("PERSONAL_AI_QUARANTINE_MAX_TOKENS", "300"))
 
 # Default generation temperature for grounded QA. 0.7 (the old default) is too
 # free-wheeling for an assistant that must answer strictly from retrieved

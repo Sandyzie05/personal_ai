@@ -31,7 +31,7 @@ class ReadOnlyMcp:
         return result.text
 
 
-DIGEST_THREADS = 10
+DIGEST_THREADS = 5  # each one is a local-model quarantine call; 10 took minutes
 
 
 def gmail_fetcher(ro: ReadOnlyMcp, query: str = "newer_than:2d") -> Callable[[], List[dict]]:
@@ -106,7 +106,7 @@ def digest_emails(emails: Iterable[dict], client: Any, vault: Any = None) -> Lis
     for i, e in enumerate(list(emails)[:MAX_ITEMS]):
         eid = re.sub(r"[^A-Za-z0-9_-]", "", str(e.get("id", i)))[:24] or str(i)
         raw = f"From: {e.get('from', '')}\nSubject: {e.get('subject', '')}\n\n{e.get('body', '')}"
-        ex = extract_facts(raw, f"gmail:{eid}", EmailFacts, client)
+        ex = extract_facts(raw, f"gmail:{eid}", EmailFacts, client, max_chars=2500)  # digest needs the gist only
         if ex.flagged:
             _flag(vault, f"gmail:{eid}")
         if ex.facts is None:

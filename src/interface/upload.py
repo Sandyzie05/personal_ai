@@ -75,7 +75,7 @@ def render_upload_page(
         f"Upload All ({len(pending)})",
         icon=":material/lock:",
         type="primary",
-        use_container_width=True,
+        width="stretch",
     ):
         _upload_all(pending, vault, encryption_key, ollama_client, on_uploaded)
         _clear_all_pending()

@@ -66,11 +66,11 @@ def _delete_agent_dialog(vault: Any, agent_id: str, agent_name: str) -> None:
     )
     confirm_col, cancel_col = st.columns(2)
     with confirm_col:
-        if st.button("Delete", type="primary", use_container_width=True):
+        if st.button("Delete", type="primary", width="stretch"):
             store.delete_agent(vault, agent_id)
             st.rerun()
     with cancel_col:
-        if st.button("Cancel", use_container_width=True):
+        if st.button("Cancel", width="stretch"):
             st.rerun()
 
 
@@ -82,7 +82,7 @@ def _delete_mcp_server_dialog(vault: Any, server_id: str, server_name: str) -> N
     )
     confirm_col, cancel_col = st.columns(2)
     with confirm_col:
-        if st.button("Delete", type="primary", use_container_width=True):
+        if st.button("Delete", type="primary", width="stretch"):
             store.delete_mcp_server(vault, server_id)
             try:
                 vault.delete_data(f"mcp_oauth_{server_id}")
@@ -90,7 +90,7 @@ def _delete_mcp_server_dialog(vault: Any, server_id: str, server_name: str) -> N
                 pass
             st.rerun()
     with cancel_col:
-        if st.button("Cancel", use_container_width=True):
+        if st.button("Cancel", width="stretch"):
             st.rerun()
 
 
@@ -102,11 +102,11 @@ def _delete_skill_dialog(slug: str, skill_name: str) -> None:
     )
     confirm_col, cancel_col = st.columns(2)
     with confirm_col:
-        if st.button("Delete", type="primary", use_container_width=True):
+        if st.button("Delete", type="primary", width="stretch"):
             skills.delete_skill(slug)
             st.rerun()
     with cancel_col:
-        if st.button("Cancel", use_container_width=True):
+        if st.button("Cancel", width="stretch"):
             st.rerun()
 
 
@@ -598,7 +598,7 @@ def _render_mcp_server_card(
             if st.button(
                 "Disable" if server.get("enabled", False) else "Enable",
                 icon=":material/power_settings_new:",
-                use_container_width=True,
+                width="stretch",
                 key=f"mcp_toggle_{server_id}",
             ):
                 store.save_mcp_server(
@@ -609,7 +609,7 @@ def _render_mcp_server_card(
             if st.button(
                 "Connect & Authorize" if server.get("kind") == "remote" else "Test",
                 icon=":material/link:",
-                use_container_width=True,
+                width="stretch",
                 key=f"mcp_auth_{server_id}",
             ):
                 if server.get(
@@ -631,7 +631,7 @@ def _render_mcp_server_card(
             if st.button(
                 "Refresh tools",
                 icon=":material/sync:",
-                use_container_width=True,
+                width="stretch",
                 key=f"mcp_refresh_{server_id}",
             ):
                 with st.status("Refreshing tools...", expanded=True):
@@ -644,7 +644,7 @@ def _render_mcp_server_card(
             if st.button(
                 "Delete",
                 icon=":material/delete:",
-                use_container_width=True,
+                width="stretch",
                 key=f"mcp_del_{server_id}",
             ):
                 _delete_mcp_server_dialog(
@@ -835,8 +835,8 @@ def _render_activity_tab(vault: Any) -> None:
     entries = store.list_activity(vault, limit=100)
     if not entries:
         st.info(
-            "No tool activity yet. Every agent tool call shows up here with "
-            "its arguments, outcome, and duration (newest first)."
+            "No activity yet. Every agent tool call, Gmail sync and agent chat turn shows up here with its "
+            "arguments, model, outcome and duration (newest first)."
         )
         return
     rows = [
@@ -848,6 +848,8 @@ def _render_activity_tab(vault: Any) -> None:
             "args": e.get("args_digest", ""),
             "ok": "yes" if e.get("ok") else "no",
             "ms": e.get("duration_ms", 0),
+            "model": e.get("model", ""),
+            "model calls": e.get("model_calls", ""),
             "error": e.get("error") or "",
         }
         for e in entries

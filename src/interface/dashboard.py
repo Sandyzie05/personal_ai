@@ -385,7 +385,7 @@ def _render_filter_bar(
     with reset_col:
         st.write("")
         if st.button(
-            "Reset", icon=":material/filter_alt_off:", use_container_width=True
+            "Reset", icon=":material/filter_alt_off:", width="stretch"
         ):
             st.session_state.pop(_FILTER_CATEGORY_KEY, None)
             st.session_state.pop(_FILTER_VENDOR_KEY, None)

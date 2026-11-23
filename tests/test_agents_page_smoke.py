@@ -207,7 +207,7 @@ def test_agents_page_tabs_all_render_without_network(app):
     assert any("Robinhood" in m and "remote" in m for m in markdowns), "server card"
 
     infos = [str(i.value) for i in app.info]
-    assert any("No tool activity yet" in i for i in infos), "activity tab empty state"
+    assert any("No activity yet" in i for i in infos), "activity tab empty state"
 
     captions = [str(c.value) for c in app.caption]
     assert any("Skills are plaintext instruction files" in c for c in captions)

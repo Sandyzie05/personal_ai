@@ -540,3 +540,50 @@ def test_tokens_without_stored_metadata_discover_the_token_endpoint(tmp_path, mo
     p.context.server_url = "https://gmail.example/mcp"
     asyncio.run(p._initialize())
     assert p.context.oauth_metadata is None  # issuer mismatch: not trusted
+
+
+def test_path_issuer_discovery_finds_the_real_token_endpoint(monkeypatch):
+    """Live bug: Robinhood's issuer is https://agent.robinhood.com/mcp/trading; its metadata lives at
+    /.well-known/oauth-authorization-server/mcp/trading (RFC 8414), so the old lookup failed and refresh 404'd."""
+    from types import SimpleNamespace
+
+    import src.agents.mcp as m
+
+    docs = {
+        "https://broker.example/.well-known/oauth-protected-resource/mcp/trading":
+            {"authorization_servers": ["https://broker.example/mcp/trading"]},
+        "https://broker.example/.well-known/oauth-authorization-server/mcp/trading": {
+            "issuer": "https://broker.example/mcp/trading", "authorization_endpoint": "https://broker.example/oauth",
+            "token_endpoint": "https://api.broker.example/oauth2/token/"},
+    }
+
+    class FakeHttp:
+        async def get(self, url):
+            return SimpleNamespace(status_code=200 if url in docs else 404, json=lambda: docs[url])
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(m, "create_mcp_http_client", lambda *a, **k: FakeHttp())
+    meta = asyncio.run(m._discover_as_metadata("https://broker.example/mcp/trading"))
+    assert str(meta.token_endpoint) == "https://api.broker.example/oauth2/token/"
+
+
+def test_failed_refresh_is_not_retried_on_every_call(tmp_path):
+    from types import SimpleNamespace
+
+    storage = VaultTokenStorage(make_vault(tmp_path), "rh")
+    asyncio.run(storage.set_tokens(OAuthToken(access_token="a", refresh_token="r", expires_in=1)))
+    asyncio.run(storage.set_client_info(OAuthClientInformationFull(client_id="c", redirect_uris=["http://localhost/cb"])))
+    p = _provider(storage)
+    asyncio.run(p._initialize())
+
+    async def fail():
+        return await p._handle_refresh_response(SimpleNamespace(status_code=404, headers={}, is_redirect=False, next_request=None))
+
+    assert asyncio.run(fail()) is False and storage.refresh_failed()
+    p2 = _provider(storage)
+    asyncio.run(p2._initialize())
+    assert p2.context.token_expiry_time is None  # no refresh attempt; a 401 will ask for sign-in instead
+    asyncio.run(storage.set_tokens(OAuthToken(access_token="b", refresh_token="r", expires_in=3600)))
+    assert not storage.refresh_failed()  # a new sign-in clears it
