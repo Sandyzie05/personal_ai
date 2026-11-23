@@ -42,6 +42,9 @@ OMLX_SUPPORTS_TOOLS = os.environ.get("PERSONAL_AI_OMLX_TOOLS", "true").lower() i
     "true",
     "yes",
 )
+# Track O: OpenTelemetry export (off by default). Endpoint must be loopback (src/observability/otel.py refuses others).
+PERSONAL_AI_OTEL_ENABLED = os.environ.get("PERSONAL_AI_OTEL_ENABLED", "false").lower() in ("1", "true", "yes")
+PERSONAL_AI_OTEL_ENDPOINT = os.environ.get("PERSONAL_AI_OTEL_ENDPOINT", "http://127.0.0.1:4318")
 # Optional LLM planner for the Coordinator (off: rule-based plan_for). Its output still passes validate_plan.
 PERSONAL_AI_LLM_PLANNER = os.environ.get(
     "PERSONAL_AI_LLM_PLANNER", "false"

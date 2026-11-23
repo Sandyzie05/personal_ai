@@ -185,6 +185,15 @@ def search(
     snapshot: EvidenceSnapshot, critique: Optional[Callable[[], object]] = None
 ) -> ThoughtTree:
     """`critique()` returns a ScenarioReport (or None); it is called at most once, only for depth 2."""
+    from src.observability import otel
+
+    with otel.span("tot.search") as sp:
+        tree = _search(snapshot, critique)
+        sp.set(status=tree.termination, outcome=tree.outcome, steps=len(tree.nodes), model_calls=tree.critic_calls)
+        return tree
+
+
+def _search(snapshot: EvidenceSnapshot, critique: Optional[Callable[[], object]] = None) -> ThoughtTree:
     drivers = _drivers(snapshot)
     if not drivers:
         return ThoughtTree(

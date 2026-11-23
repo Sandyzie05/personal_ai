@@ -4,6 +4,35 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - feat(S0): email-text bills are notices, not documents; Track M plan
+
+- Gmail Sync stores a manifest-only notice per bill (provider, period, emailed total/due); no `gmail-*.txt` documents, nothing
+  in Files, Dashboard or RAG. A later email with the amount upgrades a no-amount notice for the same period.
+- `gmail_bills.migrate_text_documents`: existing email-text documents → notices, removed from vault + RAG (once per session
+  on Upload → Sync, and at Sync start). Expected bills shows "email arrived · emailed $X due · PDF: indexed/missing".
+- Roadmap Track M (central Core Memory profile: human-only edits, per-agent section scope, providers section absorbs S2) and
+  `docs/core_memory_template.md`.
+
+## (pending) - 2026-11-22 - feat(Track O): end-to-end observability with OpenTelemetry + local Grafana LGTM
+
+- `src/observability/otel.py`: off by default, loopback-only OTLP/HTTP, private providers, `ALLOWED_ATTRS` filter on every
+  attribute, exceptions as type names. Spans: `agent.run` → `coordinator.wave` → `agent.step` (context carried into pool
+  threads), `gen_ai.chat` (GenAI semconv, tokens), `quarantine.extract`, `tool.call` (MCP + Gmail API), `sync.gmail`,
+  `tot.search`. Metrics: runs, steps, refusals, escalations, injection flags, bus messages, RAG turns, reviews, model/tool
+  calls, latency + token histograms. Every Activity-log entry mirrored as an OTel log record.
+- Chat refusals now logged (`kind: refused`); agent-turn entries carry escalation kinds (closes the W6 logging gaps).
+- `observability/`: `grafana/otel-lgtm` compose (127.0.0.1 ports, no volume), 4 dashboards (Agent runs, Guardrails, Models,
+  Sync and tools); `make obs-up`, `make obs-down`, `make run-obs`. Deps: `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http`.
+- Eval row "Telemetry leakage" (hard): 0 canaries in 295 spans / 11 logs. `test_otel.py` (5 tests). Docs:
+  `observability.md`, security_design, platform_plan S27 + §5 + D14, architecture, roadmap Track O, AGENTS.md rule.
+
+## (pending) - 2026-11-22 - docs: Track S live findings (S0 email text not a document, S7 digest = Sync)
+
+- `docs/roadmap.md` §00 live status after #48/#49; new cards S0 (email-text bills become manifest-only signals; only official
+  PDFs are documents; migrate existing `gmail_bill_*` docs out of Files/RAG) and S7 (digest reuses Sync's bill facts / same
+  extractor); S4 dedupe text adjusted; §0 diagram, §1, §2 order. §1.0 assignment coverage splits W6 into guardrails / logging /
+  observability / human intervention; Track O (OpenTelemetry → local Grafana LGTM, O1-O5) and D14 added; S6 widened to guardrail telemetry (chat refusals and escalation kinds not logged yet). `rag_design.md` R11 note. Miro frames 0 and 6 updated.
+
 ## (pending) - 2026-11-22 - fix: Email Digest answers the question asked (sender + time window)
 
 - The digest always searched `newer_than:2d` and showed the newest 5 threads, whatever was asked. Now

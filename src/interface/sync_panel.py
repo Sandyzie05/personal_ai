@@ -206,8 +206,14 @@ def _expected(vault, s, on_indexed, client) -> None:
         a.text(p)
         o = late.get(p)
         src = _sync_source(vault, p)
+        bs = pipeline.bill_status(vault, p)  # S0: emailed facts are a signal; the PDF is the document
         b.caption(f"{cad} · " + ("no bill yet" if o and not o["last_period_end"] else "overdue" if o else "on time")
-                  + (f" · via {src}" if src else " · upload only"))
+                  + (f" · via {src}" if src else " · upload only")
+                  + (f" · email arrived {bs['arrived']}"
+                     + (f" · emailed ${bs['emailed_total']:,.2f}" if bs["emailed_total"] is not None else "")
+                     + (f" due {bs['emailed_due']}" if bs["emailed_due"] else "")
+                     + (" · PDF: indexed" if bs["pdf"] else " · PDF: missing (upload it or use a portal recipe)")
+                     if bs else ""))
         if c.button("Sync", key=f"sync_one_{p}", icon=":material/sync:", disabled=not src,
                     help=f"Fetch {p} bills from {src}" if src else
                     "No sync source: add a Gmail sender for this provider below, or upload the bill PDF."):
@@ -238,7 +244,8 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
     st.caption(
         "For providers that email the amount instead of a PDF. Only senders listed here are read (read-only); each email "
         "goes through the quarantine extractor, which returns just the total, due date and period. The email itself is "
-        "never stored or indexed. **What Sync does:** searches Gmail for each sender's newest 15 email threads (last 13 "
+        "never stored or indexed, and the extracted facts are not a document either: they only mark the bill as arrived "
+        "(with the emailed amount and due date) until the official PDF is uploaded or fetched. **What Sync does:** searches Gmail for each sender's newest 15 email threads (last 13 "
         "months; older ones are not read), reads each email once (already-read ones are skipped), extracts the bill "
         "facts with the local model, and saves one bill per billing period; a \"your bill is ready\" email without an "
         "amount counts as the bill arriving (bill notice). The table after a Sync shows what happened to each email. Bills then appear on the "
@@ -283,6 +290,11 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
 
 def render(vault, on_indexed: Callable[[str, Any], None], quarantine_client: Any = None) -> None:
     st.subheader(":material/sync: Sync")
+    if not st.session_state.get("s0_migrated"):  # S0: old email-text documents leave Files/RAG once
+        from src.data_ingestion import gmail_bills
+
+        gmail_bills.migrate_text_documents(vault, lambda k: on_indexed(k, None))
+        st.session_state["s0_migrated"] = True
     s = pipeline.sync_status(vault)
     st.caption("Documents: " + (", ".join(f"{n} {k}" for k, n in sorted(s["counts"].items())) or "none ingested yet"))
     for o in s["overdue"]:

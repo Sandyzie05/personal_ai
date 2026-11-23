@@ -56,16 +56,17 @@ def setup():
     return v, FakeGmail()
 
 
-def test_sync_stores_templated_record_and_feeds_expected_bills():
+def test_sync_stores_a_notice_not_a_document_and_feeds_expected_bills():
+    """S0: email text is a signal; only official PDFs are documents (Files, Dashboard, RAG)."""
     v, g = setup()
     ex, indexed = Extractor(), []
     rep = gmail_bills.sync(v, ReadOnlyMcp(g, "gm"), ex, lambda k, d: indexed.append(k), today=date(2026, 11, 20))
     assert rep.new == ["Rocky Mountain Power 2026-11-14"] and len(ex.seen) == 1
     assert "evil" not in " ".join(ex.seen) and EVIL not in json.dumps(v.records)  # non-allowlisted: never read
-    (key,) = indexed
-    doc = v.records[key]
-    assert doc["extraction"]["total"] == 84.12 and doc["metadata"]["category"] == "electricity"
-    assert BODY not in json.dumps(doc)  # the email itself is never stored
+    assert indexed == [] and not [k for k in v.records if k.startswith("gmail_bill_") and k != gmail_bills.SENDERS_KEY]
+    (n,) = [d for d in pipeline._manifest(v).values() if d["status"] == "notice"]
+    assert n["emailed_total"] == 84.12 and n["emailed_due"] == "2026-12-10" and n["category"] == "electricity"
+    assert BODY not in json.dumps(v.records)  # the email itself is never stored
     assert g.calls[1][1] == {"threadId": "t1", "messageFormat": "PLAIN_TEXT"}  # args fitted to the schema
     assert "rockymountainpower" in g.calls[0][1]["query"]
     assert pipeline.overdue(v, today=date(2026, 11, 20)) == []  # expectation auto-added, bill on time
@@ -256,7 +257,7 @@ def test_bills_without_a_period_are_dated_by_email_and_reread_replaces_them():
     assert sorted(rep.new) == ["Rocky Mountain Power 2026-09-10", "Rocky Mountain Power 2026-10-11",
                                "Rocky Mountain Power 2026-11-12"] and rep.duplicates == 0
     removed = []
-    assert gmail_bills.reset(v, "Rocky Mountain Power", removed.append) == 3 and len(removed) == 3
+    assert gmail_bills.reset(v, "Rocky Mountain Power", removed.append) == 3 and removed == []  # notices: no documents
     assert not [k for k in v.records if k.startswith("gmail_bill_") and k != gmail_bills.SENDERS_KEY]
     assert len(gmail_bills.sync(v, ReadOnlyMcp(Monthly(), "gm"), ex, today=date(2026, 11, 22)).new) == 3  # re-read
 
@@ -391,3 +392,46 @@ def test_email_digest_uses_the_question_scope_end_to_end():
     rep = service.run_query(Coord(), "any email from Rocky Mountain Power this month?", only="email")
     assert g.calls[0][1]["query"].startswith("(from:rockymountainpower.net) after:")
     assert rep.email_scope.startswith("from rockymountainpower.net since ")
+
+
+def test_migration_turns_old_text_documents_into_notices_and_drops_them_from_rag():
+    v = MemoryVault()
+    v.store_data("gmail_bill_abcd", {"metadata": {"source": "gmail"}, "text_content": "x",
+                                     "extraction": {"total": 63.42}}, encrypt=True)
+    v.store_data("upload_pdf_1", {"metadata": {"source": "manual"}}, encrypt=True)
+    pipeline._save(v, {
+        "a": {"sha256": "a", "source": "gmail", "status": "indexed", "provider": "P", "period_end": "2026-11-04",
+              "storage_key": "gmail_bill_abcd"},
+        "b": {"sha256": "b", "source": "manual", "status": "indexed", "provider": "P", "period_end": "2026-10-04",
+              "storage_key": "upload_pdf_1"},
+    })
+    removed = []
+    assert gmail_bills.migrate_text_documents(v, removed.append) == 1 and removed == ["gmail_bill_abcd"]
+    docs = pipeline._manifest(v)
+    assert docs["a"]["status"] == "notice" and docs["a"]["emailed_total"] == 63.42 and "storage_key" not in docs["a"]
+    assert "gmail_bill_abcd" not in v.records and "upload_pdf_1" in v.records and docs["b"]["status"] == "indexed"
+    assert gmail_bills.migrate_text_documents(v) == 0  # idempotent
+    pipeline.set_expectation(v, "P", "monthly")
+    assert pipeline.overdue(v, today=date(2026, 11, 22)) == []  # a notice still counts as the bill arriving
+
+
+def test_later_amount_email_upgrades_a_no_amount_notice_for_the_same_period():
+    class Two(FakeGmail):
+        def call_tool(self, server_id, name, args, max_chars=None):
+            if name == "search_threads":
+                return SimpleNamespace(ok=True, text=json.dumps({"threads": [{"id": "t1"}, {"id": "t2"}]}))
+            body = "Your bill is ready" if args["threadId"] == "t1" else "Amount due $50."
+            return SimpleNamespace(ok=True, text=json.dumps({"messages": [{
+                "id": args["threadId"], "sender": "RMP <b@rockymountainpower.net>", "plaintextBody": body,
+                "date": "Mon, 16 Nov 2026 09:00:00 -0700"}]}))
+
+    class ByBody(Extractor):
+        def chat(self, *, messages, **kw):
+            r = {"is_bill": True} if "ready" in messages[1]["content"] else {"is_bill": True, "total_due": 50.0}
+            return {"message": {"content": json.dumps(r)}}
+
+    v = MemoryVault()
+    gmail_bills.add_sender(v, "Rocky Mountain Power", "electricity", "rockymountainpower.net")
+    rep = gmail_bills.sync(v, ReadOnlyMcp(Two(), "gm"), ByBody(), today=date(2026, 11, 22))
+    notices = [d for d in pipeline._manifest(v).values() if d["status"] == "notice"]
+    assert len(notices) == 1 and notices[0]["emailed_total"] == 50.0 and rep.new == ["Rocky Mountain Power 2026-11-16"]

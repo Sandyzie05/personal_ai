@@ -36,6 +36,7 @@ flowchart LR
   REP -. propose .-> CM["Core Memory<br/>(you approve in Agents tab)"]
   CM --> VA
   LLM["oMLX on 127.0.0.1<br/>≤ 2 in-flight requests"] -.- C & F & T & RAG
+  C & F & EM & LLM -. "spans, metrics, logs<br/>(allowlisted attrs, off by default)" .-> OT[["OpenTelemetry → Grafana LGTM<br/>127.0.0.1 only"]]
 ```
 
 | Layer | Code | Detail doc |
@@ -47,6 +48,7 @@ flowchart LR
 | Trader (plan + paper agents) | `src/trader/` | [trader.md](trader.md) |
 | Data + security | `src/data_vault/`, `src/security/`, `src/data_ingestion/`, `src/data_extraction/` | [security_design.md](security_design.md) |
 | Evals | `evals/` (`make eval`, `make eval-rag`) | [platform_plan.md](platform_plan.md) §5 |
+| Observability | `src/observability/otel.py`, `observability/` (`make obs-up`) | [observability.md](observability.md) |
 
 ## 2. User flow
 

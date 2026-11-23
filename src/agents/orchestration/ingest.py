@@ -27,7 +27,12 @@ class ReadOnlyMcp:
     def call(self, tool: str, args: Dict[str, Any]) -> str:
         if not READ_ONLY_TOOL.match(tool) or self.mcp.is_sensitive_tool(tool):
             raise PermissionError(f"tool '{tool}' is not read-only")
-        result = self.mcp.call_tool(self.server_id, tool, args)
+        from src.observability import otel
+
+        otel.count("personal_ai.tool.calls", tool=tool, server="mcp")
+        with otel.span("tool.call", tool=tool, server="mcp") as sp:
+            result = self.mcp.call_tool(self.server_id, tool, args)
+            sp.set(ok=result.ok)
         if not result.ok:
             raise ConnectionError(result.text[:100])
         return result.text

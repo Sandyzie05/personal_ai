@@ -31,17 +31,23 @@ user tests and pastes results back.
 | Per-agent tool picker (deny by default), MCP *Test read access* | Agents → Edit / MCP Servers | S26, `mcp.McpManager.probe` |
 | Forecast research + critics + ToT; Trader plan + paper agents; Robinhood | Forecast page | `forecaster.md`, `trader.md`, Track R |
 
-**Live status (user, 2026-11-22).** Gmail connected through the Gmail API (read-only); Email Digest answers in ~4 s with the
-4B model; Gmail bill sync reads Rocky Mountain Power and Enbridge. Open problems reported by the user, now **Track S**:
-1. This month's bills from both providers are not found although the emails exist (S1 decides why).
-2. Unclear what Sync covers (it reads the sender's newest 15 emails from the last 13 months, each once).
-3. "New provider (as in the bill) + Cadence" (Expected bills) vs "Provider / Category / Sender domain" (Gmail senders) are two
-   forms for one concept (S2 merges them).
-4. Email-text bills do not bring the bill PDF into RAG; Sync and PDF ingestion are separate (S4).
+**Live status (user, 2026-11-22, after PRs #48 S1 and #49 digest scope).** Gmail via the Gmail API (read-only). Sync on
+Enbridge: 6 threads in 13 months from `enbridgegas.com`, 6 bills saved (Nov, Sep, Aug, Jul, Jun, Apr; May and Oct absent from
+that domain), 0 not a bill, 6 model calls, 7 s. Email Digest now answers the question asked ("electricity and gas bills this
+month" → 2 bills since the 1st, 1.7 s). Open problems, all in **Track S**:
+1. **Email-text bills are saved as `.txt` documents** (Files, Dashboard, RAG). User decision: only the **official bill PDF** is a
+   document; email text is a signal (bill arrived, emailed amount/due) and must not enter Files or RAG (S0).
+2. **Digest and Sync disagree on the same email** (digest showed the Enbridge bill without an amount; Sync extracted one): the
+   digest uses `EmailFacts` with a 2,500-char cut, Sync uses `BillEmailFacts` on the full body (S7).
+3. Official PDFs are on the provider portals (emails link to them); portal recipes (R10) are not recorded yet, so no PDF
+   arrives (S4 for PDF attachments, R10 for link-only emails).
+4. Two forms for one provider concept (S2); what Sync covers is unclear (S3 copy); Sync is manual only (S5 schedule).
 
-**Next card for the agent: S2, then S3 → S4 → S5 → S6** (cards in §4 Track S). S1 done (PR: outcome list per message, bill
-notices without an amount count as arrived, "not a bill" re-checked on model change, one capped search per sender). User:
-press *Sync* (or *Re-read*) on both providers and paste the outcome table's *Outcome* column counts (no subjects).
+**Track O done offline (#50):** `docs/observability.md`; user validates with `make obs-up` + `make run-obs`.
+**S0 done (#50):** Gmail Sync stores manifest-only bill notices (emailed total/due), no `.txt` documents; old
+`gmail_bill_*` documents migrate out of Files/RAG when Upload → Sync opens.
+**Next card for the agent: M1 (Track M, central Core Memory profile), then M2 → M5, S7, S3 → S6** (S2 "one Bill providers
+list" is absorbed by M4: the profile's `providers` section is that list). Template: `docs/core_memory_template.md`.
 
 **Waiting on the user (model laptop).**
 1. Merge open PRs, `git pull`, `PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT=8765 make run` (a Web-type OAuth client needs that port).
@@ -70,7 +76,9 @@ flowchart LR
   D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
   P8 --> R[Track R: Robinhood research R0-R10 + Portfolio chat] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
   R --> RP[R9 Portfolio chat + R10 schema fit] --> GB[R11 Gmail bill text, PR 34] --> LC[Live checks: Gmail, calendar, Portfolio chat, paper agents] --> P11
-  GB --> GX[Gmail fixes + Gmail API read-only, PRs 36-46] --> S1[S1 why bills are missed] --> S2[S2 one Bill providers list] --> S3[S3 Upload page IA] --> S4[S4 bill PDFs from Gmail into RAG] --> S5[S5 sync window + schedule] --> S6[S6 run observability]
+  GB --> GX[Gmail fixes + Gmail API read-only, PRs 36-46] --> S1[S1 why bills are missed, PR 48] --> DQ[Digest question scope, PR 49] --> S0[S0 email text = signal, not a document] --> S7[S7 digest and Sync agree] --> S2[S2 one Bill providers list] --> S3[S3 Upload page IA] --> S4[S4 bill PDFs from Gmail into RAG] --> S5[S5 sync window + schedule] --> S6[S6 run observability]
+  S0 --> M1[M1 Core profile schema] --> M2[M2 human-only editor + template import] --> M3[M3 scoped read path] --> M4[M4 provider resolution + preferences] --> M5[M5 profile disclosure evals]
+  S0 --> O1[O1 OTel core] --> O2[O2 traces end to end] --> O3[O3 metrics + logs] --> O4[O4 local LGTM stack + dashboards] --> O5[O5 telemetry leakage eval]
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
@@ -84,9 +92,12 @@ flowchart LR
   class LC user
   class T9 todo
   class GX done
-  class S1 done
-  class S2 now
-  class S3,S4,S5,S6 todo
+  class S1,DQ done
+  class S0 done
+  class O1,O2,O3,O4,O5 done
+  class M1 now
+  class M2,M3,M4,M5 todo
+  class S7,S2,S3,S4,S5,S6 todo
   class P9,P10,RL user
 ```
 
@@ -131,8 +142,10 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | ToT held-out evaluation + calibration (Brier) | DONE (Brier win needs dev calibration) | P8: held-out acc 0.76 vs 0.59/0.70; Brier 0.414 vs 0.488/0.430 (raw: vote better) |
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
-| Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API, misses no-amount notices | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
-| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE 2026-11-22 (per-message outcome list, bill notices); S2-S6 PLANNED | Track S1-S6 |
+| Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API (#48 fixed no-amount notices); stores email text as documents → S0 | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
+| End-to-end observability: OpenTelemetry traces, metrics, logs; local Grafana LGTM; 4 dashboards; telemetry leakage eval | DONE offline 2026-11-22; live: USER (`make obs-up`) | Track O, `observability.md` |
+| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE (#48), digest scope DONE (#49), S0 DONE (#50: email text = notice, not a document); S7, S3-S6 PLANNED; S2 → M4 | Track S |
+| Central Core Memory profile (human-only edits, scoped per agent, provider resolution) | PLANNED | Track M, `core_memory_template.md` |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
 | Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
@@ -141,6 +154,21 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
 
 All evaluation data is synthetic or public. No real-market skill is claimed.
+
+### 1.0 Assignment topic coverage (2026-11-22)
+
+| Week topic | Built and used in the app | Evidence | Open |
+|---|---|---|---|
+| W1 agentic need, environment, actions | Local assistant over vault records, Gmail, portals, market data; read-only actions, refusals | `policy.screen`, `make eval` refusal rows | – |
+| W2 reasoning loop, memory, tools | Hierarchical ReAct (coordinator → specialists), working state, RAG, approval-gated Core Memory + recall, MCP read-only tools | P5 recall 9/9, 76/76 tool picks | – |
+| W3 retrieval (RAG) | Advanced RAG in retriever: chunk headers, month filter, hybrid search, grounding check, one re-retrieve | `make eval-rag` (offline embedder) | P10 real-embedder tuning; S0 keeps email text out of RAG |
+| W4 Tree of Thought | Beam ToT in forecaster only, closed thoughts + evidence ids, code then specialist critics | held-out Brier beats linear/vote (P8) | P9 live run |
+| W5 multi-agent | Parallel specialists, per-edge strict bus schemas, verifier, dependency inputs | overlap yes, latency 0.41× B2, cross-domain 100% | – |
+| W6 guardrails | Static: `policy.screen` refusals, read-only Gmail/broker, `extra="forbid"` bus schemas, approval-only Core Memory. Input: tool-less quarantine extractor. Runtime: step timeouts, 1 retry, deadline, staleness, ToT 9-node cap. Output: evidence or explicit status; verifier relevance | refusals 24/24 (0/12 false), injection 0/38, grounded 126/126, relevance 7/7 | – |
+| W6 logging | Encrypted Activity log (no plaintext log files, by design): every bus message incl. rejections, MCP tool calls, agent turns (steps, status, ms, model), RAG turns (evidence ids, scores, grounded), syncs, scheduled runs, slot runs, injection flags, reviewer accept/correct/dismiss | `store.log_activity`, `log_review`, `slots.log_run` | done in O3: chat refusals + escalation kinds logged |
+| W6 observability | OpenTelemetry traces/metrics/logs → local Grafana LGTM, 4 dashboards (Track O, `observability.md`); Agents → Activity table; per-run step status + timing in `RunReport`; eval reports `evals/results/` | P6 escalation P/R 100%, P7 10×8 stable | live check (USER); in-app summary/filter/running-now (S6) |
+| W6 human intervention | Risk-tiered routing (proceed / caveat / ask / escalate), one-question clarify, reviewer accept/correct/dismiss, overrides → test cases | escalation P/R 100% | – |
+| Final | Implemented-vs-planned table, framework mapping, synthetic-data statement | §1, `architecture.md` §5 | P9/P10 live numbers, P11 packaging |
 
 ### 1.1 Weekly commitment audit (2026-11-20)
 
@@ -179,7 +207,7 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-**Next (2026-11-22): Track S, S1 → S6** (bills sync clarity and PDF ingestion; user-reported). Then the items below.
+**Next (2026-11-22): Track S, S0 → S7 → S2 → S6** (bills sync clarity and PDF ingestion; user-reported). Then the items below.
 
 All agent-doable cards are done (2026-11-21, PRs #30-#35). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
 Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live),
@@ -463,6 +491,24 @@ sent date, no total) so Expected bills counts them as arrived and S4 can fetch t
 *Accept:* fixture with a no-amount bill notice, another-subdomain sender, an old duplicate → each gets the right outcome;
 `overdue()` treats a bill notice as arrived; test that no subject/body text reaches the outcome list.
 
+#### S0. Email text is a signal, never a document (user decision 2026-11-22) — DONE 2026-11-22 (PR #50; live check: USER)
+Today `gmail_bills.sync` stores each email-text bill as a vault document `gmail_bill_*` (templated `.txt`), so it shows in
+Files, feeds Dashboard totals and is indexed into RAG next to real PDFs. Decision: documents = official bill PDFs only (upload,
+Gmail attachment S4, portal R10). Do: Sync writes manifest-only entries `status: "notice"` with `{provider, category, sent,
+period_end, emailed_total?, emailed_due?}` (templated numbers, no text; no vault document, no RAG); Expected bills / Bill
+providers show "arrived <date> · emailed $X due <date> · PDF: missing/indexed"; `overdue()` keeps counting notices; Dashboard
+and RAG read PDFs only; a notice whose period gets a PDF links to it. One-time migration: existing `gmail_bill_*` documents →
+notices, delete the documents and their RAG entries (`on_indexed(key, None)`). *Accept:* after Sync no new vault document and
+no RAG add (test); migration test (doc → notice, RAG removal called, uploaded PDFs untouched); Files lists no `gmail-*.txt`;
+overdue unchanged; `security_design.md` + `rag_design.md` R11 updated.
+
+#### S7. Digest and Sync agree on a bill email
+Live: same Enbridge email → Sync found the amount, digest did not (`EmailFacts`, `max_chars=2500` vs `BillEmailFacts`, full
+body). Do: for a message from an allowlisted bill sender, the digest first looks up the Sync notice by message id (code join,
+no model call) and shows its amount/due; otherwise it runs the same `BillEmailFacts` extraction and hint as Sync (one
+extractor for bill facts) and records the notice. Non-bill senders keep `EmailFacts`. *Accept:* fixture with the amount after
+char 2,500 → digest and Sync show the same amount; second digest run makes no model call for a synced message.
+
 #### S2. One "Bill providers" list (replaces Expected bills + Gmail senders)
 Today: *Expected bills* (provider + cadence; drives overdue warnings) and *Bills from Gmail* (provider + category + sender
 domain; drives fetching; adding one auto-adds an expectation). Users see two forms for one thing.
@@ -486,9 +532,11 @@ Do: add a third fixed read to `GmailApi`: `get_attachment` → `GET users/me/mes
 `gmail.readonly`; ids pattern-checked). For an allowlisted bill email with a PDF attachment: size cap before download →
 `data_ingestion.files` validation (magic bytes, page caps, no JS/embedded files; hash-named; encrypted before parsing;
 `rag_design.md` §5) → existing category classifier/extractor → vault document + RAG index via the normal upload path.
-Reuse `gmail_attachments.py` (R8) where it fits. Dedupe by provider + period: the PDF record supersedes the email-text record
-for the same period (`pipeline` superseded logic), one bill per period. Emails with a "view your bill online" link only stay
-text-only (portal R10 is the path there; never follow links from email).
+Reuse `gmail_attachments.py` (R8) where it fits. Dedupe by provider + period: the PDF becomes the one document for that period
+and the S0 notice links to it (no email-text document exists to supersede). Emails with a "view your bill online" link only stay
+notices (portal R10 is the path there; never follow links from email). Live: both current providers send link-only emails,
+so their PDFs need a recorded portal recipe (R10, USER-supervised `playwright codegen`) - the notice shows "PDF: get from
+portal" with the recipe's Sync button.
 *Accept:* fixtures: PDF attachment → indexed document with extraction; JS PDF / oversized / non-PDF rejected (fails closed);
 email-text + PDF same period → one record; eval row "Gmail attachment validation" hard; `security_design.md` entry.
 
@@ -497,10 +545,116 @@ Do: per-provider `last_synced_at` and `newest_seen_at`; Sync reads only mail new
 13-month re-scan" option); a daily scheduled sync job in `schedule.py` (no browser; Gmail API refresh token only; off by
 default; Activity entry per run). *Accept:* query uses the window; scheduler job test with a fake Gmail; disabled by default.
 
-#### S6. Run observability
-Do: a small "running now" indicator (sidebar) for long jobs (sync, agent turns): job, model, elapsed; Activity tab gets a
-per-run detail row (outcome counts from S1, model calls, duration) and a filter by kind. *Accept:* AppTest shows the
-indicator during a fake long run; Activity filter works; entries stay code-built.
+#### S6. Run observability + guardrail telemetry (W6 logging/observability gaps, found 2026-11-22)
+Built already: encrypted Activity log of bus messages (incl. rejections), tool calls, agent/RAG turns, syncs, scheduled runs,
+slot runs, injection flags, reviewer decisions. Gaps: interactive `policy.screen` refusals are not logged (only scheduled
+ones); agent-turn entries omit escalation kinds; no summary of guardrail trips; no filter; no "running now" view.
+Do: (1) log `{"kind": "refused", "refusal": <kind>}` for chat refusals and add `escalations: [kinds]` to agent-turn entries
+(code-built, no question text); (2) Activity tab: **Guardrails** summary for 7/30 days (refusals, injection flags, bus
+rejections, step timeouts/failures, ungrounded/abstained RAG turns, escalations by kind, reviewer accept/correct/dismiss),
+filter by kind, per-run detail row (S1 outcome counts, model calls, duration); (3) sidebar "running now" indicator for long
+jobs (sync, agent turns): job, model, elapsed. *Accept:* refusal and escalation entries logged with no question text (test);
+summary counts from a seeded log match; AppTest: filter works and indicator shows during a fake long run; entries stay
+code-built.
+
+### Track O. End-to-end observability with OpenTelemetry — O1-O5 DONE offline 2026-11-22 (live check: USER)
+
+Decision (platform_plan D14): **OpenTelemetry SDK in the app → OTLP on loopback → Grafana `otel-lgtm`** (one open-source
+container: OTel Collector + Tempo traces + Prometheus metrics + Loki logs + Grafana). Tracing a run means following one chat
+turn through the planner, coordinator waves, workers, model calls, MCP/Gmail reads, quarantine, the verifier and RAG.
+Rules: off by default (`PERSONAL_AI_OTEL_ENABLED`); the exporter endpoint must be loopback (refused otherwise, like the
+model host); span/metric/log attributes go through a **code-built allowlist** (ids, enums, counts, timings, model ids, status)
+and never carry prompts, email/document text, questions, amounts, account ids or provider names; manual spans only, no
+auto-instrumentation of HTTP/LLM clients (it records bodies). The encrypted Activity log stays the source of truth.
+
+| Option from the course / ecosystem | Fit here | Verdict |
+|---|---|---|
+| LangSmith | Cloud SaaS (self-host is enterprise); sends prompts with vault data off the machine | No (D13) |
+| CrewAI | Agent framework, not observability; free agent chat conflicts with per-edge schemas | No (mapped only, `architecture.md` §5) |
+| LangGraph / LangChain callbacks | Only useful if we adopt the framework | No (D13) |
+| **OpenTelemetry + Grafana LGTM** | Vendor-neutral, GenAI semantic conventions (`gen_ai.*`), traces + metrics + logs in one local container | **Yes (primary)** |
+| Arize Phoenix (open source, OTel/OpenInference) | Good LLM trace UI, same OTLP feed | Optional second exporter later |
+| Langfuse (self-hosted) | OTel ingest, but Postgres + ClickHouse + Redis | No (too heavy for one laptop) |
+
+#### O1. Telemetry core
+`src/observability/otel.py`: `init()` (no-op unless enabled; OTLP/HTTP exporter, loopback check), `span(name, **attrs)` and
+`count/observe` helpers that drop any attribute not in `ALLOWED_ATTRS` or not a scalar. Deps: `opentelemetry-sdk`,
+`opentelemetry-exporter-otlp-proto-http` (PyPI). *Accept:* disabled → no exporter, no thread; non-loopback endpoint raises;
+a disallowed attribute is dropped (test).
+
+#### O2. Traces end to end
+Root span per chat turn / sync / scheduled job / forecast run. Children: `policy.screen` (refused + kind), plan (planner =
+rules/llm, step count), coordinator wave, worker step (agent, status, retry, timeout), model call (`gen_ai.request.model`,
+token usage, latency), MCP / Gmail API read (tool name, HTTP status), quarantine extract (schema, flagged, error), bus send
+(edge, outcome), verifier (escalation kinds), RAG retrieve (k, top score, grounded, abstained), ToT (depth, nodes). Context
+propagated into pool threads. *Accept:* in-memory exporter on a golden-set run shows one connected trace with the expected span
+tree; pool-thread spans have the right parent.
+
+#### O3. Metrics and logs
+Counters: refusals, injection flags, bus rejections, step timeouts/failures, ungrounded/abstained RAG turns, escalations by kind,
+reviewer decisions, model calls. Histograms: turn latency, step latency, model latency, tokens. Every `store.log_activity`
+entry also emitted as an OTel log record (same code-built fields). Closes the S6 logging gaps (chat refusals, escalation kinds).
+*Accept:* seeded run → expected counter values; refusal logged with no question text.
+
+#### O4. Local stack + dashboards
+`observability/docker-compose.yml` with `grafana/otel-lgtm`, every port bound to `127.0.0.1`, 7-day retention; `make obs-up`,
+`make obs-down`; provisioned Grafana dashboards: *Agent runs* (latency, step status, waves), *Guardrails* (the O3 counters),
+*Models* (latency, tokens, calls by model), *Sync* (S1 outcome counts). *Accept:* `make obs-up` + one chat turn → trace in Tempo,
+counters in Prometheus, logs in Loki (user runs live; offline test validates compose ports and dashboard JSON).
+
+#### O5. Telemetry leakage eval + docs
+Eval row: run golden + injection sets with an in-memory exporter; 0 fixture secrets (bodies, questions, amounts, account ids,
+provider names) in any exported attribute, event or log (hard gate). Docs: `security_design.md` (telemetry is plaintext in the
+container volume: allowlist + loopback + retention are the controls), `platform_plan.md` §5 metric, `architecture.md` diagram.
+
+### Track M. Central Core Memory profile (user request 2026-11-22)
+
+Goal: one **lean, human-authored profile** about the user that every agent can use to tailor answers (preferences, which
+provider "my gas bill" means, household, goals), replacing free-form key/value facts as the primary memory. Template:
+`docs/core_memory_template.md`. Today (P5): agents `propose` free-text facts, the user approves, only the expense step
+recalls them by word overlap. Rules that stay: no agent-facing write path; never on a bus edge (S18); local model only.
+
+| Decision | Choice | Why |
+|---|---|---|
+| Who writes | Only the user, in the Core Memory tab (form or template import). Agent proposals become optional *suggestions* (off by default, still user-approved) | user requirement; keeps S10 approval invariant |
+| Shape | Typed sections (`about`, `household`, `providers`, `accounts`, `preferences`, `finance`, `health`, `do_not`), `extra="forbid"`, 200-char fields | lean, validated, no free text blobs in prompts |
+| Who reads | Per-agent section scope (`agent["memory_sections"]`, deny by default, like S26 tools); a templated "About you" block in that agent's system prompt | least disclosure: Trader never sees health, Email Digest sees providers only |
+| Where it never goes | public research egress, bus edges, RAG index, telemetry, quarantine prompts | S18, S27, egress rules |
+| Providers | `providers` section **is** the Bill providers list (absorbs S2): Gmail sync allowlist, cadence/overdue, digest scope | one source of truth |
+
+#### M1. Profile schema + store
+`src/agents/orchestration/profile.py`: pydantic `CoreProfile` (sections above), vault key `core_profile` (add to
+`INTERNAL_VAULT_KEYS`), `load(vault)`, `save(vault, profile, *, token, session_id)` with the single-use UI token used by
+`memory.approve`. Validators reject account/card numbers, SSN-like strings, emails other than in `sender_domains`, street
+addresses, URLs. Migration: approved P5 facts → `notes` list (read-only until edited). *Accept:* schema tests (extra field,
+too long, card number rejected); `save` without a token raises; no module under `src/agents/` except the UI handler
+imports `save` (AST test).
+
+#### M2. Human-only editor + template import
+Core Memory tab: one form per section, prefilled, one Save (AGENTS.md UI rules); *Import template* text area → parse YAML →
+preview diff → Save; *Export template* (download, local only). Suggestions list (from agent proposals, if enabled) with
+Accept/Dismiss. *Accept:* AppTest: import the template, edit a provider, save, reload shows it; invalid import shows errors
+and saves nothing.
+
+#### M3. Scoped read path for every agent
+`profile.context_for(agent)` → templated lines from the sections in `agent["memory_sections"]` only (built-ins get defaults:
+Email Digest → providers, accounts, preferences; Expense → providers, accounts, household, finance.budget_targets,
+preferences; Forecast/Trader → finance.risk_tolerance, investing_horizon, watchlist, preferences; Portfolio → finance,
+preferences). Injected by `runtime` / coordinator workers on the loopback client only; `memory.recall` stays for notes.
+Agents → Edit gets a section picker. *Accept:* each built-in sees only its sections (test); public provider requests carry
+no profile text (egress test); bus payloads unchanged.
+
+#### M4. Use it: provider resolution + preferences
+`providers` replaces `gmail_bill_senders` + `ingest_expectations` (migration; S2's single table renders this section);
+`digest_scope` and `named_account` resolve "my gas/electric bill", nicknames and household members through the profile;
+answer style/number format applied by templated renderers; `do_not` lines appended to agent system prompts.
+*Accept:* "did my gas bill come?" → provider from the profile; migration test (both old keys → providers, no duplicates);
+overdue/Dashboard/missing_statement read the profile.
+
+#### M5. Profile disclosure + augmentation evals
+Eval rows: profile canaries in public egress, bus, RAG, telemetry, activity log = 0 (hard); scope matrix (agent × section)
+= 100%; augmentation golden set (provider/nickname/household questions answered with the right record) ≥ 90%.
+Docs: `security_design.md`, `platform_plan.md` invariant S28 + §5, `architecture.md`, `multi_agent_design.md`.
 
 ### Track P. Capstone feedback cards
 

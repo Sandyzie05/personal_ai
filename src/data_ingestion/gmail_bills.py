@@ -2,8 +2,9 @@
 
 Code decides who a bill is from: only messages whose sender domain is on the user's allowlist are read, and the
 provider/category come from that allowlist entry, never from the model. The email body is untrusted: it reaches a
-model only through `quarantine.extract_facts` (tool-less, strict closed schema, S1). What is stored is a code-templated
-record (provider, period, total, due date) plus a manifest entry; the email body itself is never stored or indexed."""
+model only through `quarantine.extract_facts` (tool-less, strict closed schema, S1). What is stored is a manifest-only
+bill notice (provider, period, emailed total/due as typed numbers; S0): no vault document, nothing in Files, Dashboard or
+RAG. The email body itself is never stored or indexed. Official PDFs are the only bill documents."""
 
 import hashlib
 import json
@@ -174,6 +175,26 @@ def _items(text: str, *keys) -> List[dict]:
     return []
 
 
+def migrate_text_documents(vault, on_removed: Optional[Callable[[str], None]] = None) -> int:
+    """S0 one-time migration: email-text bill documents (`gmail_bill_*`, shown as gmail-*.txt) become notices; the
+    documents and their RAG entries are removed. Uploaded/portal PDFs are untouched. Idempotent."""
+    docs, n = pipeline._manifest(vault), 0
+    for d in docs.values():
+        key = d.get("storage_key") or ""
+        if d.get("source") != "gmail" or d.get("status") != "indexed" or not key.startswith("gmail_bill_"):
+            continue
+        ext = (vault.retrieve_data(key) or {}).get("extraction") or {}
+        d.update(status="notice", emailed_total=ext.get("total"), emailed_due=None)
+        d.pop("storage_key", None)
+        vault.delete_data(key)
+        if on_removed:
+            on_removed(key)
+        n += 1
+    if n:
+        pipeline._save(vault, docs)
+    return n
+
+
 def _set_newest(vault, newest: Dict[str, str]) -> None:
     rows = senders(vault)
     for s in rows:
@@ -182,7 +203,22 @@ def _set_newest(vault, newest: Dict[str, str]) -> None:
     vault.store_data(SENDERS_KEY, {"senders": rows}, encrypt=True)
 
 
-def sync(
+def sync(vault, ro, client, on_indexed=None, today: Optional[date] = None, only: Optional[str] = None,
+         progress=None) -> pipeline.IngestReport:
+    """Traced wrapper (Track O): counts and fixed outcome names only, never provider names or email text."""
+    from collections import Counter
+
+    from src.observability import otel
+
+    with otel.span("sync.gmail", model=str(getattr(client, "model", "") or "")) as sp:
+        r = _sync(vault, ro, client, on_indexed, today, only, progress)
+        c = Counter(o["outcome"].split(" ")[0] for o in r.outcomes)
+        sp.set(new=len(r.new), duplicates=r.duplicates, notices=c.get("no", 0), not_bill=c.get("not", 0),
+               failed=len(r.failed), model_calls=r.model_calls, threads=len(r.outcomes))
+        return r
+
+
+def _sync(
     vault,
     ro,
     client,
@@ -195,6 +231,7 @@ def sync(
     facts via quarantine, store records. `only`: sync just that provider's sender row. `r.outcomes` gets one
     code-built row per message seen (date, provider, validated domain, an OUTCOMES value): never subject/body."""
     r = pipeline.IngestReport()
+    migrate_text_documents(vault, (lambda k: on_indexed(k, None)) if on_indexed else None)
     rows = [s for s in senders(vault) if only is None or s["provider"] == only]
     if not rows:
         r.needs_you.append("add a bill sender first")
@@ -266,8 +303,9 @@ def sync(
             # "not a bill" verdicts are re-checked when the extractor model changes (they used to be cached forever).
             if old and not (old.get("status") == "skipped" and old.get("model") != model):
                 r.duplicates += 1
-                out(entry["provider"], dom, sent, {"skipped": old.get("outcome") or "not a bill",
-                                                   "notice": "no amount stated"}.get(old.get("status"), "already saved"))
+                no_amount = old.get("status") == "notice" and old.get("emailed_total") is None
+                out(entry["provider"], dom, sent, "no amount stated" if no_amount else
+                    old.get("outcome") or "not a bill" if old.get("status") == "skipped" else "already saved")
                 continue
             seen["allowed"] += 1
             body = (
@@ -312,69 +350,27 @@ def sync(
             end = f.period_end or f.statement_date or sent or today
             if end > today + timedelta(days=45):
                 end = f.statement_date or sent or today  # a due date is not a period end
-            if f.total_due is None:
-                # "Your bill is ready" without an amount: the bill arrived (overdue() counts it); S4 fetches the PDF.
-                seen["notice"] += 1
-                docs[sha] = {**base, "status": "notice", "category": entry["category"], "source_ref": f"gmail:{mid}",
-                             "period_end": end.isoformat()}
-                out(entry["provider"], dom, sent, "no amount stated")
-                continue
-            dup = any(
-                d.get("status") == "indexed"
-                and d.get("provider") == entry["provider"]
-                and d.get("period_end") == end.isoformat()
-                for d in docs.values()
-            )
-            if dup:
+            # S0: email text is a signal, never a document. A notice is a manifest entry only (provider, period,
+            # emailed amount/due as typed numbers); nothing goes to the vault documents, Files, Dashboard or RAG.
+            # Official bill PDFs (upload, S4 Gmail attachment, R10 portal) are the only documents.
+            notice = {**base, "status": "notice", "category": entry["category"], "source_ref": f"gmail:{mid}",
+                      "period_start": f.period_start.isoformat() if f.period_start else None,
+                      "period_end": end.isoformat(), "emailed_total": f.total_due,
+                      "emailed_due": f.due_date.isoformat() if f.due_date else None}
+            same = next((k for k, d in docs.items() if d.get("status") == "notice"
+                         and d.get("provider") == entry["provider"] and d.get("period_end") == end.isoformat()), None)
+            if same and (f.total_due is None or docs[same].get("emailed_total") is not None):
                 r.duplicates += 1
                 docs[sha] = {**base, "status": "duplicate"}
                 out(entry["provider"], dom, sent, "already saved")
                 continue
-            key = f"gmail_bill_{sha[:16]}"
-            text = (
-                f"{entry['provider']} {entry['category']} bill (from email). Billing period "
-                f"{f.period_start or 'not stated'} to {end}. Total due ${f.total_due:,.2f}."
-                + (f" Due {f.due_date}." if f.due_date else "")
-            )
-            data = {
-                "metadata": {
-                    "original_filename": f"gmail-{sha[:12]}.txt",
-                    "file_type": "txt",
-                    "content_type": "text",
-                    "upload_timestamp": datetime.now().isoformat(),
-                    "source": "gmail",
-                    "category": entry["category"],
-                    "provider": entry["provider"],
-                    "period_start": f.period_start.isoformat()
-                    if f.period_start
-                    else None,
-                    "period_end": end.isoformat(),
-                    "trust": "untrusted",
-                },
-                "text_content": text,
-                "extraction": {
-                    "provider": entry["provider"],
-                    "account_identifier": None,
-                    "period_start": f.period_start.isoformat()
-                    if f.period_start
-                    else None,
-                    "period_end": end.isoformat(),
-                    "total": f.total_due,
-                    "line_items": [],
-                },
-            }
-            vault.store_data(key, data, encrypt=True)
-            if on_indexed:
-                on_indexed(key, data)
-            docs[sha] = {
-                **base,
-                "source_ref": f"gmail:{mid}",
-                "category": entry["category"],
-                "period_start": data["extraction"]["period_start"],
-                "period_end": end.isoformat(),
-                "status": "indexed",
-                "storage_key": key,
-            }
+            if same:  # an earlier no-amount notice for this period: the amount arrived later
+                docs.pop(same)
+            docs[sha] = notice
+            if f.total_due is None:
+                seen["notice"] += 1
+                out(entry["provider"], dom, sent, "no amount stated")
+                continue
             r.new.append(f"{entry['provider']} {end.isoformat()}")
             out(entry["provider"], dom, sent, f"saved period {end.isoformat()}")
     pipeline._save(vault, docs)

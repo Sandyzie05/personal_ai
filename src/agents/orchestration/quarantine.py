@@ -50,6 +50,16 @@ class Extraction:
 def extract_facts(raw: str, source: str, schema: Type[BaseModel], client: Any,
                   max_chars: int = 6000, extra_instructions: str = "") -> Extraction:
     """`extra_instructions` (the user's agent tweak, trusted) is appended AFTER the fixed SYSTEM, never replacing it."""
+    from src.observability import otel
+
+    with otel.span("quarantine.extract", schema=schema.__name__, model=str(getattr(client, "model", "") or "")) as sp:
+        ex = _extract(raw, source, schema, client, max_chars, extra_instructions)
+        sp.set(flagged=ex.flagged, extract_error=ex.error or None, ok=ex.facts is not None)
+        return ex
+
+
+def _extract(raw: str, source: str, schema: Type[BaseModel], client: Any, max_chars: int,
+             extra_instructions: str) -> Extraction:
     clean = sanitize_text(raw, max_chars)
     flagged = looks_like_injection(clean)
     source = re.sub(r"[^A-Za-z0-9 ._-]", "", source)[:60]

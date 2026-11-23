@@ -4,6 +4,7 @@ import urllib.error
 import os
 import math
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from typing import List, Dict, Any, Optional, Generator
@@ -198,10 +199,26 @@ class OmlxClient:
                 raise OllamaClientError("oMLX tool calling is disabled (PERSONAL_AI_OMLX_TOOLS=false)")
             data["tools"] = tools
 
+        from src.observability import otel
+
+        otel.count("personal_ai.model.calls", model=self.model, stream=stream)
         if not stream:
             # Non-streaming response
-            with self._inference_slot():
+            with otel.span("gen_ai.chat", **{"gen_ai.system": "omlx", "gen_ai.operation.name": "chat",
+                                             "gen_ai.request.model": self.model}) as sp, self._inference_slot():
+                t0 = time.monotonic()
                 response = self._make_request("POST", "/v1/chat/completions", data)
+                usage = response.get("usage") or {}
+                sp.set(**{"gen_ai.usage.input_tokens": usage.get("prompt_tokens"),
+                          "gen_ai.usage.output_tokens": usage.get("completion_tokens"),
+                          "gen_ai.response.finish_reasons": str((response.get("choices") or [{}])[0].get(
+                              "finish_reason") or "")})
+                otel.observe("gen_ai.client.operation.duration", time.monotonic() - t0,
+                             **{"gen_ai.request.model": self.model})
+                for k, v in (("input", usage.get("prompt_tokens")), ("output", usage.get("completion_tokens"))):
+                    if isinstance(v, int):
+                        otel.observe("gen_ai.client.token.usage", v, **{"gen_ai.request.model": self.model,
+                                                                         "kind": k})
             # Convert to Ollama format
             choices = response.get("choices") or []
             if not choices:
