@@ -39,8 +39,9 @@ user tests and pastes results back.
    forms for one concept (S2 merges them).
 4. Email-text bills do not bring the bill PDF into RAG; Sync and PDF ingestion are separate (S4).
 
-**Next card for the agent: S1, then S2 → S3 → S4 → S5 → S6** (cards in §4 Track S). Before S1, ask the user to merge #46 (and
-the docs PR) and to press *Re-read* on both providers once, then paste the status line.
+**Next card for the agent: S2, then S3 → S4 → S5 → S6** (cards in §4 Track S). S1 done (PR: outcome list per message, bill
+notices without an amount count as arrived, "not a bill" re-checked on model change, one capped search per sender). User:
+press *Sync* (or *Re-read*) on both providers and paste the outcome table's *Outcome* column counts (no subjects).
 
 **Waiting on the user (model laptop).**
 1. Merge open PRs, `git pull`, `PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT=8765 make run` (a Web-type OAuth client needs that port).
@@ -83,8 +84,9 @@ flowchart LR
   class LC user
   class T9 todo
   class GX done
-  class S1 now
-  class S2,S3,S4,S5,S6 todo
+  class S1 done
+  class S2 now
+  class S3,S4,S5,S6 todo
   class P9,P10,RL user
 ```
 
@@ -130,7 +132,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API, misses no-amount notices | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
-| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | PLANNED | Track S1-S6 |
+| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE 2026-11-22 (per-message outcome list, bill notices); S2-S6 PLANNED | Track S1-S6 |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
 | Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
@@ -445,7 +447,7 @@ and Gmail senders (`gmail_bills.senders`) are separate lists today. Rules that s
 body is read; bodies only to `quarantine.extract_facts`; nothing but templated facts and validated files stored; no write
 operations, no configurable scope; progress/Activity text is code-built.
 
-#### S1. Why this month's bill was missed (diagnose first)
+#### S1. Why this month's bill was missed (diagnose first) — DONE 2026-11-22 (offline; live check: USER)
 Hypotheses, in order of likelihood:
 (a) "Your bill is ready" emails often carry **no amount**; `sync` skips `total_due is None` as "not a bill" and caches it
     forever (`status: skipped`), so it is never re-read;

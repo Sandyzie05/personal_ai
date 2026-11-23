@@ -22,9 +22,9 @@ PROVIDER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .&'-]{0,39}$")
 MAX_THREADS = 15  # newest first; each new bill email is one model call (older ones are cached)
 LOOKBACK_DAYS = 400
 HINT = (
-    "This is an email from a utility or phone company. is_bill=true only if it states an amount due for a billing "
-    "statement (not marketing, outage, payment-received or autopay-failure notices). total_due = the amount due "
-    "as printed. Dates as YYYY-MM-DD; leave a field null when the email does not state it."
+    "This is an email from a utility or phone company. is_bill=true if it is a billing statement or says a new bill "
+    "is ready, even when no amount is shown (false for marketing, outage, payment-received or autopay-failure "
+    "notices). total_due = the amount due as printed, null when the email does not show it. Dates as YYYY-MM-DD; leave a field null when the email does not state it."
 )
 
 
@@ -174,6 +174,14 @@ def _items(text: str, *keys) -> List[dict]:
     return []
 
 
+def _set_newest(vault, newest: Dict[str, str]) -> None:
+    rows = senders(vault)
+    for s in rows:
+        if newest.get(s["provider"], "") > s.get("newest_seen", ""):
+            s["newest_seen"] = newest[s["provider"]]
+    vault.store_data(SENDERS_KEY, {"senders": rows}, encrypt=True)
+
+
 def sync(
     vault,
     ro,
@@ -183,35 +191,44 @@ def sync(
     only: Optional[str] = None,
     progress: Optional[Callable[[str], None]] = None,
 ) -> pipeline.IngestReport:
-    """Search allowlisted senders, read each new message once, extract bill facts via quarantine, store records.
-    `only`: sync just that provider's sender row."""
+    """Search each allowlisted sender (newest MAX_THREADS threads each), read each new message once, extract bill
+    facts via quarantine, store records. `only`: sync just that provider's sender row. `r.outcomes` gets one
+    code-built row per message seen (date, provider, validated domain, an OUTCOMES value): never subject/body."""
     r = pipeline.IngestReport()
     rows = [s for s in senders(vault) if only is None or s["provider"] == only]
     if not rows:
         r.needs_you.append("add a bill sender first")
         return r
+    today = today or date.today()
+    model = str(getattr(client, "model", "") or "")
     say = progress or (lambda _msg: None)  # code-built status text only (counts, provider names)
     args = _Args(ro)
     search, get = (
         args.tool("search_threads", _Args.SEARCH),
         args.tool("get_thread", _Args.GET),
     )
-    query = (
-        "("
-        + " OR ".join(f"from:{s['domain']}" for s in rows)
-        + f") newer_than:{LOOKBACK_DAYS}d"
-    )
-    threads = _items(
-        ro.call(search, args.build(search, {query: ("query", "q"), MAX_THREADS: ("pageSize", "maxResults")})),
-        "threads",
-        "messages",
-        "results",
-    )
+    # One search per sender so a chatty sender cannot crowd another one out of the thread cap.
+    threads: List[tuple] = []
+    for row in rows:
+        found = _items(ro.call(search, args.build(search, {
+            f"from:{row['domain']} newer_than:{LOOKBACK_DAYS}d": ("query", "q"),
+            MAX_THREADS: ("pageSize", "maxResults")})), "threads", "messages", "results")
+        threads += [(row, t) for t in found[:MAX_THREADS]]
+        if not found:
+            r.needs_you.append(f"no email from {row['domain']} in the last 13 months: check the sender domain "
+                               "spelling (open a bill email, copy the part after @; re-adding the provider replaces "
+                               "the row)")
     docs = pipeline._manifest(vault)
-    seen = {"msgs": 0, "allowed": 0, "not_bill": 0, "model_calls": 0}
-    say(f"Found {len(threads)} thread(s); reading up to {MAX_THREADS}")
-    for n, t in enumerate(threads[:MAX_THREADS], 1):
-        say(f"Thread {n}/{min(len(threads), MAX_THREADS)}: reading (read-only)")
+    seen = {"allowed": 0, "not_bill": 0, "notice": 0, "model_calls": 0}
+    newest: Dict[str, str] = {}
+    say(f"Found {len(threads)} thread(s); reading up to {MAX_THREADS} per sender")
+
+    def out(row_provider: str, dom: str, sent: Optional[date], outcome: str) -> None:
+        r.outcomes.append({"sent": sent.isoformat() if sent else "", "provider": row_provider,
+                           "domain": dom if DOMAIN.match(dom) else "", "outcome": outcome})
+
+    for n, (row, t) in enumerate(threads, 1):
+        say(f"Thread {n}/{len(threads)} ({row['provider']}): reading (read-only)")
         tid = re.sub(r"[^A-Za-z0-9_-]", "", str(t.get("id", "")))[:40]
         if not tid:
             continue
@@ -228,6 +245,7 @@ def sync(
             )
         except Exception as e:  # one unreadable thread must not lose the rest; type only (server text is untrusted)
             r.failed.append(f"thread {tid[:8]}: {type(e).__name__}")
+            out(row["provider"], row["domain"], None, "unreadable")
             continue
         msgs = _items(thread, "messages")
         if not msgs:  # a single-message tool returns the message object itself
@@ -236,13 +254,21 @@ def sync(
         for m in msgs:
             mid = re.sub(r"[^A-Za-z0-9_-]", "", str(m.get("id", "")))[:40] or tid
             sha = hashlib.sha256(f"gmail:{mid}".encode()).hexdigest()
-            if sha in docs:
-                r.duplicates += 1
-                continue
-            seen["msgs"] += 1
-            entry = _match(_sender_domain(_pick(m, "sender", "from", "From")), rows)
+            dom = _sender_domain(_pick(m, "sender", "from", "From"))
+            sent = _sent_date(m)
+            entry = _match(dom, rows)
             if entry is None:
-                continue  # not an allowlisted sender: never read
+                out("", dom, sent, "other sender")  # not an allowlisted sender: body never read
+                continue
+            if sent and sent.isoformat() > newest.get(entry["provider"], ""):
+                newest[entry["provider"]] = sent.isoformat()
+            old = docs.get(sha)
+            # "not a bill" verdicts are re-checked when the extractor model changes (they used to be cached forever).
+            if old and not (old.get("status") == "skipped" and old.get("model") != model):
+                r.duplicates += 1
+                out(entry["provider"], dom, sent, {"skipped": old.get("outcome") or "not a bill",
+                                                   "notice": "no amount stated"}.get(old.get("status"), "already saved"))
+                continue
             seen["allowed"] += 1
             body = (
                 _pick(
@@ -257,8 +283,8 @@ def sync(
                 or ""
             )
             raw = f"Subject: {_pick(m, 'subject') or ''}\nDate: {_pick(m, 'date', 'internalDate') or ''}\n\n{body}"
-            say(f"Thread {n}/{min(len(threads), MAX_THREADS)}: extracting bill facts with "
-                f"{getattr(client, 'model', 'the model')}")
+            say(f"Thread {n}/{len(threads)} ({entry['provider']}): extracting bill facts with "
+                f"{model or 'the model'}")
             seen["model_calls"] += 1
             ex = extract_facts(
                 raw, f"gmail:{mid}", BillEmailFacts, client, extra_instructions=HINT
@@ -273,22 +299,26 @@ def sync(
             if ex.error == "unavailable":
                 r.failed.append("model unavailable; sync again later")
                 break  # not cached: retried on the next sync
-            if f is None or not f.is_bill or f.total_due is None:
+            base = {"sha256": sha, "source": "gmail", "provider": entry["provider"], "model": model,
+                    "sent": sent.isoformat() if sent else None, "fetched_at": datetime.now().isoformat()}
+            if f is None or not f.is_bill:
                 seen["not_bill"] += 1
-                docs[sha] = {
-                    "sha256": sha,
-                    "source": "gmail",
-                    "status": "skipped",
-                    "provider": entry["provider"],
-                    "fetched_at": datetime.now().isoformat(),
-                }
+                outcome = "unreadable" if f is None else "not a bill"
+                docs[sha] = {**base, "status": "skipped", "outcome": outcome}
+                out(entry["provider"], dom, sent, outcome)
                 continue
             # Most "your bill is ready" emails state no period; the email's own send date is the statement date
             # then. (Falling back to TODAY made every bill the same period: live, 14 of 15 counted as duplicates.)
-            sent = _sent_date(m)
-            end = f.period_end or f.statement_date or sent or (today or date.today())
-            if end > (today or date.today()) + timedelta(days=45):
-                end = f.statement_date or sent or (today or date.today())  # a due date is not a period end
+            end = f.period_end or f.statement_date or sent or today
+            if end > today + timedelta(days=45):
+                end = f.statement_date or sent or today  # a due date is not a period end
+            if f.total_due is None:
+                # "Your bill is ready" without an amount: the bill arrived (overdue() counts it); S4 fetches the PDF.
+                seen["notice"] += 1
+                docs[sha] = {**base, "status": "notice", "category": entry["category"], "source_ref": f"gmail:{mid}",
+                             "period_end": end.isoformat()}
+                out(entry["provider"], dom, sent, "no amount stated")
+                continue
             dup = any(
                 d.get("status") == "indexed"
                 and d.get("provider") == entry["provider"]
@@ -297,13 +327,8 @@ def sync(
             )
             if dup:
                 r.duplicates += 1
-                docs[sha] = {
-                    "sha256": sha,
-                    "source": "gmail",
-                    "status": "duplicate",
-                    "provider": entry["provider"],
-                    "fetched_at": datetime.now().isoformat(),
-                }
+                docs[sha] = {**base, "status": "duplicate"}
+                out(entry["provider"], dom, sent, "already saved")
                 continue
             key = f"gmail_bill_{sha[:16]}"
             text = (
@@ -342,24 +367,20 @@ def sync(
             if on_indexed:
                 on_indexed(key, data)
             docs[sha] = {
-                "sha256": sha,
-                "source": "gmail",
+                **base,
                 "source_ref": f"gmail:{mid}",
-                "provider": entry["provider"],
                 "category": entry["category"],
                 "period_start": data["extraction"]["period_start"],
                 "period_end": end.isoformat(),
-                "fetched_at": datetime.now().isoformat(),
                 "status": "indexed",
                 "storage_key": key,
             }
             r.new.append(f"{entry['provider']} {end.isoformat()}")
+            out(entry["provider"], dom, sent, f"saved period {end.isoformat()}")
     pipeline._save(vault, docs)
-    if not threads:
-        r.needs_you.append("no email from " + ", ".join(x["domain"] for x in rows) + " in the last 13 months: check the "
-                           "sender domain spelling (open a bill email, copy the part after @; re-adding the provider "
-                           "replaces the row)")
+    _set_newest(vault, newest)
     r.model_calls = seen["model_calls"]
     r.checked = (f"searched {len(threads)} thread(s) from {', '.join(x['domain'] for x in rows)}; "
-                 f"{seen['allowed']} new message(s) from allowlisted senders, {seen['not_bill']} not a bill; {seen['model_calls']} model call(s)")
+                 f"{seen['allowed']} new message(s) from allowlisted senders, {seen['notice']} bill notice(s) with "
+                 f"no amount, {seen['not_bill']} not a bill; {seen['model_calls']} model call(s)")
     return r
