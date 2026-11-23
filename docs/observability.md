@@ -10,6 +10,12 @@ make run-obs      # the app with PERSONAL_AI_OTEL_ENABLED=true
 make obs-down     # stops the stack and deletes all telemetry (no volume)
 ```
 
+**No `personal_ai` folder in Grafana?** Check you are on *our* Grafana: `docker ps` must list `personal_ai_lgtm`, and
+`curl -s 127.0.0.1:${OBS_GRAFANA_PORT:-3000}/api/search?query=personal_ai` must return the folder. If `make obs-up` failed
+(port in use) the container never started and whatever answers on :3000 is another Grafana. Panels stay empty until
+`make run-obs` has done at least one run (metrics export every 10 s). Verified live 2026-11-22: folder + 4 dashboards
+provisioned, metrics in Prometheus, `agent.run` traces in Tempo, guardrail logs in Loki.
+
 Port taken (e.g. a local Jaeger already listens on 4318; `make obs-up` checks and stops)? Either stop it, or pick other
 host ports: `OBS_OTLP_PORT=14318 OBS_GRAFANA_PORT=3001 make obs-up run-obs` (`run-obs` exports to the same port). An
 existing Jaeger also works as a traces-only target: `PERSONAL_AI_OTEL_ENABLED=true make run` (metrics/logs then fail

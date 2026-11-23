@@ -4,6 +4,14 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - fix: Grafana stat panels empty for a fresh app process; Grafana port check
+
+- Verified the stack live (Docker): folder + 4 dashboards provision, metric names match, traces in Tempo, logs in Loki.
+- Stat panels used `increase(...[24h])`, which drops a counter's first sample, so a freshly started app showed nothing
+  (refusals 1 → empty). Now `sum(max_over_time(...[$__range])) or vector(0)`, and each app process has its own
+  `service.instance.id` so restarts sum correctly.
+- `make obs-up` also checks the Grafana port (another Grafana on :3000 hid ours). Troubleshooting in `observability.md`.
+
 ## (pending) - 2026-11-22 - fix: Activity table Arrow crash; configurable observability ports
 
 - Agents → Activity: `model calls` mixed ints and "" across entry kinds → Arrow serialization error. `activity_rows`

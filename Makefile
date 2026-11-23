@@ -67,6 +67,7 @@ export OBS_GRAFANA_PORT OBS_OTLP_PORT
 
 obs-up:
 	@lsof -nP -iTCP:$(OBS_OTLP_PORT) -sTCP:LISTEN >/dev/null 2>&1 && { echo "Port $(OBS_OTLP_PORT) is in use (see: lsof -i :$(OBS_OTLP_PORT)). Stop that process or pick a free port, e.g. OBS_OTLP_PORT=14318 make obs-up run-obs"; exit 1; } || true
+	@lsof -nP -iTCP:$(OBS_GRAFANA_PORT) -sTCP:LISTEN >/dev/null 2>&1 && { echo "Port $(OBS_GRAFANA_PORT) is in use (another Grafana?). Pick a free one, e.g. OBS_GRAFANA_PORT=3001 make obs-up"; exit 1; } || true
 	docker compose -f observability/docker-compose.yml up -d
 	@echo "Grafana: http://127.0.0.1:$(OBS_GRAFANA_PORT) (folder personal_ai). Now run: OBS_OTLP_PORT=$(OBS_OTLP_PORT) make run-obs"
 

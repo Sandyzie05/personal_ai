@@ -10,7 +10,7 @@
  "panels": [
   {
    "type": "stat",
-   "title": "Refusals (24h)",
+   "title": "Refusals",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -24,7 +24,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(personal_ai_refusals_total[24h]))",
+     "expr": "sum(max_over_time(personal_ai_refusals_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -34,7 +34,7 @@
   },
   {
    "type": "stat",
-   "title": "Injection flags (24h)",
+   "title": "Injection flags",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -48,7 +48,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(personal_ai_injection_flags_total[24h]))",
+     "expr": "sum(max_over_time(personal_ai_injection_flags_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -58,7 +58,7 @@
   },
   {
    "type": "stat",
-   "title": "Bus rejections (24h)",
+   "title": "Bus rejections",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -72,7 +72,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(personal_ai_bus_messages_total{outcome!=\"delivered\"}[24h]))",
+     "expr": "sum(max_over_time(personal_ai_bus_messages_total{outcome!=\"delivered\"}[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -82,7 +82,7 @@
   },
   {
    "type": "stat",
-   "title": "Ungrounded RAG turns (24h)",
+   "title": "Ungrounded RAG turns",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -96,7 +96,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(personal_ai_rag_turns_total{grounded=\"false\"}[24h]))",
+     "expr": "sum(max_over_time(personal_ai_rag_turns_total{grounded=\"false\"}[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -106,7 +106,7 @@
   },
   {
    "type": "stat",
-   "title": "Escalations (24h)",
+   "title": "Escalations",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -120,7 +120,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(personal_ai_escalations_total[24h]))",
+     "expr": "sum(max_over_time(personal_ai_escalations_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -130,7 +130,7 @@
   },
   {
    "type": "stat",
-   "title": "Reviewer decisions (24h)",
+   "title": "Reviewer decisions",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -144,7 +144,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(increase(personal_ai_reviews_total[24h]))",
+     "expr": "sum(max_over_time(personal_ai_reviews_total[$__range])) or vector(0)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
