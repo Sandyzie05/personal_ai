@@ -43,7 +43,8 @@ month" → 2 bills since the 1st, 1.7 s). Open problems, all in **Track S**:
    arrives (S4 for PDF attachments, R10 for link-only emails).
 4. Two forms for one provider concept (S2); what Sync covers is unclear (S3 copy); Sync is manual only (S5 schedule).
 
-**Next card for the agent: S0, then S7 → S2 → S3 → S4 → S5 → S6** (cards in §4 Track S). S1 done (#48). Digest
+**Next card for the agent: S0, then O1 → O5 (Track O, OpenTelemetry), then S7 → S2 → S3 → S4 → S5 → S6** (S6 keeps only the in-app
+Activity summary/filter/running-now; its logging gaps move to O3) (cards in §4 Track S). S1 done (#48). Digest
 question scope done (#49).
 
 **Waiting on the user (model laptop).**
@@ -74,6 +75,7 @@ flowchart LR
   P8 --> R[Track R: Robinhood research R0-R10 + Portfolio chat] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
   R --> RP[R9 Portfolio chat + R10 schema fit] --> GB[R11 Gmail bill text, PR 34] --> LC[Live checks: Gmail, calendar, Portfolio chat, paper agents] --> P11
   GB --> GX[Gmail fixes + Gmail API read-only, PRs 36-46] --> S1[S1 why bills are missed, PR 48] --> DQ[Digest question scope, PR 49] --> S0[S0 email text = signal, not a document] --> S7[S7 digest and Sync agree] --> S2[S2 one Bill providers list] --> S3[S3 Upload page IA] --> S4[S4 bill PDFs from Gmail into RAG] --> S5[S5 sync window + schedule] --> S6[S6 run observability]
+  S0 --> O1[O1 OTel core] --> O2[O2 traces end to end] --> O3[O3 metrics + logs] --> O4[O4 local LGTM stack + dashboards] --> O5[O5 telemetry leakage eval]
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
@@ -89,7 +91,7 @@ flowchart LR
   class GX done
   class S1,DQ done
   class S0 now
-  class S7,S2,S3,S4,S5,S6 todo
+  class S7,S2,S3,S4,S5,S6,O1,O2,O3,O4,O5 todo
   class P9,P10,RL user
 ```
 
@@ -156,7 +158,7 @@ All evaluation data is synthetic or public. No real-market skill is claimed.
 | W5 multi-agent | Parallel specialists, per-edge strict bus schemas, verifier, dependency inputs | overlap yes, latency 0.41× B2, cross-domain 100% | – |
 | W6 guardrails | Static: `policy.screen` refusals, read-only Gmail/broker, `extra="forbid"` bus schemas, approval-only Core Memory. Input: tool-less quarantine extractor. Runtime: step timeouts, 1 retry, deadline, staleness, ToT 9-node cap. Output: evidence or explicit status; verifier relevance | refusals 24/24 (0/12 false), injection 0/38, grounded 126/126, relevance 7/7 | – |
 | W6 logging | Encrypted Activity log (no plaintext log files, by design): every bus message incl. rejections, MCP tool calls, agent turns (steps, status, ms, model), RAG turns (evidence ids, scores, grounded), syncs, scheduled runs, slot runs, injection flags, reviewer accept/correct/dismiss | `store.log_activity`, `log_review`, `slots.log_run` | interactive refusals and escalation kinds not logged (S6) |
-| W6 observability | Agents → Activity table; per-run step status + timing in `RunReport`; eval reports `evals/results/` | P6 escalation P/R 100%, P7 10×8 stable | no guardrail-trip summary, no kind filter, no running-now indicator (S6) |
+| W6 observability (Track O planned: OpenTelemetry → local Grafana LGTM) | Agents → Activity table; per-run step status + timing in `RunReport`; eval reports `evals/results/` | P6 escalation P/R 100%, P7 10×8 stable | no guardrail-trip summary, no kind filter, no running-now indicator (S6) |
 | W6 human intervention | Risk-tiered routing (proceed / caveat / ask / escalate), one-question clarify, reviewer accept/correct/dismiss, overrides → test cases | escalation P/R 100% | – |
 | Final | Implemented-vs-planned table, framework mapping, synthetic-data statement | §1, `architecture.md` §5 | P9/P10 live numbers, P11 packaging |
 
@@ -546,6 +548,56 @@ filter by kind, per-run detail row (S1 outcome counts, model calls, duration); (
 jobs (sync, agent turns): job, model, elapsed. *Accept:* refusal and escalation entries logged with no question text (test);
 summary counts from a seeded log match; AppTest: filter works and indicator shows during a fake long run; entries stay
 code-built.
+
+### Track O. End-to-end observability with OpenTelemetry (planned 2026-11-22)
+
+Decision (platform_plan D14): **OpenTelemetry SDK in the app → OTLP on loopback → Grafana `otel-lgtm`** (one open-source
+container: OTel Collector + Tempo traces + Prometheus metrics + Loki logs + Grafana). Tracing a run means following one chat
+turn through the planner, coordinator waves, workers, model calls, MCP/Gmail reads, quarantine, the verifier and RAG.
+Rules: off by default (`PERSONAL_AI_OTEL_ENABLED`); the exporter endpoint must be loopback (refused otherwise, like the
+model host); span/metric/log attributes go through a **code-built allowlist** (ids, enums, counts, timings, model ids, status)
+and never carry prompts, email/document text, questions, amounts, account ids or provider names; manual spans only, no
+auto-instrumentation of HTTP/LLM clients (it records bodies). The encrypted Activity log stays the source of truth.
+
+| Option from the course / ecosystem | Fit here | Verdict |
+|---|---|---|
+| LangSmith | Cloud SaaS (self-host is enterprise); sends prompts with vault data off the machine | No (D13) |
+| CrewAI | Agent framework, not observability; free agent chat conflicts with per-edge schemas | No (mapped only, `architecture.md` §5) |
+| LangGraph / LangChain callbacks | Only useful if we adopt the framework | No (D13) |
+| **OpenTelemetry + Grafana LGTM** | Vendor-neutral, GenAI semantic conventions (`gen_ai.*`), traces + metrics + logs in one local container | **Yes (primary)** |
+| Arize Phoenix (open source, OTel/OpenInference) | Good LLM trace UI, same OTLP feed | Optional second exporter later |
+| Langfuse (self-hosted) | OTel ingest, but Postgres + ClickHouse + Redis | No (too heavy for one laptop) |
+
+#### O1. Telemetry core
+`src/observability/otel.py`: `init()` (no-op unless enabled; OTLP/HTTP exporter, loopback check), `span(name, **attrs)` and
+`count/observe` helpers that drop any attribute not in `ALLOWED_ATTRS` or not a scalar. Deps: `opentelemetry-sdk`,
+`opentelemetry-exporter-otlp-proto-http` (PyPI). *Accept:* disabled → no exporter, no thread; non-loopback endpoint raises;
+a disallowed attribute is dropped (test).
+
+#### O2. Traces end to end
+Root span per chat turn / sync / scheduled job / forecast run. Children: `policy.screen` (refused + kind), plan (planner =
+rules/llm, step count), coordinator wave, worker step (agent, status, retry, timeout), model call (`gen_ai.request.model`,
+token usage, latency), MCP / Gmail API read (tool name, HTTP status), quarantine extract (schema, flagged, error), bus send
+(edge, outcome), verifier (escalation kinds), RAG retrieve (k, top score, grounded, abstained), ToT (depth, nodes). Context
+propagated into pool threads. *Accept:* in-memory exporter on a golden-set run shows one connected trace with the expected span
+tree; pool-thread spans have the right parent.
+
+#### O3. Metrics and logs
+Counters: refusals, injection flags, bus rejections, step timeouts/failures, ungrounded/abstained RAG turns, escalations by kind,
+reviewer decisions, model calls. Histograms: turn latency, step latency, model latency, tokens. Every `store.log_activity`
+entry also emitted as an OTel log record (same code-built fields). Closes the S6 logging gaps (chat refusals, escalation kinds).
+*Accept:* seeded run → expected counter values; refusal logged with no question text.
+
+#### O4. Local stack + dashboards
+`observability/docker-compose.yml` with `grafana/otel-lgtm`, every port bound to `127.0.0.1`, 7-day retention; `make obs-up`,
+`make obs-down`; provisioned Grafana dashboards: *Agent runs* (latency, step status, waves), *Guardrails* (the O3 counters),
+*Models* (latency, tokens, calls by model), *Sync* (S1 outcome counts). *Accept:* `make obs-up` + one chat turn → trace in Tempo,
+counters in Prometheus, logs in Loki (user runs live; offline test validates compose ports and dashboard JSON).
+
+#### O5. Telemetry leakage eval + docs
+Eval row: run golden + injection sets with an in-memory exporter; 0 fixture secrets (bodies, questions, amounts, account ids,
+provider names) in any exported attribute, event or log (hard gate). Docs: `security_design.md` (telemetry is plaintext in the
+container volume: allowlist + loopback + retention are the controls), `platform_plan.md` §5 metric, `architecture.md` diagram.
 
 ### Track P. Capstone feedback cards
 

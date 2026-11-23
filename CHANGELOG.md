@@ -9,7 +9,7 @@
 - `docs/roadmap.md` §00 live status after #48/#49; new cards S0 (email-text bills become manifest-only signals; only official
   PDFs are documents; migrate existing `gmail_bill_*` docs out of Files/RAG) and S7 (digest reuses Sync's bill facts / same
   extractor); S4 dedupe text adjusted; §0 diagram, §1, §2 order. §1.0 assignment coverage splits W6 into guardrails / logging /
-  observability / human intervention; S6 widened to guardrail telemetry (chat refusals and escalation kinds not logged yet). `rag_design.md` R11 note. Miro frames 0 and 6 updated.
+  observability / human intervention; Track O (OpenTelemetry → local Grafana LGTM, O1-O5) and D14 added; S6 widened to guardrail telemetry (chat refusals and escalation kinds not logged yet). `rag_design.md` R11 note. Miro frames 0 and 6 updated.
 
 ## (pending) - 2026-11-22 - fix: Email Digest answers the question asked (sender + time window)
 

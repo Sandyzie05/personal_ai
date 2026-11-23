@@ -241,6 +241,9 @@ roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T
 - D8 RAG architecture: **Advanced RAG inside the document retriever** (query analysis to filters, hybrid retrieval, rerank, context assembly, numeric grounding check); **Modular behaviour only at system level** (routing between structured records / semantic search / public evidence, Coordinator orchestration, deterministic fusion, approval-gated memory). No free-running retrieve-reflect loops (latency, injection surface, hard to evaluate); at most one bounded re-retrieve when the grounding check fails. See `docs/rag_design.md` §8.1.
 - D9 Tree of Thought only in the forecaster (beam width 3, depth 2, scenario-diverse beam, deterministic thought generator, LLM specialists as a lazy shared critic). Records, planning and RAG stay linear by design. See [forecaster.md](forecaster.md) Part 2.
 - D10 CrewAI/LangChain/MCP are mapped to ToT roles, not imported: no second orchestration framework, all inference stays on the loopback client, invariants stay in this repo's code.
+- D14 Observability (2026-11-22): OpenTelemetry SDK, manual spans with a code-built attribute allowlist, OTLP to a loopback-only
+  Grafana `otel-lgtm` container (traces, metrics, logs); off by default; no auto-instrumentation (records bodies). LangSmith,
+  Langfuse and CrewAI rejected for this system (roadmap Track O); Phoenix optional as a second local exporter.
 - D13 Framework review (2026-11-20). Only **MCP** is used (official `mcp` SDK, read-only). No weekly submission commits to LangChain,
   LangGraph, LangSmith or CrewAI (W4 maps roles and says "plain Python rather than importing"; W5 maps `Plan` onto LangGraph nodes/edges).
   Verdict for this system: **LangSmith no** (cloud tracing ships vault-derived prompts off-machine; use the encrypted activity log or a
