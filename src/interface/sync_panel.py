@@ -111,15 +111,34 @@ def _gmail_sync(vault, server, on_indexed, client, only: Optional[str] = None) -
     if client is None:
         st.error("No local model available for the quarantine extractor.")
         return
-    with st.status(f"Reading {only or 'bill'} emails (read-only)...") as status:
+    import time
+
+    from src.agents import store as agent_store
+
+    model = getattr(client, "model", "") or "configured model"
+    t0 = time.monotonic()
+    with st.status(f"Reading {only or 'bill'} emails (read-only) · model {model}", expanded=True) as status:
+        line = st.empty()
+
+        def progress(msg: str) -> None:  # code-built text (counts, model id): safe to render
+            line.text(f"{msg} · {time.monotonic() - t0:.0f}s")
+
+        entry = {"agent_name": "Gmail bill sync", "server": "Gmail API" if server == "api" else "Gmail MCP",
+                 "tool": "search_threads/get_thread", "args_digest": only or "all senders", "model": model}
         try:
             ro = GmailApi(vault) if server == "api" else ReadOnlyMcp(McpManager(vault), server)
-            rep = gmail_bills.sync(vault, ro, client, on_indexed, only=only)
-            status.update(label=rep.summary(), state="complete" if not (rep.failed or rep.needs_you) else "error")
+            rep = gmail_bills.sync(vault, ro, client, on_indexed, only=only, progress=progress)
+            ok = not (rep.failed or rep.needs_you)
+            line.text(f"Done in {time.monotonic() - t0:.0f}s · {rep.model_calls} model call(s) with {model}")
+            status.update(label=rep.summary(), state="complete" if ok else "error")
+            agent_store.log_activity(vault, {**entry, "ok": ok, "duration_ms": int((time.monotonic() - t0) * 1000),
+                                             "model_calls": rep.model_calls, "error": "" if ok else rep.summary()[:160]})
             return
         except Exception as e:
             status.update(label="Gmail sync failed. Nothing was stored.", state="error")
             st.text(_error_text(e))  # inert text, never markdown
+            agent_store.log_activity(vault, {**entry, "ok": False, "duration_ms": int((time.monotonic() - t0) * 1000),
+                                             "error": _error_text(e)[:160]})
             needs_auth = bool(getattr(e, "needs_auth", False))
     if needs_auth:
         st.session_state["gmail_needs_auth"] = True

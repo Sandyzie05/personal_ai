@@ -17,6 +17,8 @@ from ..config import (
     PERSONAL_AI_EMBED_ENGINE,
     PERSONAL_AI_OMLX_EMBED_MODEL,
     PERSONAL_AI_OMLX_WORKER_MODEL,
+    PERSONAL_AI_QUARANTINE_MODEL,
+    QUARANTINE_MAX_TOKENS,
     EMBED_MODEL_CONTEXT_TOKENS
 )
 
@@ -43,6 +45,17 @@ def worker_client(client: Any) -> Any:
     worker = copy.copy(client)
     worker.model = PERSONAL_AI_OMLX_WORKER_MODEL
     return worker
+
+
+def extraction_client(client: Any, model: Optional[str] = None) -> Any:
+    """Small model + short reply cap for quarantine extraction (closed JSON schema, ~60 tokens per answer).
+    `model`: the calling agent's configured model (e.g. Email Digest's), else PERSONAL_AI_QUARANTINE_MODEL."""
+    if not isinstance(client, OmlxClient):
+        return worker_client(client)
+    small = copy.copy(client)
+    small.model = model or PERSONAL_AI_QUARANTINE_MODEL or client.model
+    small.max_tokens = QUARANTINE_MAX_TOKENS
+    return small
 
 
 def build_chat_client(engine: Optional[str] = None, host: Optional[str] = None,

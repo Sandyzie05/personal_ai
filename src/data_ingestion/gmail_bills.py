@@ -19,7 +19,7 @@ from src.data_ingestion import pipeline
 SENDERS_KEY = "gmail_bill_senders"
 DOMAIN = re.compile(r"^(?:[a-z0-9-]{1,40}\.){1,4}[a-z]{2,12}$")
 PROVIDER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .&'-]{0,39}$")
-MAX_THREADS = 60
+MAX_THREADS = 15  # newest first; each new bill email is one model call (older ones are cached)
 LOOKBACK_DAYS = 400
 HINT = (
     "This is an email from a utility or phone company. is_bill=true only if it states an amount due for a billing "
@@ -153,6 +153,7 @@ def sync(
     on_indexed: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     today: Optional[date] = None,
     only: Optional[str] = None,
+    progress: Optional[Callable[[str], None]] = None,
 ) -> pipeline.IngestReport:
     """Search allowlisted senders, read each new message once, extract bill facts via quarantine, store records.
     `only`: sync just that provider's sender row."""
@@ -161,6 +162,7 @@ def sync(
     if not rows:
         r.needs_you.append("add a bill sender first")
         return r
+    say = progress or (lambda _msg: None)  # code-built status text only (counts, provider names)
     args = _Args(ro)
     search, get = (
         args.tool("search_threads", _Args.SEARCH),
@@ -172,14 +174,16 @@ def sync(
         + f") newer_than:{LOOKBACK_DAYS}d"
     )
     threads = _items(
-        ro.call(search, args.build(search, {query: ("query", "q")})),
+        ro.call(search, args.build(search, {query: ("query", "q"), MAX_THREADS: ("pageSize", "maxResults")})),
         "threads",
         "messages",
         "results",
     )
     docs = pipeline._manifest(vault)
-    seen = {"msgs": 0, "allowed": 0, "not_bill": 0}
-    for t in threads[:MAX_THREADS]:
+    seen = {"msgs": 0, "allowed": 0, "not_bill": 0, "model_calls": 0}
+    say(f"Found {len(threads)} thread(s); reading up to {MAX_THREADS}")
+    for n, t in enumerate(threads[:MAX_THREADS], 1):
+        say(f"Thread {n}/{min(len(threads), MAX_THREADS)}: reading (read-only)")
         tid = re.sub(r"[^A-Za-z0-9_-]", "", str(t.get("id", "")))[:40]
         if not tid:
             continue
@@ -225,6 +229,9 @@ def sync(
                 or ""
             )
             raw = f"Subject: {_pick(m, 'subject') or ''}\nDate: {_pick(m, 'date', 'internalDate') or ''}\n\n{body}"
+            say(f"Thread {n}/{min(len(threads), MAX_THREADS)}: extracting bill facts with "
+                f"{getattr(client, 'model', 'the model')}")
+            seen["model_calls"] += 1
             ex = extract_facts(
                 raw, f"gmail:{mid}", BillEmailFacts, client, extra_instructions=HINT
             )
@@ -323,6 +330,7 @@ def sync(
         r.needs_you.append("no email from " + ", ".join(x["domain"] for x in rows) + " in the last 13 months: check the "
                            "sender domain spelling (open a bill email, copy the part after @; re-adding the provider "
                            "replaces the row)")
+    r.model_calls = seen["model_calls"]
     r.checked = (f"searched {len(threads)} thread(s) from {', '.join(x['domain'] for x in rows)}; "
-                 f"{seen['allowed']} new message(s) from allowlisted senders, {seen['not_bill']} not a bill")
+                 f"{seen['allowed']} new message(s) from allowlisted senders, {seen['not_bill']} not a bill; {seen['model_calls']} model call(s)")
     return r

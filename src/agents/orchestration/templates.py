@@ -12,7 +12,7 @@ gate) - the prompts are defence in depth, never the only control.
 from typing import Any, Dict, List
 
 from src.agents import store
-from src.config import PERSONAL_AI_FORECAST_CRITIC_MODEL
+from src.config import PERSONAL_AI_FORECAST_CRITIC_MODEL, PERSONAL_AI_QUARANTINE_MODEL
 
 _COMMON = (
     "Ground every statement in tool results or retrieved records and cite evidence ids. "
@@ -333,6 +333,8 @@ def _build(role: str) -> Dict[str, Any]:
             else ""
         )
         if forecast
+        # Extraction-only roles: their LLM work is quarantine JSON extraction, so a small model by default.
+        else PERSONAL_AI_QUARANTINE_MODEL if role in ("email", "portal")
         else store.new_agent_defaults()["model"],
         "chat_capable": role in CHAT_MODES,
         "chat_mode": CHAT_MODES.get(role, ""),

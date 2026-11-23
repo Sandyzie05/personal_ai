@@ -203,3 +203,34 @@ def test_no_threads_points_at_the_sender_domain():
 
     rep = gmail_bills.sync(v, ReadOnlyMcp(Empty(), "gm"), Extractor(), today=date(2026, 11, 20))
     assert "check the sender domain spelling" in rep.summary() and "csapps.rockymountainpower.ne" in rep.summary()
+
+
+def test_sync_reports_progress_model_calls_and_caps_threads():
+    from src.ai_engine.engine import extraction_client
+    from src.ai_engine.omlx_client import OmlxClient
+    from src.config import PERSONAL_AI_QUARANTINE_MODEL, QUARANTINE_MAX_TOKENS
+
+    v, g = setup()
+    msgs = []
+    rep = gmail_bills.sync(v, ReadOnlyMcp(g, "gm"), Extractor(), today=date(2026, 11, 20), progress=msgs.append)
+    assert rep.model_calls == 1 and "1 model call(s)" in rep.summary()
+    assert msgs[0].startswith("Found 2 thread(s)") and any("extracting bill facts" in m for m in msgs)
+    assert g.calls[0][1]["pageSize"] == gmail_bills.MAX_THREADS == 15
+    assert not any(BODY in m for m in msgs)  # progress is code-built text only
+    big = OmlxClient.__new__(OmlxClient)
+    big.model, big.max_tokens = "Qwen3.8-27B-8bit", 4096
+    small = extraction_client(big)
+    assert small.model == PERSONAL_AI_QUARANTINE_MODEL != "Qwen3.8-27B-8bit" and small.max_tokens == QUARANTINE_MAX_TOKENS
+    assert big.model == "Qwen3.8-27B-8bit"  # the chat client itself is untouched
+
+
+def test_email_agent_model_drives_extraction():
+    from src.agents import store
+    from src.ai_engine.engine import extraction_client
+    from src.ai_engine.omlx_client import OmlxClient
+    from src.config import PERSONAL_AI_QUARANTINE_MODEL
+
+    assert store.get_agent(None, "builtin-email")["model"] == PERSONAL_AI_QUARANTINE_MODEL  # not the 27B chat model
+    big = OmlxClient.__new__(OmlxClient)
+    big.model, big.max_tokens = "Qwen3.8-27B-8bit", 4096
+    assert extraction_client(big, model="my-tweaked-model").model == "my-tweaked-model"

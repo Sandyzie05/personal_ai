@@ -36,6 +36,7 @@ class IngestReport:
     superseded: List[str] = field(default_factory=list)
     failed: List[str] = field(default_factory=list)  # reasons only, never content
     needs_you: List[str] = field(default_factory=list)
+    model_calls: int = 0
     checked: str = ""  # code-built counts of what was looked at (helps explain "0 new")
 
     def summary(self) -> str:

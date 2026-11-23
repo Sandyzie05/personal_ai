@@ -476,6 +476,8 @@ agent, deny by default.)
   refreshed at `<mcp-origin>/token` (404 on Google) and fell back to "needs auth". The metadata (public endpoints only, no
   secrets) is now kept in the server's encrypted `mcp_oauth_<id>` record and restored. Probe/Sync tool errors are shown as
   a closed category (permission / scope, not signed in, API not enabled, invalid arguments, other), never server text.
+- **Activity log covers syncs and agent turns.** Entries are code-built (agent name, step agent:status, model id,
+  duration, model-call count, closed error text); no email bodies, subjects or senders. Rendered as dataframe cells.
 - **Path-aware metadata lookup + no refresh retry storm (fix).** The lookup now uses the SDK's RFC 8414 URL builders, so a
   path issuer (Robinhood: `https://agent.robinhood.com/mcp/trading`, token endpoint `https://api.robinhood.com/oauth2/token/`)
   resolves; the old suffix form 404'd and the SDK refreshed at `<origin>/token` on every call. A failed refresh is

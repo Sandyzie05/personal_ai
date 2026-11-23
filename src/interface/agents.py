@@ -835,8 +835,8 @@ def _render_activity_tab(vault: Any) -> None:
     entries = store.list_activity(vault, limit=100)
     if not entries:
         st.info(
-            "No tool activity yet. Every agent tool call shows up here with "
-            "its arguments, outcome, and duration (newest first)."
+            "No activity yet. Every agent tool call, Gmail sync and agent chat turn shows up here with its "
+            "arguments, model, outcome and duration (newest first)."
         )
         return
     rows = [
@@ -848,6 +848,8 @@ def _render_activity_tab(vault: Any) -> None:
             "args": e.get("args_digest", ""),
             "ok": "yes" if e.get("ok") else "no",
             "ms": e.get("duration_ms", 0),
+            "model": e.get("model", ""),
+            "model calls": e.get("model_calls", ""),
             "error": e.get("error") or "",
         }
         for e in entries

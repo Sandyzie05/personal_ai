@@ -589,7 +589,7 @@ class PersonalAIInterface:
         """Coordinator turn: plan -> parallel specialists -> deterministic merge -> escalation."""
         from src.agents.orchestration import service
         from src.agents.orchestration.workers import _md, render_report
-        from src.ai_engine.engine import worker_client
+        from src.ai_engine.engine import extraction_client, worker_client
         from src.interface.forecast import _scenario_factory
 
         # P3: a reply to the clarifying question is re-planned together with the question it answers.
@@ -605,14 +605,24 @@ class PersonalAIInterface:
                 self.chat_engine.get_structured_records,
                 _scenario_factory(self.vault),
                 mcp=self._agent_runtime().mcp,
-                quarantine_client=worker_client(self.chat_engine.ollama_client),
+                # The selected agent's model decides (Email Digest: small extraction model); others: extraction default.
+                quarantine_client=extraction_client(
+                    self.chat_engine.ollama_client,
+                    model=agent.get("model") if agent.get("role") in ("email", "portal") else None,
+                ),
             )
             label = (
                 "Coordinator delegating to specialists..."
                 if agent.get("id") == "builtin-coordinator"
                 else f"{agent.get('name', 'Agent')} is working..."
             )
+            xmodel = getattr(getattr(coordinator, "verifier_client", None), "model", "") or "configured model"
             with st.status(label, expanded=True):
+                st.text(
+                    f"Extraction/verifier model: {xmodel}. Email reads up to 5 threads, one model call each."
+                    if agent.get("role") == "email"
+                    else f"Extraction/verifier model: {xmodel}"
+                )
                 report = service.run_query(
                     coordinator,
                     query,
@@ -621,6 +631,19 @@ class PersonalAIInterface:
                     else None,
                     planner_client=worker_client(self.chat_engine.ollama_client),
                 )
+            # Observability: one code-built entry per agent turn (agent, steps, status, timing, model; no text).
+            agent_store.log_activity(
+                self.vault,
+                {
+                    "agent_name": agent.get("name", "Agent"),
+                    "tool": "coordinated run",
+                    "args_digest": ", ".join(f"{r.agent}:{r.status}" for r in report.steps)[:160],
+                    "ok": all(r.status == "ok" for r in report.steps),
+                    "duration_ms": int(report.wall_s * 1000),
+                    "model": xmodel,
+                    "error": "; ".join(f"{r.agent} {r.status}" for r in report.steps if r.status != "ok")[:160],
+                },
+            )
             clarify = next((e for e in report.escalations if e.kind == "clarify"), None)
             if clarify is not None:
                 st.session_state["coord_clarify"] = {
@@ -1240,10 +1263,13 @@ class PersonalAIInterface:
             ollama_client=ollama_client,
             on_uploaded=self._on_document_uploaded,
         )
-        from src.ai_engine.engine import worker_client
+        from src.ai_engine.engine import extraction_client
 
-        client = (
-            worker_client(self.chat_engine.ollama_client) if self.chat_engine else None
+        email_agent = agent_store.get_agent(self.vault, "builtin-email") or {}
+        client = (  # Gmail bill extraction follows the Email Digest agent's model (Agents → Platform → Tweak)
+            extraction_client(self.chat_engine.ollama_client, model=email_agent.get("model"))
+            if self.chat_engine
+            else None
         )
         sync_panel.render(
             self.vault, self._on_document_uploaded, quarantine_client=client
@@ -1407,7 +1433,7 @@ class PersonalAIInterface:
 
     def _run_scheduled(self) -> List[str]:
         from src.agents.orchestration import service
-        from src.ai_engine.engine import worker_client
+        from src.ai_engine.engine import extraction_client
         from src.interface.forecast import _scenario_factory
 
         self._init_vault()
@@ -1418,7 +1444,7 @@ class PersonalAIInterface:
             self.chat_engine.get_structured_records,
             _scenario_factory(self.vault),
             mcp=self._agent_runtime().mcp,
-            quarantine_client=worker_client(self.chat_engine.ollama_client),
+            quarantine_client=extraction_client(self.chat_engine.ollama_client),
         )
 
     def render_agents_page(self) -> None:
