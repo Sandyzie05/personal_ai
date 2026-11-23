@@ -31,17 +31,20 @@ user tests and pastes results back.
 | Per-agent tool picker (deny by default), MCP *Test read access* | Agents → Edit / MCP Servers | S26, `mcp.McpManager.probe` |
 | Forecast research + critics + ToT; Trader plan + paper agents; Robinhood | Forecast page | `forecaster.md`, `trader.md`, Track R |
 
-**Live status (user, 2026-11-22).** Gmail connected through the Gmail API (read-only); Email Digest answers in ~4 s with the
-4B model; Gmail bill sync reads Rocky Mountain Power and Enbridge. Open problems reported by the user, now **Track S**:
-1. This month's bills from both providers are not found although the emails exist (S1 decides why).
-2. Unclear what Sync covers (it reads the sender's newest 15 emails from the last 13 months, each once).
-3. "New provider (as in the bill) + Cadence" (Expected bills) vs "Provider / Category / Sender domain" (Gmail senders) are two
-   forms for one concept (S2 merges them).
-4. Email-text bills do not bring the bill PDF into RAG; Sync and PDF ingestion are separate (S4).
+**Live status (user, 2026-11-22, after PRs #48 S1 and #49 digest scope).** Gmail via the Gmail API (read-only). Sync on
+Enbridge: 6 threads in 13 months from `enbridgegas.com`, 6 bills saved (Nov, Sep, Aug, Jul, Jun, Apr; May and Oct absent from
+that domain), 0 not a bill, 6 model calls, 7 s. Email Digest now answers the question asked ("electricity and gas bills this
+month" → 2 bills since the 1st, 1.7 s). Open problems, all in **Track S**:
+1. **Email-text bills are saved as `.txt` documents** (Files, Dashboard, RAG). User decision: only the **official bill PDF** is a
+   document; email text is a signal (bill arrived, emailed amount/due) and must not enter Files or RAG (S0).
+2. **Digest and Sync disagree on the same email** (digest showed the Enbridge bill without an amount; Sync extracted one): the
+   digest uses `EmailFacts` with a 2,500-char cut, Sync uses `BillEmailFacts` on the full body (S7).
+3. Official PDFs are on the provider portals (emails link to them); portal recipes (R10) are not recorded yet, so no PDF
+   arrives (S4 for PDF attachments, R10 for link-only emails).
+4. Two forms for one provider concept (S2); what Sync covers is unclear (S3 copy); Sync is manual only (S5 schedule).
 
-**Next card for the agent: S2, then S3 → S4 → S5 → S6** (cards in §4 Track S). S1 done (PR: outcome list per message, bill
-notices without an amount count as arrived, "not a bill" re-checked on model change, one capped search per sender). User:
-press *Sync* (or *Re-read*) on both providers and paste the outcome table's *Outcome* column counts (no subjects).
+**Next card for the agent: S0, then S7 → S2 → S3 → S4 → S5 → S6** (cards in §4 Track S). S1 done (#48). Digest
+question scope done (#49).
 
 **Waiting on the user (model laptop).**
 1. Merge open PRs, `git pull`, `PERSONAL_AI_MCP_OAUTH_CALLBACK_PORT=8765 make run` (a Web-type OAuth client needs that port).
@@ -70,7 +73,7 @@ flowchart LR
   D --> FX[Fixes: Yahoo UA, .env keys, NumPy 2, state report] --> F[Track F: Forecast overhaul on configurable agents F1-F10] --> FL[F1 live check + F7 news analyst] --> P1[P1 stress set] --> P2[P2 verifier relevance] --> P3[P3 clarify] --> P12[P12 missing statements] --> P5[P5 memory recall] --> P4[P4 composed leakage] --> P6[P6 escalation metrics] --> P7[P7 stability] --> P8[P8 held-out ToT]
   P8 --> R[Track R: Robinhood research R0-R10 + Portfolio chat] --> P9[P9 live run] & P10[P10 RAG calibration] & RL[Robinhood live check] --> P11[P11 final submission]
   R --> RP[R9 Portfolio chat + R10 schema fit] --> GB[R11 Gmail bill text, PR 34] --> LC[Live checks: Gmail, calendar, Portfolio chat, paper agents] --> P11
-  GB --> GX[Gmail fixes + Gmail API read-only, PRs 36-46] --> S1[S1 why bills are missed] --> S2[S2 one Bill providers list] --> S3[S3 Upload page IA] --> S4[S4 bill PDFs from Gmail into RAG] --> S5[S5 sync window + schedule] --> S6[S6 run observability]
+  GB --> GX[Gmail fixes + Gmail API read-only, PRs 36-46] --> S1[S1 why bills are missed, PR 48] --> DQ[Digest question scope, PR 49] --> S0[S0 email text = signal, not a document] --> S7[S7 digest and Sync agree] --> S2[S2 one Bill providers list] --> S3[S3 Upload page IA] --> S4[S4 bill PDFs from Gmail into RAG] --> S5[S5 sync window + schedule] --> S6[S6 run observability]
   R --> T0[T0 trader docs] --> T1[T1 engines] --> T2[T2 agents] --> T3[T3 UI] --> T4[T4 evals] --> T5[T5 AI paper agents + scoreboard] --> T9[T9 broker orders later]
   classDef done fill:#2e7d32,color:#fff,stroke:#1b5e20
   classDef now fill:#f9a825,color:#000,stroke:#f57f17
@@ -84,9 +87,9 @@ flowchart LR
   class LC user
   class T9 todo
   class GX done
-  class S1 done
-  class S2 now
-  class S3,S4,S5,S6 todo
+  class S1,DQ done
+  class S0 now
+  class S7,S2,S3,S4,S5,S6 todo
   class P9,P10,RL user
 ```
 
@@ -131,8 +134,8 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | ToT held-out evaluation + calibration (Brier) | DONE (Brier win needs dev calibration) | P8: held-out acc 0.76 vs 0.59/0.70; Brier 0.414 vs 0.488/0.430 (raw: vote better) |
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
-| Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API, misses no-amount notices | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
-| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE 2026-11-22 (per-message outcome list, bill notices); S2-S6 PLANNED | Track S1-S6 |
+| Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API (#48 fixed no-amount notices); stores email text as documents → S0 | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
+| Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE (#48), digest question scope DONE (#49); S0 (email text not a document), S7 (digest = Sync facts), S2-S6 PLANNED | Track S |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
 | Robinhood research data (fundamentals, earnings, options IV, filings) + private Portfolio fit + Portfolio chat agent | DONE vs fixtures; live = USER | Track R: broker text 0/5, account canaries 0 in 19 sinks, valuation golden 3/3, portfolio chat 0/5 (S25) |
@@ -141,6 +144,18 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Voice, cross-device sync, key rotation/backup, file watcher | OUT OF SCOPE (capstone) | `security_design.md` |
 
 All evaluation data is synthetic or public. No real-market skill is claimed.
+
+### 1.0 Assignment topic coverage (2026-11-22)
+
+| Week topic | Built and used in the app | Evidence | Open |
+|---|---|---|---|
+| W1 agentic need, environment, actions | Local assistant over vault records, Gmail, portals, market data; read-only actions, refusals | `policy.screen`, `make eval` refusal rows | – |
+| W2 reasoning loop, memory, tools | Hierarchical ReAct (coordinator → specialists), working state, RAG, approval-gated Core Memory + recall, MCP read-only tools | P5 recall 9/9, 76/76 tool picks | – |
+| W3 retrieval (RAG) | Advanced RAG in retriever: chunk headers, month filter, hybrid search, grounding check, one re-retrieve | `make eval-rag` (offline embedder) | P10 real-embedder tuning; S0 keeps email text out of RAG |
+| W4 Tree of Thought | Beam ToT in forecaster only, closed thoughts + evidence ids, code then specialist critics | held-out Brier beats linear/vote (P8) | P9 live run |
+| W5 multi-agent | Parallel specialists, per-edge strict bus schemas, verifier, dependency inputs | overlap yes, latency 0.41× B2, cross-domain 100% | – |
+| W6 safety + human intervention | Quarantine extractor, read-only Gmail/broker, approval gate, escalations, reviewer log, stability runs | injection 0/38, escalation P/R 100%, 10×8 stability | – |
+| Final | Implemented-vs-planned table, framework mapping, synthetic-data statement | §1, `architecture.md` §5 | P9/P10 live numbers, P11 packaging |
 
 ### 1.1 Weekly commitment audit (2026-11-20)
 
@@ -179,7 +194,7 @@ Each commitment made in a weekly checkpoint or raised in feedback, checked again
 
 ## 2. Order
 
-**Next (2026-11-22): Track S, S1 → S6** (bills sync clarity and PDF ingestion; user-reported). Then the items below.
+**Next (2026-11-22): Track S, S0 → S7 → S2 → S6** (bills sync clarity and PDF ingestion; user-reported). Then the items below.
 
 All agent-doable cards are done (2026-11-21, PRs #30-#35). **Remaining, in order:** P9 live run and P10 RAG calibration (USER),
 Robinhood live check (USER: add the server, confirm argument names; 2026-11-21 fix: payload cap + all-accounts holdings, re-verify live),
@@ -463,6 +478,24 @@ sent date, no total) so Expected bills counts them as arrived and S4 can fetch t
 *Accept:* fixture with a no-amount bill notice, another-subdomain sender, an old duplicate → each gets the right outcome;
 `overdue()` treats a bill notice as arrived; test that no subject/body text reaches the outcome list.
 
+#### S0. Email text is a signal, never a document (user decision 2026-11-22) — do first
+Today `gmail_bills.sync` stores each email-text bill as a vault document `gmail_bill_*` (templated `.txt`), so it shows in
+Files, feeds Dashboard totals and is indexed into RAG next to real PDFs. Decision: documents = official bill PDFs only (upload,
+Gmail attachment S4, portal R10). Do: Sync writes manifest-only entries `status: "notice"` with `{provider, category, sent,
+period_end, emailed_total?, emailed_due?}` (templated numbers, no text; no vault document, no RAG); Expected bills / Bill
+providers show "arrived <date> · emailed $X due <date> · PDF: missing/indexed"; `overdue()` keeps counting notices; Dashboard
+and RAG read PDFs only; a notice whose period gets a PDF links to it. One-time migration: existing `gmail_bill_*` documents →
+notices, delete the documents and their RAG entries (`on_indexed(key, None)`). *Accept:* after Sync no new vault document and
+no RAG add (test); migration test (doc → notice, RAG removal called, uploaded PDFs untouched); Files lists no `gmail-*.txt`;
+overdue unchanged; `security_design.md` + `rag_design.md` R11 updated.
+
+#### S7. Digest and Sync agree on a bill email
+Live: same Enbridge email → Sync found the amount, digest did not (`EmailFacts`, `max_chars=2500` vs `BillEmailFacts`, full
+body). Do: for a message from an allowlisted bill sender, the digest first looks up the Sync notice by message id (code join,
+no model call) and shows its amount/due; otherwise it runs the same `BillEmailFacts` extraction and hint as Sync (one
+extractor for bill facts) and records the notice. Non-bill senders keep `EmailFacts`. *Accept:* fixture with the amount after
+char 2,500 → digest and Sync show the same amount; second digest run makes no model call for a synced message.
+
 #### S2. One "Bill providers" list (replaces Expected bills + Gmail senders)
 Today: *Expected bills* (provider + cadence; drives overdue warnings) and *Bills from Gmail* (provider + category + sender
 domain; drives fetching; adding one auto-adds an expectation). Users see two forms for one thing.
@@ -486,9 +519,11 @@ Do: add a third fixed read to `GmailApi`: `get_attachment` → `GET users/me/mes
 `gmail.readonly`; ids pattern-checked). For an allowlisted bill email with a PDF attachment: size cap before download →
 `data_ingestion.files` validation (magic bytes, page caps, no JS/embedded files; hash-named; encrypted before parsing;
 `rag_design.md` §5) → existing category classifier/extractor → vault document + RAG index via the normal upload path.
-Reuse `gmail_attachments.py` (R8) where it fits. Dedupe by provider + period: the PDF record supersedes the email-text record
-for the same period (`pipeline` superseded logic), one bill per period. Emails with a "view your bill online" link only stay
-text-only (portal R10 is the path there; never follow links from email).
+Reuse `gmail_attachments.py` (R8) where it fits. Dedupe by provider + period: the PDF becomes the one document for that period
+and the S0 notice links to it (no email-text document exists to supersede). Emails with a "view your bill online" link only stay
+notices (portal R10 is the path there; never follow links from email). Live: both current providers send link-only emails,
+so their PDFs need a recorded portal recipe (R10, USER-supervised `playwright codegen`) - the notice shows "PDF: get from
+portal" with the recipe's Sync button.
 *Accept:* fixtures: PDF attachment → indexed document with extraction; JS PDF / oversized / non-PDF rejected (fails closed);
 email-text + PDF same period → one record; eval row "Gmail attachment validation" hard; `security_design.md` entry.
 

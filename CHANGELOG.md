@@ -4,6 +4,12 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - docs: Track S live findings (S0 email text not a document, S7 digest = Sync)
+
+- `docs/roadmap.md` §00 live status after #48/#49; new cards S0 (email-text bills become manifest-only signals; only official
+  PDFs are documents; migrate existing `gmail_bill_*` docs out of Files/RAG) and S7 (digest reuses Sync's bill facts / same
+  extractor); S4 dedupe text adjusted; §0 diagram, §1, §2 order. `rag_design.md` R11 note. Miro frames 0 and 6 updated.
+
 ## (pending) - 2026-11-22 - fix: Email Digest answers the question asked (sender + time window)
 
 - The digest always searched `newer_than:2d` and showed the newest 5 threads, whatever was asked. Now
