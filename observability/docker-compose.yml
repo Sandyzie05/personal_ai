@@ -5,8 +5,8 @@ services:
     image: grafana/otel-lgtm:latest
     container_name: personal_ai_lgtm
     ports:
-      - "127.0.0.1:3000:3000"   # Grafana UI
-      - "127.0.0.1:4318:4318"   # OTLP/HTTP (the app exports here)
+      - "127.0.0.1:${OBS_GRAFANA_PORT:-3000}:3000"   # Grafana UI
+      - "127.0.0.1:${OBS_OTLP_PORT:-4318}:4318"      # OTLP/HTTP (the app exports here)
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
