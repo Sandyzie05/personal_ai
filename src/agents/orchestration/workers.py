@@ -764,6 +764,44 @@ def market_worker(providers, bus: MessageBus) -> Worker:
     return run
 
 
+_DIGEST_ROW = re.compile(
+    r"^(?P<cat>bill|statement|receipt|alert|other) from (?P<dom>[a-z0-9.-]+)(?: due (?P<due>\d{4}-\d{2}-\d{2}))?"
+    r"(?: \((?P<topic>[a-z_]+)\))?(?P<flag> \[suspicious content ignored\])?$"
+)
+_DIGEST_ICON = {"bill": "🧾", "statement": "📄", "receipt": "🧾", "alert": "🔔", "other": "✉️"}
+
+
+def render_email_digest(report) -> str:
+    """Email Digest answer as a table. Every cell comes from the code-templated Finding summary (closed enums,
+    validated domain/date) or the typed amount; markdown-escaped anyway."""
+    rows, skipped = [], 0
+    for f in report.claims.values():
+        if f.agent != "email":
+            continue
+        m = _DIGEST_ROW.match(f.summary or "")
+        if not m:
+            skipped += 1
+            continue
+        amount = f"${float(f.value):,.2f}" if isinstance(f.value, (int, float)) else ""
+        rows.append((m["cat"], m["dom"], (m["topic"] or "").replace("_", " "), amount, m["due"] or "",
+                     "⚠ instructions in email ignored" if m["flag"] else ""))
+    failed = [r for r in report.steps if r.agent == "email" and r.status != "ok"]
+    if failed:
+        return f"I couldn't read your email this time ({_md(failed[0].status)}). Try again, or check Upload → Sync → Gmail connection."
+    if not rows:
+        return "No new email in the last 2 days." + (f" ({skipped} could not be read safely and were ignored.)" if skipped else "")
+    order = {"bill": 0, "statement": 1, "alert": 2, "receipt": 3, "other": 4}
+    rows.sort(key=lambda r: (order[r[0]], r[1]))
+    bills = sum(1 for r in rows if r[0] in ("bill", "statement"))
+    head = f"**{len(rows)} email{'s' if len(rows) != 1 else ''} in the last 2 days**" + (
+        f" · {bills} bill{'s' if bills != 1 else ''}/statement{'s' if bills != 1 else ''}" if bills else "")
+    table = ["| | From | Type | Topic | Amount | Due | Note |", "|---|---|---|---|---|---|---|"]
+    table += [f"| {_DIGEST_ICON[c]} | {_md(d)} | {c} | {_md(t)} | {amount} | {due} | {note} |"
+              for c, d, t, amount, due, note in rows]
+    tail = f"\n\n_{skipped} more could not be read safely and were ignored._" if skipped else ""
+    return head + "\n\n" + "\n".join(table) + tail
+
+
 def render_report(report) -> str:
     """Deterministic, source-preserving summary: claims with evidence, conflicts, then what needs the user.
     Every interpolated value is markdown-escaped (claim keys/summaries can derive from untrusted documents)."""

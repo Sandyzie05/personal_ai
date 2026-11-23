@@ -51,6 +51,9 @@ class MemoryVault:
         self.records[key] = deepcopy(payload)
         return True
 
+    def delete_data(self, key):
+        return self.records.pop(key, None) is not None
+
     def store_immutable_data(self, key, payload):
         previous = self.records.get(key)
         if previous is not None and previous != payload:

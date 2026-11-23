@@ -235,7 +235,10 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
     st.caption(
         "For providers that email the amount instead of a PDF. Only senders listed here are read (read-only); each email "
         "goes through the quarantine extractor, which returns just the total, due date and period. The email itself is "
-        "never stored or indexed."
+        "never stored or indexed. **What Sync does:** searches Gmail for the sender's newest 15 emails (last 13 months), "
+        "reads each email once (already-read ones are skipped), extracts the bill facts with the local model, and saves "
+        "one bill per billing period; reminders for a bill already saved count as duplicates. Bills then appear on the "
+        "Dashboard and in chat answers."
     )
     _gmail_connection(vault)
     server = _gmail_server(vault)
@@ -244,10 +247,16 @@ def _gmail(vault, on_indexed, quarantine_client) -> None:
         return
     _reconnect(vault, server)
     for row in gmail_bills.senders(vault):
-        a, b, c, d = st.columns([3, 3, 1, 1])
+        a, b, c, r, d = st.columns([3, 3, 1, 1, 1])
         a.text(row["provider"])
         b.caption(f"{row['category']} · from {row['domain']}")
         if c.button("Sync", key=f"gm_sync_{row['provider']}", icon=":material/sync:"):
+            _gmail_sync(vault, server, on_indexed, quarantine_client, only=row["provider"])
+        if r.button("Re-read", key=f"gm_reread_{row['provider']}", icon=":material/restart_alt:",
+                    help="Forget the bills Gmail sync saved for this provider and read its emails again (uploaded "
+                    "PDFs are kept). Use after a fix or if bills look wrong."):
+            n = gmail_bills.reset(vault, row["provider"], on_removed=lambda k: on_indexed(k, None))
+            st.caption(f"Cleared {n} saved Gmail entr{'y' if n == 1 else 'ies'} for {row['provider']}; re-reading...")
             _gmail_sync(vault, server, on_indexed, quarantine_client, only=row["provider"])
         if d.button("Remove", key=f"gm_rm_{row['provider']}"):
             gmail_bills.remove_sender(vault, row["provider"])

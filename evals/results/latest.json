@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-23T00:58:09+00:00",
+  "generated_at": "2026-11-23T01:14:43+00:00",
   "rows": [
     {
       "metric": "Parallel overlap (fan-out: 1 expense + 3 forecasters + market)",
@@ -11,14 +11,14 @@
     {
       "metric": "Latency ratio vs B2 sequential, fan-out (5 steps)",
       "target": "<= 0.60",
-      "measured": 0.407,
+      "measured": 0.402,
       "pass": true,
       "hard": true
     },
     {
       "metric": "Latency ratio vs B2, golden cross task (3 steps, critical path 2/3)",
       "target": "info",
-      "measured": 0.686,
+      "measured": 0.672,
       "pass": true,
       "hard": false
     },
@@ -389,13 +389,13 @@
     },
     "latency": {
       "fanout": {
-        "ratio": 0.407,
+        "ratio": 0.402,
         "overlap": true,
         "b2_overlap": false,
         "steps": 5
       },
       "golden_cross": {
-        "ratio": 0.686,
+        "ratio": 0.672,
         "overlap": true,
         "b2_overlap": false,
         "steps": 3

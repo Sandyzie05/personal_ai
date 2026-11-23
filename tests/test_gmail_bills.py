@@ -234,3 +234,51 @@ def test_email_agent_model_drives_extraction():
     big = OmlxClient.__new__(OmlxClient)
     big.model, big.max_tokens = "Qwen3.8-27B-8bit", 4096
     assert extraction_client(big, model="my-tweaked-model").model == "my-tweaked-model"
+
+
+def test_bills_without_a_period_are_dated_by_email_and_reread_replaces_them():
+    """Live bug: 15 RMP bills, none stating a period -> all fell back to TODAY -> 1 new + 14 'duplicates'."""
+
+    class Monthly(FakeGmail):
+        def call_tool(self, server_id, name, args, max_chars=None):
+            self.calls.append((name, args))
+            if name == "search_threads":
+                return SimpleNamespace(ok=True, text=json.dumps({"threads": [{"id": f"t{i}"} for i in range(3)]}))
+            i = int(args["threadId"][1:])
+            return SimpleNamespace(ok=True, text=json.dumps({"messages": [{
+                "id": f"m{i}", "sender": "RMP <bill@rockymountainpower.net>", "subject": "Your bill is ready",
+                "date": f"Mon, 1{i} {['Sep', 'Oct', 'Nov'][i]} 2026 09:00:00 -0700", "plaintextBody": "Amount due $80."}]}))
+
+    v = MemoryVault()
+    gmail_bills.add_sender(v, "Rocky Mountain Power", "electricity", "rockymountainpower.net")
+    ex = Extractor(reply={"is_bill": True, "total_due": 80.0})  # no period, no statement date
+    rep = gmail_bills.sync(v, ReadOnlyMcp(Monthly(), "gm"), ex, today=date(2026, 11, 22))
+    assert sorted(rep.new) == ["Rocky Mountain Power 2026-09-10", "Rocky Mountain Power 2026-10-11",
+                               "Rocky Mountain Power 2026-11-12"] and rep.duplicates == 0
+    removed = []
+    assert gmail_bills.reset(v, "Rocky Mountain Power", removed.append) == 3 and len(removed) == 3
+    assert not [k for k in v.records if k.startswith("gmail_bill_") and k != gmail_bills.SENDERS_KEY]
+    assert len(gmail_bills.sync(v, ReadOnlyMcp(Monthly(), "gm"), ex, today=date(2026, 11, 22)).new) == 3  # re-read
+
+
+def test_email_digest_renders_as_a_table_without_internal_ids():
+    from src.agents.orchestration.coordinator import RunReport, StepResult
+    from src.agents.orchestration.schemas import Finding
+    from src.agents.orchestration.workers import render_email_digest
+
+    claims = {
+        "email:a": Finding(agent="email", claim_key="email:a", value=84.12, summary="bill from xfinity.com due 2026-12-01 (internet)",
+                           evidence_ids=("gmail:a",), confidence=0.7, trust="untrusted"),
+        "email:b": Finding(agent="email", claim_key="email:b", summary="alert from google.com [suspicious content ignored]",
+                           evidence_ids=("gmail:b",), confidence=0.7, trust="untrusted"),
+        "email:c": Finding(agent="email", claim_key="email:c", summary="Could not safely extract; ignored.", confidence=0,
+                           status="uncertain", trust="untrusted"),
+    }
+    rep = RunReport(steps=[StepResult("email", "email", "ok")], claims=claims, conflicts=[], wall_s=3.9, sum_step_s=3.9,
+                    parallel_overlap=False, escalations=[])
+    out = render_email_digest(rep)
+    assert out.startswith("**2 emails in the last 2 days** · 1 bill/statement")
+    assert "| 🧾 | xfinity.com | bill | internet | $84.12 | 2026-12-01 |" in out and "⚠ instructions in email ignored" in out
+    assert "email:a" not in out and "gmail:" not in out and "n/a" not in out and "1 more could not be read" in out
+    rep.steps = [StepResult("email", "email", "timeout")]
+    assert "couldn't read your email" in render_email_digest(rep)
