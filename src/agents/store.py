@@ -311,6 +311,9 @@ def log_activity(
         index = _load(vault, ACTIVITY_LOG_KEY, {})
         entries = list(index.get("entries", []))
         entries.append({"ts": _now(), **entry})
+        from src.observability import otel
+
+        otel.activity(entry)
         index["entries"] = entries[-max_entries:]
         _save(vault, ACTIVITY_LOG_KEY, index)
     except Exception:

@@ -57,6 +57,7 @@ a runtime dependency. Do not port its FastAPI/SQLAlchemy/Redis layers.
 | S23 | Trader Monte Carlo is seeded (deterministic), bounded by `TRADER_*` caps, labelled a simulation | `trader/timemachine.py` | `evals/trader.py` simulation row, `test_trader_engines.py` |
 | S24 | Trader paper agents: prompts are code-built relative numbers from bars up to the signal (no ticker/date/price, no lookahead); replies are closed-choice `TraderDecision` (extra fields rejected); code alone sets entry, size and risk; ledger is vault-only, never sent to a broker | `trader/agents.py`, `trader/strategies.py`, `trader/paper.py` | `test_trader_paper.py`, `evals/trader.py` agent-safety + lookahead rows |
 | S25 | Robinhood Portfolio chat: code reads holdings (account tools only) and computes figures; a tool-less model on the loopback endpoint answers; no account numbers in the prompt; `policy.screen` before any Robinhood call; activity log holds status + timing only | `agents/portfolio_chat.py`, `interface/main.py::_respond_portfolio` | `test_portfolio_chat.py`, eval S25 row |
+| S27 | Telemetry (Track O): off by default; OTLP only to a loopback endpoint; every span/metric/log attribute passes `otel.clean` (allowlisted keys, scalar id/enum-shaped values); exceptions as type names; private providers, no auto-instrumentation | `observability/otel.py` | `test_otel.py`, eval "Telemetry leakage" row |
 | S26 | Per-agent tool scope: an attached MCP server grants nothing; only tools ticked in `agent.mcp_tools` are exposed/called; built-ins never get write tools; a selected write tool forces confirmation; paused calls re-checked at Allow | `agents/runtime.py::_collect_tools`, `interface/agents.py::_tool_picker` | `test_agent_runtime.py::TestToolAllowlist`, `test_agents_page_smoke.py` |
 
 Residual risks (accepted, documented): regex PII scan is heuristic (schemas are the real control); the quarantine LLM's
@@ -190,6 +191,7 @@ Run `make eval` → `evals/results/latest.md`. Targets are hard gates in `evals/
 | Missing statements reported, never invented (P12) | 100% | 3/3 | needs a ledger expectation |
 | Core Memory recall / superseded-or-forgotten returned (P5) | ≥ 9/10 / 0 | 9/9 / 0 | |
 | Composed leakage: canaries outside allowed sinks (P4) | 0 | 0 (114 runs, 969 sinks, 102 hops) | golden + stress + service chains with memory |
+| Telemetry leakage: canaries in exported spans/logs/metrics (Track O, 2026-11-22) | 0 | 0 (295 spans, 11 logs, 189 canaries) | golden + injection corpus + Gmail sync, in-memory exporters |
 | Robinhood: broker free text / account canaries / valuation golden (Track R) | 0 / 0 / 100% | 0/5 / 0 in 19 sinks × 3 / 3/3 | synthetic fixtures; no live account |
 | Robinhood Portfolio chat: account number in prompt/log, trade asks reaching Robinhood (S25) | 0 | 0 in 5 | synthetic account fixtures |
 | Gmail bill sync: off-allowlist read / body stored / hostile facts / non-read tool (R11) | 0 | 0 in 4 | synthetic Gmail fake |
@@ -241,7 +243,7 @@ roadmap §6). Track F, P1-P8, P12 and Track R done (2026-11-21, PR #30); Track T
 - D8 RAG architecture: **Advanced RAG inside the document retriever** (query analysis to filters, hybrid retrieval, rerank, context assembly, numeric grounding check); **Modular behaviour only at system level** (routing between structured records / semantic search / public evidence, Coordinator orchestration, deterministic fusion, approval-gated memory). No free-running retrieve-reflect loops (latency, injection surface, hard to evaluate); at most one bounded re-retrieve when the grounding check fails. See `docs/rag_design.md` §8.1.
 - D9 Tree of Thought only in the forecaster (beam width 3, depth 2, scenario-diverse beam, deterministic thought generator, LLM specialists as a lazy shared critic). Records, planning and RAG stay linear by design. See [forecaster.md](forecaster.md) Part 2.
 - D10 CrewAI/LangChain/MCP are mapped to ToT roles, not imported: no second orchestration framework, all inference stays on the loopback client, invariants stay in this repo's code.
-- D14 Observability (2026-11-22): OpenTelemetry SDK, manual spans with a code-built attribute allowlist, OTLP to a loopback-only
+- D14 Observability (2026-11-22, built offline, live check USER): OpenTelemetry SDK, manual spans with a code-built attribute allowlist, OTLP to a loopback-only
   Grafana `otel-lgtm` container (traces, metrics, logs); off by default; no auto-instrumentation (records bodies). LangSmith,
   Langfuse and CrewAI rejected for this system (roadmap Track O); Phoenix optional as a second local exporter.
 - D13 Framework review (2026-11-20). Only **MCP** is used (official `mcp` SDK, read-only). No weekly submission commits to LangChain,

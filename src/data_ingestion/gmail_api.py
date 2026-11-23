@@ -170,8 +170,13 @@ class GmailApi:
     def _get(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{API}/{path}?" + urllib.parse.urlencode(params)
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {_access_token(self.vault)}"})
+        from src.observability import otel
+
+        tool = "get_thread" if path.startswith("threads/") else "search_threads"
+        otel.count("personal_ai.tool.calls", tool=tool, server="gmail_api")
         try:
-            with self._open(req, timeout=TIMEOUT_S) as r:
+            with otel.span("tool.call", tool=tool, server="gmail_api") as sp, self._open(req, timeout=TIMEOUT_S) as r:
+                sp.set(**{"http.status": getattr(r, "status", 200)})
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             if e.code == 401:

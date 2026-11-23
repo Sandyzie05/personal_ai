@@ -511,6 +511,18 @@ category, sent date; no vault document, nothing indexed); `overdue()` counts it 
 record the extractor model id and are re-checked when that model changes. One search per sender row (each capped at 15
 threads) instead of one OR'd search. No new Gmail operation, scope or stored text.
 
+## Telemetry: OpenTelemetry to a local Grafana LGTM stack (Track O, 2026-11-22)
+
+New plaintext sink: the `grafana/otel-lgtm` container stores traces, metrics and logs unencrypted (no volume; `make
+obs-down` deletes them). Controls: off by default (`PERSONAL_AI_OTEL_ENABLED`); endpoint must be loopback (refused
+otherwise); container ports bound to `127.0.0.1`; `otel.clean` allowlist (keys + id/enum-shaped scalar values) on every
+attribute, so prompts, email/document text, questions, amounts, account ids and provider names cannot be exported;
+exceptions as type names; private providers and no auto-instrumentation. Activity-log entries are mirrored as log records
+through the same filter (e.g. Gmail sync `args_digest`, which can hold a provider name, is dropped). Chat refusals are now
+logged (`kind: refused`, refusal kind only) and agent-turn entries carry escalation kinds. Eval row "Telemetry leakage" (hard)
+scans all exported telemetry for canaries: 0. Residual risk: timings and agent/model ids reveal usage patterns to anyone
+with local access to the container; Grafana anonymous access is Viewer-only on loopback.
+
 ## Robinhood Portfolio chat agent and live schema fit (2026-11-21)
 
 New chat agent `builtin-portfolio` (S25). Code reads positions through `RobinhoodClient` (exact-name account tools, S20),

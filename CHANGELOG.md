@@ -4,6 +4,19 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - feat(Track O): end-to-end observability with OpenTelemetry + local Grafana LGTM
+
+- `src/observability/otel.py`: off by default, loopback-only OTLP/HTTP, private providers, `ALLOWED_ATTRS` filter on every
+  attribute, exceptions as type names. Spans: `agent.run` → `coordinator.wave` → `agent.step` (context carried into pool
+  threads), `gen_ai.chat` (GenAI semconv, tokens), `quarantine.extract`, `tool.call` (MCP + Gmail API), `sync.gmail`,
+  `tot.search`. Metrics: runs, steps, refusals, escalations, injection flags, bus messages, RAG turns, reviews, model/tool
+  calls, latency + token histograms. Every Activity-log entry mirrored as an OTel log record.
+- Chat refusals now logged (`kind: refused`); agent-turn entries carry escalation kinds (closes the W6 logging gaps).
+- `observability/`: `grafana/otel-lgtm` compose (127.0.0.1 ports, no volume), 4 dashboards (Agent runs, Guardrails, Models,
+  Sync and tools); `make obs-up`, `make obs-down`, `make run-obs`. Deps: `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http`.
+- Eval row "Telemetry leakage" (hard): 0 canaries in 295 spans / 11 logs. `test_otel.py` (5 tests). Docs:
+  `observability.md`, security_design, platform_plan S27 + §5 + D14, architecture, roadmap Track O, AGENTS.md rule.
+
 ## (pending) - 2026-11-22 - docs: Track S live findings (S0 email text not a document, S7 digest = Sync)
 
 - `docs/roadmap.md` §00 live status after #48/#49; new cards S0 (email-text bills become manifest-only signals; only official

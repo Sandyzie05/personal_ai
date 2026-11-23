@@ -1,0 +1,15 @@
+# Track O local observability stack: OTel Collector + Tempo + Prometheus + Loki + Grafana in one open-source image.
+# Every port is bound to 127.0.0.1 (telemetry never leaves this machine). No volume: `make obs-down` deletes all data.
+services:
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: personal_ai_lgtm
+    ports:
+      - "127.0.0.1:3000:3000"   # Grafana UI
+      - "127.0.0.1:4318:4318"   # OTLP/HTTP (the app exports here)
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    volumes:
+      - ./dashboards:/var/lib/personal_ai_dashboards:ro
+      - ./dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/personal_ai.yaml:ro

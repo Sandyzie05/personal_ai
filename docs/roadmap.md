@@ -43,7 +43,8 @@ month" → 2 bills since the 1st, 1.7 s). Open problems, all in **Track S**:
    arrives (S4 for PDF attachments, R10 for link-only emails).
 4. Two forms for one provider concept (S2); what Sync covers is unclear (S3 copy); Sync is manual only (S5 schedule).
 
-**Next card for the agent: S0, then O1 → O5 (Track O, OpenTelemetry), then S7 → S2 → S3 → S4 → S5 → S6** (S6 keeps only the in-app
+**Track O done offline (#50):** `docs/observability.md`; user validates with `make obs-up` + `make run-obs`.
+**Next card for the agent: S0, then S7 → S2 → S3 → S4 → S5 → S6** (S6 keeps only the in-app
 Activity summary/filter/running-now; its logging gaps move to O3) (cards in §4 Track S). S1 done (#48). Digest
 question scope done (#49).
 
@@ -91,7 +92,8 @@ flowchart LR
   class GX done
   class S1,DQ done
   class S0 now
-  class S7,S2,S3,S4,S5,S6,O1,O2,O3,O4,O5 todo
+  class O1,O2,O3,O4,O5 done
+  class S7,S2,S3,S4,S5,S6 todo
   class P9,P10,RL user
 ```
 
@@ -137,6 +139,7 @@ Status: **DONE** = code + tests + eval row · **PARTIAL** · **PLANNED** (card b
 | Gmail / brokerage read-only workers | DONE vs fakes | eval 7/7; no real MCP run |
 | Bill ingestion: validation, manifest, ledger, Gmail attachments, portal recipe runner | DONE vs fixtures | `rag_design.md` R7-R9 |
 | Gmail bill sync from email text (utilities that email the total, not a PDF) + Expected bills list/remove | DONE; live: works via Gmail API (#48 fixed no-amount notices); stores email text as documents → S0 | `rag_design.md` R11, eval row 0 in 4; gaps → Track S |
+| End-to-end observability: OpenTelemetry traces, metrics, logs; local Grafana LGTM; 4 dashboards; telemetry leakage eval | DONE offline 2026-11-22; live: USER (`make obs-up`) | Track O, `observability.md` |
 | Bill sync clarity, one provider list, bill PDFs from Gmail into RAG, sync window/schedule, run observability | S1 DONE (#48), digest question scope DONE (#49); S0 (email text not a document), S7 (digest = Sync facts), S2-S6 PLANNED | Track S |
 | Real provider portal recipes | USER | R10 in `rag_design.md` |
 | Live oMLX end-to-end (chat, RAG, Coordinator, ToT, `make eval-live`) | USER | P9 |
@@ -157,8 +160,8 @@ All evaluation data is synthetic or public. No real-market skill is claimed.
 | W4 Tree of Thought | Beam ToT in forecaster only, closed thoughts + evidence ids, code then specialist critics | held-out Brier beats linear/vote (P8) | P9 live run |
 | W5 multi-agent | Parallel specialists, per-edge strict bus schemas, verifier, dependency inputs | overlap yes, latency 0.41× B2, cross-domain 100% | – |
 | W6 guardrails | Static: `policy.screen` refusals, read-only Gmail/broker, `extra="forbid"` bus schemas, approval-only Core Memory. Input: tool-less quarantine extractor. Runtime: step timeouts, 1 retry, deadline, staleness, ToT 9-node cap. Output: evidence or explicit status; verifier relevance | refusals 24/24 (0/12 false), injection 0/38, grounded 126/126, relevance 7/7 | – |
-| W6 logging | Encrypted Activity log (no plaintext log files, by design): every bus message incl. rejections, MCP tool calls, agent turns (steps, status, ms, model), RAG turns (evidence ids, scores, grounded), syncs, scheduled runs, slot runs, injection flags, reviewer accept/correct/dismiss | `store.log_activity`, `log_review`, `slots.log_run` | interactive refusals and escalation kinds not logged (S6) |
-| W6 observability (Track O planned: OpenTelemetry → local Grafana LGTM) | Agents → Activity table; per-run step status + timing in `RunReport`; eval reports `evals/results/` | P6 escalation P/R 100%, P7 10×8 stable | no guardrail-trip summary, no kind filter, no running-now indicator (S6) |
+| W6 logging | Encrypted Activity log (no plaintext log files, by design): every bus message incl. rejections, MCP tool calls, agent turns (steps, status, ms, model), RAG turns (evidence ids, scores, grounded), syncs, scheduled runs, slot runs, injection flags, reviewer accept/correct/dismiss | `store.log_activity`, `log_review`, `slots.log_run` | done in O3: chat refusals + escalation kinds logged |
+| W6 observability | OpenTelemetry traces/metrics/logs → local Grafana LGTM, 4 dashboards (Track O, `observability.md`); Agents → Activity table; per-run step status + timing in `RunReport`; eval reports `evals/results/` | P6 escalation P/R 100%, P7 10×8 stable | live check (USER); in-app summary/filter/running-now (S6) |
 | W6 human intervention | Risk-tiered routing (proceed / caveat / ask / escalate), one-question clarify, reviewer accept/correct/dismiss, overrides → test cases | escalation P/R 100% | – |
 | Final | Implemented-vs-planned table, framework mapping, synthetic-data statement | §1, `architecture.md` §5 | P9/P10 live numbers, P11 packaging |
 
@@ -549,7 +552,7 @@ jobs (sync, agent turns): job, model, elapsed. *Accept:* refusal and escalation 
 summary counts from a seeded log match; AppTest: filter works and indicator shows during a fake long run; entries stay
 code-built.
 
-### Track O. End-to-end observability with OpenTelemetry (planned 2026-11-22)
+### Track O. End-to-end observability with OpenTelemetry — O1-O5 DONE offline 2026-11-22 (live check: USER)
 
 Decision (platform_plan D14): **OpenTelemetry SDK in the app → OTLP on loopback → Grafana `otel-lgtm`** (one open-source
 container: OTel Collector + Tempo traces + Prometheus metrics + Loki logs + Grafana). Tracing a run means following one chat

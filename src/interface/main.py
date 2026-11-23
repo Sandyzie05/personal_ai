@@ -642,6 +642,7 @@ class PersonalAIInterface:
                     "duration_ms": int(report.wall_s * 1000),
                     "model": xmodel,
                     "error": "; ".join(f"{r.agent} {r.status}" for r in report.steps if r.status != "ok")[:160],
+                    "escalations": ",".join(e.kind for e in report.escalations)[:160],
                 },
             )
             clarify = next((e for e in report.escalations if e.kind == "clarify"), None)
@@ -1723,4 +1724,10 @@ def get_app() -> PersonalAIInterface:
 
 
 if __name__ == "__main__":
+    from src.observability import otel
+
+    try:
+        otel.init()  # no-op unless PERSONAL_AI_OTEL_ENABLED; idempotent across Streamlit reruns
+    except ValueError as e:
+        st.warning(str(e))
     get_app().run()

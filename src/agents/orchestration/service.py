@@ -177,7 +177,35 @@ def run_query(
     only: Optional[str] = None,
     planner_client: Any = None,
 ) -> RunReport:
-    """`only`: run just one specialist's steps. `planner_client`: use the LLM planner (fallback: rules)."""
+    """`only`: run just one specialist's steps. `planner_client`: use the LLM planner (fallback: rules).
+    One root trace span per run (Track O); attributes are code-built counts/enums, never the question."""
+    from src.observability import otel
+
+    vault = getattr(coordinator, "audit_vault", None)
+    with otel.span("agent.run", only=only, planner="llm" if planner_client is not None and PERSONAL_AI_LLM_PLANNER
+                   else "rules") as sp:
+        try:
+            report = _run_query(coordinator, query, only, planner_client)
+        except RequestRefused as e:
+            sp.set(refused=True, refusal=e.kind)
+            if vault is not None:
+                store.log_activity(vault, {"kind": "refused", "refusal": e.kind})
+            raise
+        kinds = [e.kind for e in report.escalations]
+        sp.set(steps=len(report.steps), claims=len(report.claims), conflicts=len(report.conflicts),
+               escalations=len(kinds), overlap=report.parallel_overlap,
+               agents=",".join(sorted({r.agent for r in report.steps})))
+        otel.count("personal_ai.runs", only=only)
+        otel.observe("personal_ai.run.duration", report.wall_s * 1000, only=only)
+        for r in report.steps:
+            otel.count("personal_ai.steps", agent=r.agent, status=r.status)
+        for k in kinds:
+            otel.count("personal_ai.escalations", escalation_kind=k)
+        report.escalation_kinds = kinds
+        return report
+
+
+def _run_query(coordinator: Coordinator, query: str, only: Optional[str], planner_client: Any) -> RunReport:
     refusal = screen(query)
     if refusal:
         raise RequestRefused(refusal.kind)

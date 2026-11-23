@@ -1,4 +1,4 @@
-.PHONY: help setup install run demo test check-context install-skills eval eval-live eval-rag eval-stability state-report
+.PHONY: help setup install run demo test check-context install-skills eval eval-live eval-rag eval-stability state-report obs-up obs-down run-obs
 
 VENV_BIN := $(shell [ -x venv/bin/python3 ] && echo venv/bin)
 PYTHON := $(if $(VENV_BIN),$(VENV_BIN)/python3,python3)
@@ -8,6 +8,8 @@ PYTEST := $(if $(VENV_BIN),$(VENV_BIN)/pytest,pytest)
 help:
 	@echo "Personal AI System - available targets:"
 	@echo "  make setup          One-command bootstrap: venv, deps, Ollama check, pull models"
+	@echo "  make obs-up / obs-down  Local OpenTelemetry stack (Grafana otel-lgtm, loopback only)"
+	@echo "  make run-obs        Run the app with telemetry export enabled"
 	@echo "  make install        Create ./venv and install Python dependencies into it"
 	@echo "  make run            Start the Streamlit web interface"
 	@echo "  make demo           Run the CLI ai_engine demo (registers/logs in via AuthManager)"
@@ -56,3 +58,14 @@ eval-live:
 RUNS ?= 10
 eval-stability:
 	PYTHONPATH=. $(PYTHON) -m evals.stability --runs $(RUNS) $(if $(LIVE),--live,)
+
+# Track O: local OpenTelemetry stack (Grafana otel-lgtm, loopback ports only; data deleted by obs-down)
+obs-up:
+	docker compose -f observability/docker-compose.yml up -d
+	@echo "Grafana: http://127.0.0.1:3000 (folder personal_ai). Now run: make run-obs"
+
+obs-down:
+	docker compose -f observability/docker-compose.yml down
+
+run-obs:
+	PERSONAL_AI_OTEL_ENABLED=true PYTHONPATH=. $(STREAMLIT) run src/interface/main.py

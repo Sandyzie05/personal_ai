@@ -182,7 +182,22 @@ def _set_newest(vault, newest: Dict[str, str]) -> None:
     vault.store_data(SENDERS_KEY, {"senders": rows}, encrypt=True)
 
 
-def sync(
+def sync(vault, ro, client, on_indexed=None, today: Optional[date] = None, only: Optional[str] = None,
+         progress=None) -> pipeline.IngestReport:
+    """Traced wrapper (Track O): counts and fixed outcome names only, never provider names or email text."""
+    from collections import Counter
+
+    from src.observability import otel
+
+    with otel.span("sync.gmail", model=str(getattr(client, "model", "") or "")) as sp:
+        r = _sync(vault, ro, client, on_indexed, today, only, progress)
+        c = Counter(o["outcome"].split(" ")[0] for o in r.outcomes)
+        sp.set(new=len(r.new), duplicates=r.duplicates, notices=c.get("no", 0), not_bill=c.get("not", 0),
+               failed=len(r.failed), model_calls=r.model_calls, threads=len(r.outcomes))
+        return r
+
+
+def _sync(
     vault,
     ro,
     client,

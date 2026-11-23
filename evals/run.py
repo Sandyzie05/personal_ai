@@ -38,6 +38,7 @@ from .refusal import run_refusal
 from .robinhood import run_account_egress, run_broker_injection, run_portfolio_chat, run_valuation_golden
 from .stress import evaluate as run_stress
 from .trader import run_agent_safety, run_ledger_golden, run_no_lookahead, run_risk_golden, run_shape, run_simulation
+from .telemetry import run_telemetry
 from .userguide import run_userguide
 
 RESULTS = Path(__file__).parent / "results"
@@ -193,6 +194,7 @@ def compute() -> Dict[str, Any]:
     integ = run_integrations()
     ing = run_ingest_eval()
     gmb = run_gmail_bills()
+    tel = run_telemetry()
     tot = run_reasoning()
     tot_ho = run_held_out()
     ho = tot_ho["held_out"]
@@ -569,6 +571,13 @@ def compute() -> Dict[str, Any]:
             f"{len(comp.violations) + comp.merge_mislabelled} ({comp.runs} runs, {comp.sinks_scanned} sinks, "
             f"{comp.hops_checked} hops)",
             not comp.violations and comp.merge_mislabelled == 0 and comp.runs > 0,
+            True,
+        ),
+        (
+            "Telemetry leakage: canaries in exported spans/logs/metrics (Track O)",
+            "0",
+            f"{len(tel.leaks)} ({tel.spans} spans, {tel.logs} logs, {tel.canaries} canaries)",
+            not tel.leaks and tel.spans > 0,
             True,
         ),
     ]

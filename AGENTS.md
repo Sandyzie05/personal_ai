@@ -67,6 +67,9 @@ Code lives in `src/agents/orchestration/`. Non-negotiable rules (each is enforce
 - Trader (`src/trader/`, `docs/trader.md`, S21-S23): advice only; never add order/ticket fields or broker/MCP imports; limits are user-entered `TRADER_*`, never account data. Paper agents (S24): numbers-only prompts with no ticker/date/price and no lookahead, closed-choice replies, code sets size/risk, ledger stays in the vault.
 - Dependency findings pass between workers only via `coordinator.DEPENDENCY_INPUTS` (S19); Core Memory is read only via
   `memory.recall` and never travels on a bus edge (S18).
+- Telemetry (Track O, `docs/observability.md`): attributes only via `otel.span/count/observe/activity`, which pass the
+  `ALLOWED_ATTRS` allowlist; never add a key for prompts, email/document text, questions, amounts, accounts or provider
+  names; no auto-instrumentation; OTLP endpoint stays loopback. New attributes need the eval "Telemetry leakage" row green.
 - Ollama is disabled by default; build LLM clients through `engine.build_chat_client`.
 - After any change here run `make test` AND `make eval` (must print `Overall: PASS`); update
   `docs/roadmap.md` §1 status, `docs/platform_plan.md` §5 metrics and `docs/security_design.md` in the same change.

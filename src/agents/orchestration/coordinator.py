@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from src.observability import otel
+
 from .schemas import Finding, Plan, PlanStep
 
 Worker = Callable[[PlanStep, Dict[str, Tuple[Finding, ...]]], Sequence[Finding]]
@@ -229,9 +231,16 @@ class Coordinator:
         self.deadline_s, self.max_age, self.transient = deadline_s, max_age, transient
         self.recheck, self.clock = recheck, clock
 
-    def _attempt(self, step: PlanStep, inputs, cancel: Optional[threading.Event] = None):
+    def _attempt(self, step: PlanStep, inputs, cancel: Optional[threading.Event] = None, ctx=None):
         """Runs in a pool thread and only RETURNS a result: a thread that outlives its timeout can
         therefore never mutate a report that was already built."""
+        with otel.attached(ctx), otel.span("agent.step", agent=step.agent, step_id=step.id) as sp:
+            r = self._attempt_inner(step, inputs, cancel)
+            sp.set(status=r[0], attempts=r[3], error_type=r[2] or None)
+            otel.observe("personal_ai.step.duration", (r[5] - r[4]) * 1000, agent=step.agent, status=r[0])
+            return r
+
+    def _attempt_inner(self, step: PlanStep, inputs, cancel: Optional[threading.Event] = None):
         started, err = time.monotonic(), ""
         _TLS.event = cancel
         for attempt in range(1, self.max_retries + 2):
@@ -256,7 +265,7 @@ class Coordinator:
                           for d in s.depends_on}
                 ev = threading.Event()
                 cancels.append(ev)
-                futs[pool.submit(self._attempt, s, inputs, ev)] = (s, time.monotonic() + s.timeout_s, ev)
+                futs[pool.submit(self._attempt, s, inputs, ev, otel.current_context())] = (s, time.monotonic() + s.timeout_s, ev)
             pending = set(futs)
             while pending:
                 now = time.monotonic()
@@ -295,7 +304,8 @@ class Coordinator:
                 else:
                     ready.append(s)
             if ready:
-                self._run_wave(ready, results, wave, t0)
+                with otel.span("coordinator.wave", wave=wave, steps=len(ready)):
+                    self._run_wave(ready, results, wave, t0)
         for s in plan.steps:
             results.setdefault(s.id, StepResult(s.id, s.agent, "skipped", error="round budget", wave=0))
         steps = [results[s.id] for s in plan.steps]
