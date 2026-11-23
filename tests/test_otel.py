@@ -199,7 +199,7 @@ def test_stack_binds_loopback_only_and_dashboards_are_valid():
     for b in boards:
         d = json.loads(b.read_text())
         assert d["uid"].startswith("pai-") and d["panels"]
-        assert all(t["expr"] for p in d["panels"] for t in p["targets"])
+        assert all(t.get("expr") or t.get("query") for p in d["panels"] for t in p["targets"])
 
 
 def test_activity_table_has_one_type_per_column():
@@ -212,3 +212,35 @@ def test_activity_table_has_one_type_per_column():
                           {"kind": "rag_turn", "model_calls": None, "duration_ms": None}])
     pa.Table.from_pylist(rows)  # live crash: "Expected bytes, got a 'int' object" on 'model calls'
     assert rows[1]["model calls"] == "6" and rows[0]["agent"] == "bus" and rows[2]["ms"] == 0
+
+
+def test_logs_have_level_and_readable_body_and_forecast_runs_are_traced(tel):
+    import asyncio
+
+    spans, metrics, logs = tel
+    v = MemoryVault()
+    from src.agents import store
+    from src.agents.slots import log_run
+
+    @otel.traced("forecast.news_analyst")
+    def run():
+        log_run(v, "forecast.news_analyst", "builtin-news-analyst", "invalid", 900, "schema")
+
+    @otel.traced("forecast.critics")
+    async def critics():
+        return 1
+
+    run()
+    assert asyncio.run(critics()) == 1
+    store.log_activity(v, {"kind": "refused", "refusal": "trade"})
+    store.log_activity(v, {"agent_name": "Gmail bill sync", "tool": "search_threads/get_thread", "ok": True,
+                           "args_digest": "Rocky Mountain Power", "duration_ms": 7000, "model_calls": 6})
+    recs = [r.log_record for r in logs.get_finished_logs()]
+    by = {str(r.body).split(" ")[0]: r for r in recs}
+    assert str(by["refused"].body) == "refused refusal=trade" and by["refused"].severity_text == "WARN"
+    assert by["slot_run"].severity_text == "WARN" and "slot_id=forecast.news_analyst" in str(by["slot_run"].body)
+    assert by["tool_call"].severity_text == "INFO" and "model_calls=6" in str(by["tool_call"].body)
+    assert "Rocky" not in json.dumps([str(r.body) for r in recs] + [dict(r.attributes) for r in recs])
+    names = {s.name for s in spans.get_finished_spans()}
+    assert {"forecast.news_analyst", "forecast.critics"} <= names
+    assert ({"slot_id": "forecast.news_analyst", "status": "invalid"}, 1) in _metrics(metrics)["personal_ai.slot.runs"]

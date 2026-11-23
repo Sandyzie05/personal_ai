@@ -10,7 +10,7 @@
  "panels": [
   {
    "type": "timeseries",
-   "title": "Model calls by model",
+   "title": "Model calls by model (total)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -24,7 +24,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (model) (increase(personal_ai_model_calls_total[$__rate_interval]))",
+     "expr": "sum by (model) (personal_ai_model_calls_total)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -66,7 +66,7 @@
   },
   {
    "type": "timeseries",
-   "title": "Tokens by model and kind",
+   "title": "Tokens by model and kind (total)",
    "datasource": {
     "type": "prometheus",
     "uid": "prometheus"
@@ -80,12 +80,64 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (gen_ai_request_model, kind) (increase(gen_ai_client_token_usage_sum[$__rate_interval]))",
+     "expr": "sum by (gen_ai_request_model, kind) (gen_ai_client_token_usage_sum)",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
      },
      "legendFormat": "__auto"
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "Forecast/Trader agent runs by slot and status (total)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 16
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "legendFormat": "__auto",
+     "expr": "sum by (slot_id, status) (personal_ai_slot_runs_total)"
+    }
+   ]
+  },
+  {
+   "type": "table",
+   "title": "Forecast and Trader traces",
+   "datasource": {
+    "type": "tempo",
+    "uid": "tempo"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 24
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "tempo",
+      "uid": "tempo"
+     },
+     "queryType": "traceql",
+     "query": "{resource.service.name=\"personal_ai\" && (name=~\"forecast.*|tot.search|trader.*\")}",
+     "limit": 20,
+     "tableType": "traces"
     }
    ]
   }

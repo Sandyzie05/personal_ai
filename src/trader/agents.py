@@ -12,6 +12,7 @@ from src import config
 from src.forecaster.models import Contract
 from src.forecaster.scenarios import _Invalid, parse_model_json
 from src.trader.strategies import STOP_RULES, TARGET_RS
+from src.observability import otel
 
 SLOT_IDS = {"orb": "forecast.trader.orb", "breakout20": "forecast.trader.breakout", "bounce": "forecast.trader.bounce"}
 REVIEW_SLOT = "forecast.trader.reviewer"
@@ -101,6 +102,7 @@ def prompt(signal: dict) -> str:
     )
 
 
+@otel.traced("trader.paper_agent")
 def decide(factory, agent, signal) -> tuple[Optional[dict], dict]:
     out, meta = _ask(factory, agent, prompt(signal), TraderDecision)
     if out and out["stop_rule"] not in STOP_RULES[signal["strategy"]]:

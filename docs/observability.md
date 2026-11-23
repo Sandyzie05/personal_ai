@@ -32,11 +32,14 @@ Settings (`src/config.py`): `PERSONAL_AI_OTEL_ENABLED` (default false), `PERSONA
 | Spans | `coordinator.wave` → `agent.step` (agent, status, attempts, error type; pool threads keep the parent) | `coordinator.py` |
 | Spans | `gen_ai.chat` (GenAI semconv: model, input/output tokens, finish reason) | `OmlxClient.chat` |
 | Spans | `quarantine.extract` (schema, flagged, error), `tool.call` (tool, server, HTTP status), `sync.gmail` (counts), `tot.search` (termination, nodes, critic calls) | quarantine, `ReadOnlyMcp`, `GmailApi`, `gmail_bills`, `tot` |
+| Root spans (Forecast / Trader) | `forecast.critics`, `forecast.thesis_explainer`, `forecast.watchlist_explainer`, `forecast.news_analyst`, `forecast.portfolio_fit`, `trader.paper_agent` (model calls nest under them) | `@otel.traced` on the entry functions |
 | Metrics | `personal_ai.runs/steps/refusals/escalations/injection_flags/bus.messages/rag.turns/reviews/model.calls/tool.calls/activity`; histograms `personal_ai.run.duration`, `personal_ai.step.duration`, `gen_ai.client.operation.duration`, `gen_ai.client.token.usage` | `src/observability/otel.py` |
-| Logs | every encrypted Activity-log entry mirrored as an OTel log record (same code-built fields, cleaned) | `store.log_activity` |
+| Logs | every encrypted Activity-log entry mirrored as an OTel log record (same code-built fields, cleaned); level INFO, WARN for refusals, injection flags, failed/invalid runs, rejected bus messages; body built from the cleaned fields (e.g. `refused refusal=trade`, `slot_run slot_id=forecast.news_analyst status=completed latency_ms=1200`) | `store.log_activity` |
 
-Dashboards (Grafana folder *personal_ai*): **Agent runs**, **Guardrails**, **Models**, **Sync and tools**
-(`observability/dashboards/*.json`). Traces: Grafana → Explore → Tempo, service `personal_ai`.
+Dashboards (Grafana folder *personal_ai*): **Agent runs** (with a *Recent traces* table: click a trace id for the span
+tree), **Guardrails**, **Models** (incl. Forecast/Trader slot runs + their traces), **Sync and tools** (incl. Sync traces)
+(`observability/dashboards/*.json`). Counter panels show running totals since the app started (a rate over a short
+window drops a series' first sample, so a single Sync or forecast run showed nothing). Traces also: Explore → Tempo.
 
 ## Privacy controls (why this is safe to store in plain text)
 

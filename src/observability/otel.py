@@ -74,6 +74,10 @@ ALLOWED_ATTRS = frozenset(
         "decision",
         "job",
         "source",
+        "slot_id",
+        "agent_id",
+        "latency_ms",
+        "invalid_reason",
     }
 )
 _SAFE = re.compile(
@@ -100,6 +104,7 @@ COUNTERS = {
     "personal_ai.model.calls": "Model calls by model",
     "personal_ai.tool.calls": "Read-only tool calls",
     "personal_ai.activity": "Activity log entries by kind",
+    "personal_ai.slot.runs": "Forecast/Trader agent slot runs by slot and status",
 }
 HISTOGRAMS = {
     "personal_ai.run.duration": "ms",
@@ -294,17 +299,56 @@ def observe(name: str, value: float, **attrs) -> None:
         inst.record(value, clean(attrs))
 
 
+def traced(name: str):
+    """Decorator: run the (sync or async) function inside a span `name` (a root span when nothing is active)."""
+    import functools
+    import inspect
+
+    def wrap(fn):
+        if inspect.iscoroutinefunction(fn):
+
+            @functools.wraps(fn)
+            async def aw(*a, **kw):
+                with span(name):
+                    return await fn(*a, **kw)
+
+            return aw
+
+        @functools.wraps(fn)
+        def w(*a, **kw):
+            with span(name):
+                return fn(*a, **kw)
+
+        return w
+
+    return wrap
+
+
+_WARN_KINDS = {"refused", "injection_flagged"}
+_OK_STATUS = {"ok", "completed", "skipped", "cached", "valid"}
+_BODY_KEYS = ("refusal", "tool", "server", "slot_id", "status", "outcome", "sender", "receiver", "reason", "decision",
+              "escalation_kind", "grounded", "abstained", "ok", "duration_ms", "latency_ms", "model", "model_calls",
+              "job", "invalid_reason")
+
+
 def activity(entry: Dict[str, Any]) -> None:
-    """Mirror one Activity-log entry as an OTel log record + counters (same code-built fields, cleaned)."""
+    """Mirror one Activity-log entry as an OTel log record + counters (same code-built fields, cleaned). The body is
+    built from the cleaned attributes only (e.g. "refused refusal=trade"), so it never carries more than they do."""
     logger = _state["logger"]
     if logger is None:
         return
-    from opentelemetry._logs import LogRecord
+    from opentelemetry._logs import LogRecord, SeverityNumber
 
     kind = str(entry.get("kind") or ("tool_call" if entry.get("tool") else "event"))
     attrs = clean({**entry, "kind": kind})
-    logger.emit(LogRecord(body=f"activity {kind}", attributes=attrs))
+    bad = (kind in _WARN_KINDS or entry.get("ok") is False or entry.get("outcome") not in (None, "delivered")
+           or str(entry.get("status") or "ok") not in _OK_STATUS)
+    body = " ".join([kind] + [f"{k}={attrs[k]}" for k in _BODY_KEYS if k in attrs])
+    logger.emit(LogRecord(body=body, attributes=attrs, severity_number=SeverityNumber.WARN if bad else
+                          SeverityNumber.INFO, severity_text="WARN" if bad else "INFO"))
     count("personal_ai.activity", kind=kind)
+    if kind == "slot_run":
+        count("personal_ai.slot.runs", slot_id=entry.get("slot_id"), status=entry.get("status"))
     if kind == "injection_flagged":
         count("personal_ai.injection_flags")
     elif kind == "bus":
