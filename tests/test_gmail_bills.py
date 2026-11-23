@@ -189,7 +189,7 @@ def test_zero_new_explains_what_was_searched_and_email_step_budget():
     v, g = setup()
     rep = gmail_bills.sync(v, ReadOnlyMcp(g, "gm"), Extractor(reply={"is_bill": False}), today=date(2026, 11, 20))
     assert rep.new == [] and "searched 2 thread(s) from rockymountainpower.net" in rep.summary()
-    assert "1 new message(s) from allowlisted senders, 1 not a bill" in rep.summary()
+    assert "1 new message(s) from allowlisted senders, 0 bill notice(s) with no amount, 1 not a bill" in rep.summary()
     assert service._EMAIL_ONLY.steps[0].timeout_s == EMAIL_DIGEST_STEP_TIMEOUT_SECONDS > 30  # 30 s timed out live
 
 
@@ -282,6 +282,68 @@ def test_email_digest_renders_as_a_table_without_internal_ids():
     assert "email:a" not in out and "gmail:" not in out and "n/a" not in out and "1 more could not be read" in out
     rep.steps = [StepResult("email", "email", "timeout")]
     assert "couldn't read your email" in render_email_digest(rep)
+
+
+def test_outcome_list_explains_each_message_without_email_text():
+    """S1: why this month's bill was missed. No-amount notice, a subdomain sender, a foreign sender, an old duplicate."""
+    SECRET = "SUBJECT-TEXT-xyz"
+    mails = {
+        "t0": {"id": "m0", "sender": "RMP <no-reply@csapps.rockymountainpower.net>", "date": "Mon, 16 Nov 2026 09:00:00 -0700",
+               "subject": SECRET, "plaintextBody": "Your bill is ready. " + SECRET},
+        "t1": {"id": "m1", "sender": "Pay <x@payments.example>", "date": "Sun, 15 Nov 2026 09:00:00 -0700",
+               "subject": SECRET, "plaintextBody": SECRET},
+        "t2": {"id": "m2", "sender": "RMP <bill@rockymountainpower.net>", "date": "Wed, 14 Oct 2026 09:00:00 -0700",
+               "subject": SECRET, "plaintextBody": "Amount due $80. " + SECRET},
+        "t3": {"id": "m3", "sender": "RMP <bill@rockymountainpower.net>", "date": "Wed, 14 Oct 2026 10:00:00 -0700",
+               "subject": SECRET, "plaintextBody": "Reminder: amount due $80. " + SECRET},
+    }
+
+    class Mixed(FakeGmail):
+        def call_tool(self, server_id, name, args, max_chars=None):
+            self.calls.append((name, args))
+            if name == "search_threads":
+                return SimpleNamespace(ok=True, text=json.dumps({"threads": [{"id": t} for t in mails]}))
+            return SimpleNamespace(ok=True, text=json.dumps({"messages": [mails[args["threadId"]]]}))
+
+    class ByBody(Extractor):
+        def chat(self, *, messages, **kw):
+            body = messages[1]["content"]
+            r = {"is_bill": True} if "bill is ready" in body else {"is_bill": True, "total_due": 80.0,
+                                                                   "statement_date": "2026-10-14"}
+            return {"message": {"content": json.dumps(r)}}
+
+    v = MemoryVault()
+    gmail_bills.add_sender(v, "Rocky Mountain Power", "electricity", "rockymountainpower.net")
+    rep = gmail_bills.sync(v, ReadOnlyMcp(Mixed(), "gm"), ByBody(), today=date(2026, 11, 22))
+    assert [(o["sent"], o["domain"], o["outcome"]) for o in rep.outcomes] == [
+        ("2026-11-16", "csapps.rockymountainpower.net", "no amount stated"),
+        ("2026-11-15", "payments.example", "other sender"),
+        ("2026-10-14", "rockymountainpower.net", "saved period 2026-10-14"),
+        ("2026-10-14", "rockymountainpower.net", "already saved"),
+    ]
+    assert SECRET not in json.dumps(rep.outcomes) and SECRET not in rep.summary()
+    assert "1 bill notice(s) with no amount" in rep.summary()
+    assert gmail_bills.senders(v)[0]["newest_seen"] == "2026-11-16"
+    assert pipeline.overdue(v, today=date(2026, 12, 10)) == []  # the notice counts as this month's bill arriving
+    assert SECRET not in json.dumps(v.records)
+    again = gmail_bills.sync(v, ReadOnlyMcp(Mixed(), "gm"), ByBody(), today=date(2026, 11, 22))
+    assert [o["outcome"] for o in again.outcomes] == ["no amount stated", "other sender", "already saved", "already saved"]
+
+
+def test_not_a_bill_rechecked_when_the_extractor_model_changes_and_senders_searched_separately():
+    v, g = setup()
+    gmail_bills.add_sender(v, "Dominion Energy", "gas", "dominionenergy.com")
+    old = Extractor(reply={"is_bill": False})
+    old.model = "small-a"
+    gmail_bills.sync(v, ReadOnlyMcp(g, "gm"), old, today=date(2026, 11, 20))
+    queries = [c[1]["query"] for c in g.calls if c[0] == "search_threads"]
+    assert len(queries) == 2 and all(" OR " not in q for q in queries)  # one capped search per sender
+    n = len(old.seen)
+    gmail_bills.sync(v, ReadOnlyMcp(g, "gm"), old, today=date(2026, 11, 20))
+    assert len(old.seen) == n  # same model: cached
+    new = Extractor()
+    new.model = "small-b"
+    assert gmail_bills.sync(v, ReadOnlyMcp(g, "gm"), new, today=date(2026, 11, 20)).new  # re-checked, now a bill
 
 
 def test_email_digest_scope_follows_the_question_with_code_built_query():

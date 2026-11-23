@@ -13,6 +13,17 @@
 - The header names the scope ("3 emails from <domain> since <date>"). The From domain shown is parsed from the email
   header in code instead of the model's reading of it (a learning-site receipt was shown as an electricity sender).
 
+## (pending) - 2026-11-22 - fix(S1): why this month's bill was missed - per-message outcome list
+
+- Gmail Sync now shows a table with one code-built row per email seen: sent date, sender row, From domain, outcome
+  (`saved period …` / `already saved` / `no amount stated` / `not a bill` / `other sender` / `unreadable`). No subject/body.
+- Likely cause of the missed bills: "your bill is ready" emails state no amount, were classed "not a bill" and cached
+  forever. Now they are **bill notices** (manifest only: provider + sent date) that count as the bill arriving in
+  Expected bills; the extractor hint no longer requires an amount for `is_bill`; "not a bill" verdicts are re-checked
+  when the extractor model changes (older cached verdicts carry no model id, so the next Sync re-checks them).
+- One search per sender row, each capped at 15 threads (was one OR'd search sharing 15 threads across all senders).
+- Each Gmail sender row shows "newest email from <domain>: <date>".
+
 ## (pending) - 2026-11-22 - docs: Track S plan (bill sync clarity, one provider list, Gmail PDFs into RAG); handoff
 
 - `docs/roadmap.md`: §00 rewritten for a new session (PRs #36-#46, live status, next card S1); Track S cards S1-S6 with

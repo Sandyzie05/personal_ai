@@ -153,7 +153,7 @@ Measured offline with `make eval-rag` (44 synthetic docs, 81 questions, hashed s
 | R6 | `grounding.check`: figures/dates must occur in the cited block; one regenerate, then a visible note; ids/scores only to the audit log | DONE; faithfulness 1.0, fabricated figures caught 0.985 (a changed digit equal to a sum of two context figures slips as `derived`) |
 | R7 | Ingestion core: `validate_pdf`, manifest, expected-bills ledger, idempotent `run_ingest`, supersede, Sync panel | DONE vs fixtures |
 | R8 | Gmail attachment fetcher (sender allowlist, PDF attachments only, bodies never read) | DONE vs fixtures; Google's Gmail MCP has no attachment-download tool, so unused there |
-| R11 | Gmail bill sync from email text (2026-11-21): allowlisted senders → `search_threads`/`get_thread` (args fitted to the live schema) → quarantine → templated record + manifest (feeds Dashboard, Expected bills, chat) | DONE vs fixtures; live run = USER |
+| R11 | Gmail bill sync from email text (2026-11-21): allowlisted senders → `search_threads`/`get_thread` (args fitted to the live schema) → quarantine → templated record + manifest (feeds Dashboard, Expected bills, chat). S1 (2026-11-22): per-message outcome list, no-amount "bill notice" counts as arrived (manifest only, not indexed), one capped search per sender | DONE vs fixtures; live run = USER |
 | R9 | Portal recipe framework + Playwright runner (closed action set, host allowlist, deny list, 2FA → human) | DONE vs mock portal; headed 2FA not tested |
 | R10 | Real provider recipes | USER: supervised `playwright codegen` runs (roadmap §6) |
 | R11 | Docs + diagram | DONE (2026-11-20 consolidation) |
