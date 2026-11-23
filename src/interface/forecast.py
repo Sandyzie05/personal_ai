@@ -827,12 +827,10 @@ def render_forecast_page(vault):
         "Heuristic scores and model scenarios are not calibrated probabilities or financial advice."
     )
     tabs = _tabs_module()
-    section = (
-        st.segmented_control(
-            "Section", tabs.SECTIONS, default="Research", key="forecast_section"
-        )
-        or "Research"
-    )
+    # Default via session state only: other tabs set "forecast_section" (e.g. Open research), and a default= as well
+    # makes Streamlit warn on every such jump.
+    st.session_state.setdefault("forecast_section", "Research")
+    section = st.segmented_control("Section", tabs.SECTIONS, key="forecast_section") or "Research"
     try:
         if section == "Research":
             st.caption(tabs.SECTION_HELP["Research"])

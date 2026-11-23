@@ -106,7 +106,7 @@ def render_paper(providers, vault, client_factory):
         return
     rows = performance.summarize(trades)
     st.subheader("Leaderboard")
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     curve = performance.equity_curve(trades)
     if curve:
         st.subheader("Paper equity (start $%s per account)" % f"{config.TRADER_PAPER_START_CASH:,.0f}")
@@ -118,11 +118,11 @@ def render_paper(providers, vault, client_factory):
         _review(vault, client_factory, rows)
     if st.session_state.get("trader_review"):
         st.subheader("Reviewer (checked against the numbers)")
-        st.dataframe(pd.DataFrame(st.session_state["trader_review"]), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(st.session_state["trader_review"]), hide_index=True, width="stretch")
     st.subheader("Trade log")
     pick = st.segmented_control("Agent", ("all",) + STRATEGIES, default="all", key="paper_log_strategy") or "all"
     log = sorted((t for t in trades if pick == "all" or t["strategy"] == pick), key=lambda t: t["signal_at"], reverse=True)[:500]
     if not log:
         st.caption("No trades in this record yet.")
         return
-    st.dataframe(pd.DataFrame(log, columns=LOG_COLS), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(log, columns=LOG_COLS), hide_index=True, width="stretch")

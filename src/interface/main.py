@@ -83,11 +83,11 @@ def _clear_chat_dialog(chat_history: ChatHistory) -> None:
     )
     confirm_col, cancel_col = st.columns(2)
     with confirm_col:
-        if st.button("Clear", type="primary", use_container_width=True):
+        if st.button("Clear", type="primary", width="stretch"):
             chat_history.clear()
             st.rerun()
     with cancel_col:
-        if st.button("Cancel", use_container_width=True):
+        if st.button("Cancel", width="stretch"):
             st.rerun()
 
 
@@ -104,7 +104,7 @@ def _delete_session_dialog(app: "PersonalAIInterface", session_id: str) -> None:
     )
     confirm_col, cancel_col = st.columns(2)
     with confirm_col:
-        if st.button("Delete", type="primary", use_container_width=True):
+        if st.button("Delete", type="primary", width="stretch"):
             chat_sessions.delete_session(app.vault, session_id)
             remaining = chat_sessions.list_sessions(app.vault)
             new_active = (
@@ -116,7 +116,7 @@ def _delete_session_dialog(app: "PersonalAIInterface", session_id: str) -> None:
             app._load_chat_history_for_session(new_active)
             st.rerun()
     with cancel_col:
-        if st.button("Cancel", use_container_width=True):
+        if st.button("Cancel", width="stretch"):
             st.rerun()
 
 
@@ -426,7 +426,7 @@ class PersonalAIInterface:
                 key="active_agent_id",
             )
         with new_col:
-            if st.button("New Chat", icon=":material/add:", use_container_width=True):
+            if st.button("New Chat", icon=":material/add:", width="stretch"):
                 new_id = chat_sessions.create_session(self.vault)
                 st.session_state["active_chat_session_id"] = new_id
                 self._load_chat_history_for_session(new_id)
@@ -435,7 +435,7 @@ class PersonalAIInterface:
             if st.button(
                 "Delete chat",
                 icon=":material/delete:",
-                use_container_width=True,
+                width="stretch",
                 disabled=not session_ids,
             ):
                 _delete_session_dialog(self, active_id)
@@ -875,20 +875,20 @@ class PersonalAIInterface:
                 if st.button(
                     "Allow",
                     type="primary",
-                    use_container_width=True,
+                    width="stretch",
                     key="agent_confirm_allow",
                 ):
                     self._resolve_paused_run(active_id, agent, "allow")
             with deny_col:
                 if st.button(
-                    "Deny", use_container_width=True, key="agent_confirm_deny"
+                    "Deny", width="stretch", key="agent_confirm_deny"
                 ):
                     self._resolve_paused_run(active_id, agent, "deny")
             with abort_col:
                 if st.button(
                     "Abort",
                     icon=":material/stop:",
-                    use_container_width=True,
+                    width="stretch",
                     key="agent_confirm_abort",
                 ):
                     self._resolve_paused_run(active_id, agent, "abort")
@@ -1018,7 +1018,7 @@ class PersonalAIInterface:
                 if st.button(
                     "Encryption key status",
                     icon=":material/key:",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     if self.encryption_key:
                         st.success(
@@ -1033,7 +1033,7 @@ class PersonalAIInterface:
                 if st.button(
                     "Vault status",
                     icon=":material/inventory_2:",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     if self.vault:
                         keys = self.vault.list_keys()
@@ -1059,7 +1059,7 @@ class PersonalAIInterface:
                                     )
 
                 if st.button(
-                    "Check Engine", icon=":material/sync:", use_container_width=True
+                    "Check Engine", icon=":material/sync:", width="stretch"
                 ):
                     try:
                         from src.ai_engine.engine import build_chat_client
@@ -1093,7 +1093,7 @@ class PersonalAIInterface:
             st.divider()
 
             if st.button(
-                "Lock vault", icon=":material/lock_open:", use_container_width=True
+                "Lock vault", icon=":material/lock_open:", width="stretch"
             ):
                 self._lock_vault()
                 st.rerun()
@@ -1115,7 +1115,7 @@ class PersonalAIInterface:
             if st.button(
                 "Clear",
                 icon=":material/delete_sweep:",
-                use_container_width=True,
+                width="stretch",
                 disabled=not has_messages,
             ):
                 _clear_chat_dialog(self.chat_history)

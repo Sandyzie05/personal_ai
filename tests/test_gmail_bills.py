@@ -191,3 +191,15 @@ def test_zero_new_explains_what_was_searched_and_email_step_budget():
     assert rep.new == [] and "searched 2 thread(s) from rockymountainpower.net" in rep.summary()
     assert "1 new message(s) from allowlisted senders, 1 not a bill" in rep.summary()
     assert service._EMAIL_ONLY.steps[0].timeout_s == EMAIL_DIGEST_STEP_TIMEOUT_SECONDS > 30  # 30 s timed out live
+
+
+def test_no_threads_points_at_the_sender_domain():
+    v = MemoryVault()
+    gmail_bills.add_sender(v, "Rocky Mountain Power", "electricity", "csapps.rockymountainpower.ne")  # live typo
+
+    class Empty(FakeGmail):
+        def call_tool(self, server_id, name, args, max_chars=None):
+            return SimpleNamespace(ok=True, text=json.dumps({"threads": []}))
+
+    rep = gmail_bills.sync(v, ReadOnlyMcp(Empty(), "gm"), Extractor(), today=date(2026, 11, 20))
+    assert "check the sender domain spelling" in rep.summary() and "csapps.rockymountainpower.ne" in rep.summary()

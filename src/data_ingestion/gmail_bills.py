@@ -319,6 +319,10 @@ def sync(
             }
             r.new.append(f"{entry['provider']} {end.isoformat()}")
     pipeline._save(vault, docs)
+    if not threads:
+        r.needs_you.append("no email from " + ", ".join(x["domain"] for x in rows) + " in the last 13 months: check the "
+                           "sender domain spelling (open a bill email, copy the part after @; re-adding the provider "
+                           "replaces the row)")
     r.checked = (f"searched {len(threads)} thread(s) from {', '.join(x['domain'] for x in rows)}; "
                  f"{seen['allowed']} new message(s) from allowlisted senders, {seen['not_bill']} not a bill")
     return r

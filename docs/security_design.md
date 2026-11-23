@@ -476,6 +476,10 @@ agent, deny by default.)
   refreshed at `<mcp-origin>/token` (404 on Google) and fell back to "needs auth". The metadata (public endpoints only, no
   secrets) is now kept in the server's encrypted `mcp_oauth_<id>` record and restored. Probe/Sync tool errors are shown as
   a closed category (permission / scope, not signed in, API not enabled, invalid arguments, other), never server text.
+- **Path-aware metadata lookup + no refresh retry storm (fix).** The lookup now uses the SDK's RFC 8414 URL builders, so a
+  path issuer (Robinhood: `https://agent.robinhood.com/mcp/trading`, token endpoint `https://api.robinhood.com/oauth2/token/`)
+  resolves; the old suffix form 404'd and the SDK refreshed at `<origin>/token` on every call. A failed refresh is
+  recorded (`refresh_failed` in the encrypted record) so it is not retried per call; the next sign-in clears it.
 - **Metadata lookup for old tokens + opt-in error detail.** Tokens stored before metadata was kept now trigger one
   unauthenticated lookup of the public PRM + AS metadata (issuer must match the advertised server) and it is stored. The
   probe's server error text can be shown on request (*Show server error*) as inert `st.code`, on screen only: never
