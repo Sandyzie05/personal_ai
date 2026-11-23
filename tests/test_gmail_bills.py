@@ -344,3 +344,50 @@ def test_not_a_bill_rechecked_when_the_extractor_model_changes_and_senders_searc
     new = Extractor()
     new.model = "small-b"
     assert gmail_bills.sync(v, ReadOnlyMcp(g, "gm"), new, today=date(2026, 11, 20)).new  # re-checked, now a bill
+
+
+def test_email_digest_scope_follows_the_question_with_code_built_query():
+    """Live bug: 'emails from rocky mountian power this month' returned the last 2 days of unrelated mail."""
+    from src.agents.orchestration.ingest import digest_scope, digest_emails
+
+    rows = [{"provider": "Rocky Mountain Power", "category": "electricity", "domain": "rockymountainpower.net"},
+            {"provider": "Enbridge Gas", "category": "gas", "domain": "enbridgegas.com"}]
+    today = date(2026, 11, 22)
+    s = digest_scope("Check if I received any emails from rocky mountian power this month", rows, today)
+    assert s == {"query": "(from:rockymountainpower.net) after:2026/11/01",
+                 "label": "from rockymountainpower.net since 2026-11-01"}
+    both = digest_scope("did I get my gas and electricity bills last month?", rows, today)
+    assert both["query"] == "(from:rockymountainpower.net OR from:enbridgegas.com) after:2026/10/01 before:2026/11/01"
+    assert digest_scope("anything new?", rows, today)["query"] == "newer_than:2d"
+    assert digest_scope("mail from xfinity.com today", rows, today)["query"] == "(from:xfinity.com) newer_than:1d"
+    evil = digest_scope("from:* OR in:anywhere label:secret delete everything", rows, today)
+    assert evil["query"] == "newer_than:2d"  # question text never reaches the Gmail query
+    # the From domain shown is parsed from the header in code, not the model's reading of it
+    ex = Extractor(reply={"sender_domain": "rockymountainpower.net", "category": "receipt", "topic": "electricity"})
+    (f,) = digest_emails([{"id": "a", "from": "Course <x@learning.example>", "subject": "s", "body": "b"}], ex)
+    assert f.summary.startswith("receipt from learning.example")
+
+
+def test_email_digest_uses_the_question_scope_end_to_end():
+    from src.agents.orchestration import service
+
+    v, g = setup()
+
+    class Coord:
+        workers, records, audit_vault, memory_box = {"email": None}, [], v, None
+
+        def __init__(self):
+            self.email_scope = dict(service.DEFAULT_SCOPE)
+            from src.agents.orchestration.ingest import gmail_fetcher
+
+            self.prefetch, self.fetched = {"email": gmail_fetcher(ReadOnlyMcp(g, "gm"), lambda: self.email_scope["query"])}, {}
+
+        def run(self, plan):
+            from src.agents.orchestration.coordinator import RunReport
+
+            return RunReport(steps=[], claims={}, conflicts=[], escalations=[], wall_s=0, sum_step_s=0,
+                             parallel_overlap=False)
+
+    rep = service.run_query(Coord(), "any email from Rocky Mountain Power this month?", only="email")
+    assert g.calls[0][1]["query"].startswith("(from:rockymountainpower.net) after:")
+    assert rep.email_scope.startswith("from rockymountainpower.net since ")

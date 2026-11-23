@@ -4,9 +4,11 @@ Raw text never leaves `extract_facts`; Findings are built from schema fields onl
 tagged trust="untrusted", so they can inform a summary but cannot drive writes unattended.
 """
 
+import difflib
 import json
 import re
-from typing import Any, Callable, Dict, Iterable, List, Protocol
+from datetime import date, timedelta
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Union
 
 from src.agents import store
 from .quarantine import extract_facts
@@ -32,9 +34,53 @@ class ReadOnlyMcp:
 
 
 DIGEST_THREADS = 5  # each one is a local-model quarantine call; 10 took minutes
+DEFAULT_SCOPE = {"query": "newer_than:2d", "label": "in the last 2 days"}
+_DOMAIN = re.compile(r"\b((?:[a-z0-9-]{1,40}\.){1,4}(?:com|net|org|gov|edu|io|co|us|ca|uk))\b")
+_TOPIC_WORDS = {"electricity": ("electric", "power"), "gas": ("gas",), "mobile": ("phone", "mobile", "wireless"),
+                "credit_card": ("credit card", "card statement"), "brokerage": ("brokerage",), "checking": ("bank",)}
 
 
-def gmail_fetcher(ro: ReadOnlyMcp, query: str = "newer_than:2d") -> Callable[[], List[dict]]:
+def digest_scope(question: str, sender_rows: List[dict], today: Optional[date] = None) -> Dict[str, str]:
+    """Gmail search scope for an Email Digest question, built by code from validated pieces only: sender domains come
+    from the user's bill-sender allowlist (provider name, typo-tolerant, or category word) or a domain typed in the
+    question; dates are computed. No question text ever enters the Gmail query."""
+    q, today = " ".join(question.lower().split()), today or date.today()
+    words = re.findall(r"[a-z0-9]+", q)
+    domains: List[str] = []
+    for row in sender_rows:
+        name = row["provider"].lower().split()
+        grams = [" ".join(words[i:i + len(name)]) for i in range(len(words) - len(name) + 1)]
+        named = any(difflib.SequenceMatcher(None, " ".join(name), g).ratio() >= 0.85 for g in grams)
+        topic = any(w in q for w in (row["category"].replace("_", " "),) + _TOPIC_WORDS.get(row["category"], ()))
+        if named or topic or row["domain"] in q:
+            domains.append(row["domain"])
+    domains += [d for d in _DOMAIN.findall(q) if d not in domains]
+    if "this month" in q:
+        start = today.replace(day=1)
+        when, label = f"after:{start:%Y/%m/%d}", f"since {start.isoformat()}"
+    elif "last month" in q:
+        end = today.replace(day=1)
+        start = (end - timedelta(days=1)).replace(day=1)
+        when, label = f"after:{start:%Y/%m/%d} before:{end:%Y/%m/%d}", f"from {start.isoformat()} to {end.isoformat()}"
+    elif "today" in q:
+        when, label = "newer_than:1d", "today"
+    elif "week" in q:
+        when, label = "newer_than:7d", "in the last 7 days"
+    elif m := re.search(r"(?:last|past) (\d{1,3}) days?", q):
+        n = max(1, min(int(m.group(1)), 400))
+        when, label = f"newer_than:{n}d", f"in the last {n} days"
+    elif domains:
+        when, label = "newer_than:31d", "in the last 31 days"
+    else:
+        return dict(DEFAULT_SCOPE)
+    if not domains:
+        return {"query": when, "label": label}
+    senders = " OR ".join(f"from:{d}" for d in domains[:6])
+    return {"query": f"({senders}) {when}", "label": f"from {', '.join(domains[:6])} {label}"}
+
+
+def gmail_fetcher(ro: ReadOnlyMcp, query: Union[str, Callable[[], str]] = DEFAULT_SCOPE["query"]
+                  ) -> Callable[[], List[dict]]:
     """Recent threads -> one {id, from, subject, body} per message. Tool/arg names are fitted to the server's schema
     (read-only names only); search results carry no bodies, so each thread is read with the get tool. Bodies go
     only to `digest_emails` (quarantine)."""
@@ -43,7 +89,8 @@ def gmail_fetcher(ro: ReadOnlyMcp, query: str = "newer_than:2d") -> Callable[[],
 
         args = _Args(ro)
         search, get = args.tool("search_threads", _Args.SEARCH), args.tool("get_thread", _Args.GET)
-        text = ro.call(search, args.build(search, {query: ("query", "q")}))
+        q = query() if callable(query) else query
+        text = ro.call(search, args.build(search, {q: ("query", "q")}))
         threads = _items(text, "threads", "messages", "results")
         if not threads and text.strip() and not text.lstrip().startswith(("{", "[")):
             return [{"id": "0", "body": text}]
@@ -114,8 +161,11 @@ def digest_emails(emails: Iterable[dict], client: Any, vault: Any = None) -> Lis
                                confidence=0, status="uncertain", trust="untrusted"))
             continue
         f = ex.facts
+        from src.data_ingestion.gmail_bills import DOMAIN, _sender_domain
+
+        dom = _sender_domain(e.get("from"))  # code-parsed header beats the model's reading of it
         out.append(Finding(agent="email", claim_key=f"email:{eid}", value=f.amount,
-                           summary=f"{f.category} from {f.sender_domain}" + (f" due {f.due_date}" if f.due_date else "")
+                           summary=f"{f.category} from {dom if DOMAIN.match(dom) else f.sender_domain}" + (f" due {f.due_date}" if f.due_date else "")
                            + (f" ({f.topic})" if f.topic else "") + (" [suspicious content ignored]" if ex.flagged else ""),
                            evidence_ids=(f"gmail:{eid}",), confidence=0.7, trust="untrusted"))
     return out

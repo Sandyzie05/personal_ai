@@ -4,6 +4,15 @@
  and why - kept for future reference so you don't have to reconstruct intent
  from `git log` alone. Update this file whenever you commit.
 
+## (pending) - 2026-11-22 - fix: Email Digest answers the question asked (sender + time window)
+
+- The digest always searched `newer_than:2d` and showed the newest 5 threads, whatever was asked. Now
+  `ingest.digest_scope` builds the Gmail query in code: sender domains from the bill-sender allowlist (provider name,
+  typo-tolerant, or a category word like "gas"/"electricity") or a domain typed in the question; time from "today",
+  "this week", "this month", "last month", "last N days" (computed dates). No question text enters the query (test).
+- The header names the scope ("3 emails from <domain> since <date>"). The From domain shown is parsed from the email
+  header in code instead of the model's reading of it (a learning-site receipt was shown as an electricity sender).
+
 ## (pending) - 2026-11-22 - fix(S1): why this month's bill was missed - per-message outcome list
 
 - Gmail Sync now shows a table with one code-built row per email seen: sent date, sender row, From domain, outcome

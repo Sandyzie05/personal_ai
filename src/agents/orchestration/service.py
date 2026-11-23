@@ -13,6 +13,8 @@ from .policy import RequestRefused, screen
 from .ingest import (
     ReadOnlyMcp,
     brokerage_worker,
+    DEFAULT_SCOPE,
+    digest_scope,
     email_worker,
     gmail_fetcher,
     holdings_fetcher,
@@ -120,6 +122,7 @@ def build_coordinator(
 
         return get
 
+    email_scope = dict(DEFAULT_SCOPE)  # set per question in run_query (code-built Gmail query, S1 R11)
     gmail = find_server(vault, GMAIL_PATTERN) if mcp else None
     broker = find_server(vault, BROKERAGE_PATTERN) if mcp else None
     from src.data_ingestion import gmail_api
@@ -128,7 +131,7 @@ def build_coordinator(
     gmail_ro = (gmail_api.GmailApi(vault) if vault is not None and gmail_api.connected(vault)
                 else ReadOnlyMcp(mcp, gmail) if gmail else None)
     if gmail_ro is not None and quarantine_client is not None:
-        prefetch["email"] = gmail_fetcher(gmail_ro)
+        prefetch["email"] = gmail_fetcher(gmail_ro, lambda: email_scope["query"])
         workers["email"] = email_worker(cached("email"), quarantine_client)
     if broker:
         prefetch["brokerage"] = holdings_fetcher(ReadOnlyMcp(mcp, broker))
@@ -138,6 +141,7 @@ def build_coordinator(
     )  # forecaster + one dependent wave
     coordinator.bus, coordinator.audit_vault = bus, vault
     coordinator.prefetch, coordinator.fetched = prefetch, fetched
+    coordinator.email_scope = email_scope
     coordinator.memory_box = memory_box
     coordinator.evidence = records_evidence(snapshot)
     coordinator.records = snapshot  # read-only, for account naming / ambiguity (P2, P3)
@@ -223,6 +227,11 @@ def run_query(
         getattr(coordinator, "prefetch", {}),
         getattr(coordinator, "fetched", {}),
     )
+    scope = getattr(coordinator, "email_scope", None)
+    if scope is not None and any(s.agent == "email" for s in plan.steps):
+        from src.data_ingestion import gmail_bills
+
+        scope.update(digest_scope(query, gmail_bills.senders(vault) if vault is not None else []))
     for step in plan.steps:
         if (
             step.agent in ("email", "brokerage")
@@ -248,6 +257,8 @@ def run_query(
         box["facts"] = facts  # read on this thread; workers only see this immutable list
     report = coordinator.run(plan)
     report.memory = facts
+    if scope is not None:
+        report.email_scope = scope["label"]
     if getattr(coordinator, "evidence", None):  # verifier may only add escalations, never clear one
         report.escalations.extend(verify_claims(
             report.claims, coordinator.evidence, getattr(coordinator, "verifier_client", None),
